@@ -141,7 +141,7 @@ internal fun DuplicateScanScopeScreen(
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Проверить всё", style = MaterialTheme.typography.titleMedium)
-                            Text("Все доступные файлы раздела: ${rows.count(DuplicateFolderScope::eligible)}",
+                            Text("Все доступные файлы раздела: ${DuplicateFolderScope.availableFileCount(rows)}",
                                 style = MaterialTheme.typography.bodySmall)
                             Button({ onStart(null) }, Modifier.fillMaxWidth().testTag("scope-all")) {
                                 Text("Проверить всё")

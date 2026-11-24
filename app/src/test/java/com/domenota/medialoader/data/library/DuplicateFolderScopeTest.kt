@@ -98,6 +98,15 @@ class DuplicateFolderScopeTest {
         assertEquals("файлов", DuplicateFolderScope.fileWord(12))
     }
 
+    @Test fun overviewFileCountExcludesAliasesAndIneligibleMedia() {
+        val valid = audio("one","Music/Album")
+        val alias = valid.copy(id="alias")
+        val hidden = audio("hidden","Music/Album",hidden=true)
+        val running = audio("running","Music/Album",state=DownloadState.RUNNING)
+        assertEquals(1, DuplicateFolderScope.availableFileCount(listOf(valid, alias, hidden, running)))
+        assertEquals(1, DuplicateFolderScope.options(listOf(valid, alias, hidden, running)).single().fileCount)
+    }
+
     @Test fun unknownAlbumDoesNotSilentlyExpandScope(){
         val a=DownloadEntity("a","device","a.jpg",MediaType.PHOTO,
             DownloadState.COMPLETED,"content://media/images/1",1L,1L)

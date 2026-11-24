@@ -147,6 +147,19 @@ class DuplicateFolderTreeTest {
         assertEquals("volume:external_primary|DCIM/Camera", verified.directoryId)
     }
 
+    @Test fun mediaStoreRelativePathMustNotBeAbsoluteOrSilentlyRepaired() {
+        val valid = DuplicateFolderPathResolver.verifiedDirectory("external_primary", "DCIM/Camera/")
+        assertEquals("volume:external_primary|DCIM/Camera",valid)
+        val invalid = listOf("/DCIM/Camera", "DCIM//Camera", "DCIM/Camera//",
+            "DCIM/../Camera", "DCIM/./Camera", "DCIM\\Camera", "DCIM/Camera|Another", "")
+        assertTrue(invalid.all { DuplicateFolderPathResolver.verifiedDirectory("external_primary",it)==null })
+        assertNull(DuplicateFolderPathResolver.verifiedDirectory("external/primary","DCIM/Camera/"))
+        assertNull(DuplicateFolderPathResolver.verifiedDirectory(null,"DCIM/Camera/"))
+        val raw = DuplicateFolderOption("bucket:x","Camera","Расположение не определено",1,100L)
+        assertEquals(raw,DuplicateFolderPathResolver.apply(listOf(raw),
+            mapOf("bucket:x" to "volume:external_primary|/DCIM/Camera")).single())
+    }
+
     @Test fun unsafeOrUnknownPathNeverCreatesSyntheticParent() {
         val a = DuplicateFolderOption("a", "A", "A", 1, 100L,
             "volume:external_primary|DCIM/../Other/A")

@@ -4871,6 +4871,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.DuplicateFolderScopeTest#overviewFileCountExcludesAliasesAndIneligibleMedia": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.DuplicateFolderScopeTest#sameNamedPhonePhotoAlbumsStaySeparateByBucketId": {
     "skipped": false,
     "failed": false
@@ -4892,6 +4896,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#galleryBucketsStaySeparateWithoutVerifiedPathsThenNestByRealLocation": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.DuplicateFolderTreeTest#mediaStoreRelativePathMustNotBeAbsoluteOrSilentlyRepaired": {
     "skipped": false,
     "failed": false
   },
@@ -7663,6 +7671,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#overviewCountsUniqueUriNotRepeatedCatalogAlias": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#pickerBackReturnsToScopeOverviewWithoutClosingRoute": {
     "skipped": false,
     "failed": false
@@ -7672,6 +7684,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#unknownFolderRetainsReadableCountWithLongDisplayName": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.DuplicateScanScopeDialogTest#unknownGalleryBucketKeepsLocationUnverified": {
     "skipped": false,
     "failed": false
   },

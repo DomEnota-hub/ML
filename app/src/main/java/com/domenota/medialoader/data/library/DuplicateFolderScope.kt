@@ -62,6 +62,10 @@ internal object DuplicateFolderScope {
         )
     }
 
+    /** The overview and the folder chooser must count the same physical URI once. */
+    fun availableFileCount(rows: List<DownloadEntity>): Int =
+        rows.asSequence().filter(::eligible).distinctBy { it.savedUri }.count()
+
     fun options(rows: List<DownloadEntity>): List<DuplicateFolderOption> =
         rows.asSequence().filter(::eligible).distinctBy { it.savedUri }
             .groupBy(::key).map { (key, grouped) ->

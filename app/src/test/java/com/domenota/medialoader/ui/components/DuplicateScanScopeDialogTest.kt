@@ -154,9 +154,35 @@ class DuplicateScanScopeDialogTest {
         compose.onNodeWithTag("scope-select-folders").performClick()
         compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
         compose.onNodeWithTag("scope-start-selected").assertIsDisplayed().assertIsEnabled()
-        compose.onNodeWithText("1 файл", substring = true).assertExists()
         compose.onNodeWithTag("scope-row-details-volume:external_primary|Music")
-            .assertExists()
+            .assertExists().assertTextContains("1 файл")
+    }
+
+    @Test fun overviewCountsUniqueUriNotRepeatedCatalogAlias() {
+        compose.setContent {
+            MaterialTheme {
+                DuplicateScanScopeScreen(listOf(alpha, alpha.copy(id="alias"), beta),
+                    "Музыка", {}, {})
+            }
+        }
+        compose.onNodeWithText("Все доступные файлы раздела: 2").assertExists()
+        compose.onNodeWithTag("scope-select-folders").performClick()
+        compose.onNodeWithTag("scope-node-volume:external_primary|Music").performClick()
+        compose.onNodeWithText("2 файла", substring = true).assertExists()
+    }
+
+    @Test fun unknownGalleryBucketKeepsLocationUnverified() {
+        val photo = DownloadEntity("p","device","p.jpg",MediaType.PHOTO,
+            DownloadState.COMPLETED,"content://media/images/p",100L,1L,
+            groupId="DCIM/Camera",bulkMediaKey="bucket-one")
+        compose.setContent {
+            MaterialTheme { DuplicateScanScopeScreen(listOf(photo),"Галерея",{}, {}) }
+        }
+        compose.onNodeWithTag("scope-select-folders").performClick()
+        compose.onNodeWithText("Расположение не определено").assertExists()
+        compose.onNodeWithTag("scope-node-folder:bucket:bucket-one")
+            .assertExists().performClick()
+        compose.onNodeWithTag("scope-start-selected").assertIsEnabled()
     }
 
     @Test fun pickerBackReturnsToScopeOverviewWithoutClosingRoute() {
