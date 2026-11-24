@@ -88,6 +88,7 @@ internal object VisualDuplicateBackgroundScan {
     }
     @Synchronized fun finish(context: Context, token: Long, session: VisualDuplicateSession?,error: String? = null, cancelled: Boolean = false, paused: Boolean = false) {
         if (mutable.value.token != token || !mutable.value.running) return
+        if(pending?.token==token)pending=null
         if (session != null) mark(context,false)
         else if (cancelled || paused) mark(context,true) // Stop preserves resumable fingerprints and the partial journal.
         prefs(context).edit().putString("journalStatus",when{session!=null->"completed";cancelled->"stopped";paused->"paused";else->"failed"}).apply()
@@ -101,6 +102,7 @@ internal object VisualDuplicateBackgroundScan {
     @Synchronized fun forgetPartial(context:Context,expectedToken:Long):Boolean {
         val s=mutable.value
         if(s.running||s.committing||s.token!=expectedToken)return false
+        if(pending?.token==expectedToken)pending=null
         prefs(context).edit().remove("journalStatus").remove("scopeSource").remove("scopeKeys")
             .remove("scopeAll").putBoolean("incomplete",false).apply()
         mutable.value=s.copy(stopped=false,partial=null,coverage=null,done=0,total=0,error=null)
