@@ -4627,7 +4627,15 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#overLimitCaptureDropsAllPcmButKeepsSpectralStream": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#rejectsUnrelatedPairsWithoutInventingAComparison": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.AudioContinuousDifferenceTest#singleStreamCapturePreservesEverySampleAndSpectralFrame": {
     "skipped": false,
     "failed": false
   },

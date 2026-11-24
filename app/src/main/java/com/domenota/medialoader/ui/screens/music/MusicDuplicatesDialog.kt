@@ -898,18 +898,20 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
             val started=SystemClock.elapsedRealtime()
             if(!allowed(reference)||!allowed(target)){failed=true;return@LaunchedEffect}
             val cached=cache[identity]
-            val verified=withContext(Dispatchers.IO){
+            val verified=MusicComparisonFrames.withPair { withContext(Dispatchers.IO){
                 val beforeFirst=MusicDuplicateScanner.comparisonStamp(context,reference)?:return@withContext null
                 val beforeSecond=MusicDuplicateScanner.comparisonStamp(context,target)?:return@withContext null
                 val cacheSafe=reference.modified!=null&&target.modified!=null&&
                     beforeFirst.second!=null&&beforeSecond.second!=null
                 val value=cached?.takeIf{cacheSafe}?:run{
-                    val (first,second)=coroutineScope {
-                        val left=async { MusicComparisonFrames.load(context,reference,beforeFirst,step) }
-                        val right=async { MusicComparisonFrames.load(context,target,beforeSecond,step) }
+                    val (leftCapture,rightCapture)=coroutineScope {
+                        val left=async { MusicComparisonFrames.loadCapture(context,reference,beforeFirst,step,true) }
+                        val right=async { MusicComparisonFrames.loadCapture(context,target,beforeSecond,step,true) }
                         left.await() to right.await()
                     }
-                    if(first==null||second==null)return@withContext null
+                    if(leftCapture==null||rightCapture==null)return@withContext null
+                    val first=leftCapture.frames
+                    val second=rightCapture.frames
                     val firstKey=ComparisonFrameKey.verified(reference,beforeFirst,step)
                     val secondKey=ComparisonFrameKey.verified(target,beforeSecond,step)
                     val stored=if(cacheSafe&&firstKey!=null&&secondKey!=null)
@@ -933,9 +935,23 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                         // The first comparison still inspects the complete audio,
                         // independent of library search mode. Disk hits never
                         // bypass identity and privacy verification.
-                        val refined=if(aligned!=null)AcousticAudioDecoder.refineCompletePair(
-                            context,Uri.parse(reference.uri),Uri.parse(target.uri),aligned)
-                            else null
+                        val refined=if(aligned!=null){
+                            // If either cold stream exceeded the PCM bound,
+                            // the original short-window fallback is sufficient.
+                            // Otherwise decode only a genuinely missing warm stream.
+                            val overLimit=(leftCapture.pcmAttempted&&leftCapture.pcm==null)||
+                                (rightCapture.pcmAttempted&&rightCapture.pcm==null)
+                            val (pcmFirst,pcmSecond)=if(overLimit) null to null else coroutineScope {
+                                val left=async { MusicComparisonFrames.missingPcm(context,reference,beforeFirst,leftCapture) }
+                                val right=async { MusicComparisonFrames.missingPcm(context,target,beforeSecond,rightCapture) }
+                                left.await() to right.await()
+                            }
+                            if(!allowed(reference)||!allowed(target)||
+                                MusicDuplicateScanner.comparisonStamp(context,reference)!=beforeFirst||
+                                MusicDuplicateScanner.comparisonStamp(context,target)!=beforeSecond)return@withContext null
+                            AcousticAudioDecoder.refineCapturedPair(context,Uri.parse(reference.uri),
+                                Uri.parse(target.uri),aligned,pcmFirst,pcmSecond)
+                        }else null
                         if(refined!=null && firstKey!=null&&secondKey!=null&&
                             MusicDuplicateScanner.comparisonStamp(context,reference)==beforeFirst&&
                             MusicDuplicateScanner.comparisonStamp(context,target)==beforeSecond){
@@ -950,7 +966,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                 if(MusicDuplicateScanner.comparisonStamp(context,reference)!=beforeFirst||
                     MusicDuplicateScanner.comparisonStamp(context,target)!=beforeSecond)return@withContext null
                 value to cacheSafe
-            }
+            } }
             if(verified==null||!allowed(reference)||!allowed(target)){failed=true;return@LaunchedEffect}
             val (value,cacheSafe)=verified
             if(cacheSafe){
