@@ -96,6 +96,7 @@ internal fun GalleryModeScreen(
     onArchivePreview:((String)->Unit)?=null,
     onArchiveRestore:((String)->Unit)?=null,
     onSimpleArchive: ((List<String>) -> Unit)? = null,
+    onArchiveFolder: ((String) -> Unit)? = null,
     onOpenSimpleArchive: (() -> Unit)? = null,
     unifiedDrawerRoutes:Boolean=false,
 ) {
@@ -166,10 +167,16 @@ internal fun GalleryModeScreen(
         try { action(); error = null } catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = e.message ?: "Не удалось выполнить действие" }
     } }
+    fun logicalArchive(key: String) = key.startsWith("folder:") && onArchiveFolder != null &&
+        key.removePrefix("folder:") !in hiddenFolderIds
     fun ordinaryVisibility(key: String) = key.startsWith("folder:") && onFolderVisibility != null
     fun albumMediaExcluded(key: String): Boolean = if (ordinaryVisibility(key)) key.removePrefix("folder:") in hiddenFolderIds
         else key in albumSettings.excludedFromMedia
     fun toggleAlbumMedia(key: String) {
+        if (logicalArchive(key)) {
+            onArchiveFolder?.invoke(key.removePrefix("folder:"))
+            return
+        }
         val callback = onFolderVisibility
         if (ordinaryVisibility(key) && callback != null) {
             val id = key.removePrefix("folder:")
@@ -570,6 +577,7 @@ internal fun GalleryModeScreen(
                         dragged = draggingAlbumKey == album.key,
                         mediaExcluded = albumMediaExcluded(album.key),
                         systemVisibility = ordinaryVisibility(album.key),
+                        logicalArchive = logicalArchive(album.key),
                         visibilityPending = ordinaryVisibility(album.key) && pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         visibilityEnabled = !ordinaryVisibility(album.key) || pendingVisibilityFolderId == null || pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         onOpen = { openAlbum(album.key, album.name) },
@@ -591,6 +599,7 @@ internal fun GalleryModeScreen(
                         album = album, index = index, hidden = false,
                         mediaExcluded = albumMediaExcluded(album.key),
                         systemVisibility = ordinaryVisibility(album.key),
+                        logicalArchive = logicalArchive(album.key),
                         visibilityPending = ordinaryVisibility(album.key) && pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         visibilityEnabled = !ordinaryVisibility(album.key) || pendingVisibilityFolderId == null || pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         dragged = draggingAlbumKey == album.key,
@@ -634,6 +643,7 @@ internal fun GalleryModeScreen(
                                 album = album, index = index, hidden = true,
                                 mediaExcluded = albumMediaExcluded(album.key),
                                 systemVisibility = ordinaryVisibility(album.key),
+                        logicalArchive = logicalArchive(album.key),
                                 visibilityPending = ordinaryVisibility(album.key) && pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                                 visibilityEnabled = !ordinaryVisibility(album.key) || pendingVisibilityFolderId == null || pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                                 dragged = draggingAlbumKey == album.key,
@@ -867,6 +877,7 @@ private fun GalleryAlbumCell(
     dragged: Boolean, onOpen: () -> Unit, onHide: () -> Unit,
     onToggleMedia: () -> Unit, onDelete: () -> Unit, columns: Int = 2, pinned: Boolean = false,
     systemVisibility: Boolean = false, visibilityPending: Boolean = false, visibilityEnabled: Boolean = true,
+    logicalArchive: Boolean = false,
 ) {
     var menu by remember { mutableStateOf(false) }
     com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
@@ -912,11 +923,11 @@ private fun GalleryAlbumCell(
                         { menu = false; onHide() },
                         leadingIcon = { Icon(Icons.Rounded.VisibilityOff, null) })
                     DropdownMenuItem({
-                        Text(if (visibilityPending) "Продолжить перенос"
+                        Text(if (logicalArchive) "В архив" else if (visibilityPending) "Продолжить перенос"
                         else if (systemVisibility) { if (mediaExcluded) "Показывать в медиатеке" else "Скрыть из медиатеки" }
                         else if (mediaExcluded) "Показывать файлы в «Медиа»" else "Скрыть файлы из «Медиа»")
                     }, { menu = false; onToggleMedia() }, enabled = visibilityEnabled,
-                        leadingIcon = { Icon(Icons.Rounded.RemoveRedEye, null) })
+                        leadingIcon = { if (logicalArchive) com.domenota.medialoader.ui.components.ArchiveActionIcon(null) else Icon(Icons.Rounded.RemoveRedEye, null) })
                     DropdownMenuItem({ Text("Удалить альбом", color = MaterialTheme.colorScheme.error) },
                         { menu = false; onDelete() },
                         leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) })
