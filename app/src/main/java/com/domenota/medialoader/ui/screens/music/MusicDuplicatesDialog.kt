@@ -23,6 +23,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.style.TextOverflow
 import com.domenota.medialoader.ui.components.AudioWaveform
 import com.domenota.medialoader.ui.components.DownloadThumbnail
+import com.domenota.medialoader.ui.components.DuplicateActionTrace
 import com.domenota.medialoader.ui.components.DuplicateScanPanel
 import com.domenota.medialoader.ui.components.DuplicateResultFilterPolicy
 import com.domenota.medialoader.ui.components.DuplicateJournalDialog
@@ -365,6 +366,26 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
             onStart = { keys -> choosingScope = false; beginScope(keys) },
         )
         return
+    }
+    val controlsBlocker = when {
+        verifying -> "verifying"
+        clearingJournal -> "journal_write"
+        else -> "none"
+    }
+    DuplicateActionTrace("music", "journal", !verifying&&!clearingJournal, controlsBlocker)
+    if(scanning && background.running) {
+        DuplicateActionTrace("music", "pause", !background.committing, if(background.committing) "commit" else "none")
+        DuplicateActionTrace("music", "stop", !background.committing, if(background.committing) "commit" else "none")
+    } else if(!scanning) {
+        if(displayPrevious==null || scanControlsExpanded) {
+            DuplicateActionTrace("music", "scan_controls", !verifying&&!clearingJournal, controlsBlocker)
+        }
+        if(displayPrevious!=null && unfinished && partial!=null) {
+            DuplicateActionTrace("music", "resume", !clearingJournal, if(clearingJournal) "journal_write" else "none")
+            if(storedPartial!=null) DuplicateActionTrace("music", "results", !clearingJournal, if(clearingJournal) "journal_write" else "none")
+        } else if(displayPrevious==null && result==null && partial!=null && !background.running && storedPartial!=null) {
+            DuplicateActionTrace("music", "results", !clearingJournal, if(clearingJournal) "journal_write" else "none")
+        }
     }
     BackHandler(enabled = true) { if (!verifying&&!clearingJournal) close() }
     // This is a NavHost destination within the Activity's bounded Scaffold.
