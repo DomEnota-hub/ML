@@ -66,12 +66,13 @@ internal fun UnifiedFavoritesScreen(rows:List<DownloadEntity>,ready:Boolean,load
             verticalArrangement=Arrangement.spacedBy(if(gridMode)4.dp else 8.dp)){
             items(visible,key={it.id}){row->
                 val ui=row.toUi()
+                val displayName = com.domenota.medialoader.ui.model.displayFileName(ui.title,ui.kind)
                 if(gridMode) {
                     Column {
                         Box(Modifier.fillMaxWidth().aspectRatio(1f)) {
                             Surface(onClick={onOpen(row.id,queues[row.mediaType].orEmpty())},
                                 modifier=Modifier.fillMaxSize().testTag("favorite-row-${row.id}")
-                                    .semantics { contentDescription = com.domenota.medialoader.ui.model.displayFileName(ui.title,ui.kind) },
+                                    .semantics { contentDescription = displayName },
                                 shape=MaterialTheme.shapes.small){
                                 DownloadThumbnail(ui.savedUri,ui.previewUrl,ui.kind,Modifier.fillMaxSize())
                             }
@@ -82,7 +83,7 @@ internal fun UnifiedFavoritesScreen(rows:List<DownloadEntity>,ready:Boolean,load
                                 }
                             }
                         }
-                        Text(com.domenota.medialoader.ui.model.displayFileName(ui.title,ui.kind),
+                        Text(displayName,
                             maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             style=MaterialTheme.typography.labelSmall)
                     }
@@ -93,7 +94,7 @@ internal fun UnifiedFavoritesScreen(rows:List<DownloadEntity>,ready:Boolean,load
                         horizontalArrangement=Arrangement.spacedBy(12.dp)){
                         DownloadThumbnail(ui.savedUri,ui.previewUrl,ui.kind,Modifier.size(52.dp))
                         Column(Modifier.weight(1f)){
-                            Text(com.domenota.medialoader.ui.model.displayFileName(ui.title,ui.kind),style=MaterialTheme.typography.bodyLarge,maxLines=2,
+                            Text(displayName,style=MaterialTheme.typography.bodyLarge,maxLines=2,
                                 overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                             Text(listOfNotNull(when(row.mediaType){MediaType.PHOTO->"Фото";MediaType.VIDEO->"Видео";MediaType.AUDIO->"Музыка"},
                                 ui.sizeLabel).joinToString(", "),style=MaterialTheme.typography.bodySmall,
