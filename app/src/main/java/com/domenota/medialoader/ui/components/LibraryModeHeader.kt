@@ -8,6 +8,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -30,7 +31,7 @@ internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
             .clickable { expanded = true }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(mode.label, fontSize = if (mode == AppMode.DOWNLOADER) 32.sp else 24.sp,
                 fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (mode == AppMode.DOWNLOADER) Icon(Icons.Rounded.ExpandMore, null, Modifier.padding(start = 6.dp))
+            if (mode == AppMode.DOWNLOADER) Icon(Icons.Rounded.ExpandMore, null, Modifier.padding(start = 6.dp).testTag("app-mode-chevron"))
         }
         DropdownMenu(expanded, { expanded = false }) {
             AppMode.entries.forEach { item -> DropdownMenuItem(

@@ -1414,7 +1414,7 @@ internal fun PreliminaryMusicGroups(groups:List<DuplicateGroup>,exactBytes:Long,
 @Composable
 private fun PreliminaryMusicGroup(group:DuplicateGroup,rows:Map<String,DownloadEntity>){
     val context=LocalContext.current
-    var open by rememberSaveable(group.key){mutableStateOf(false)}
+    var open by rememberSaveable(group.key){mutableStateOf(true)}
     var allOpen by rememberSaveable(group.key){mutableStateOf(false)}
     val hide=LocalFileNameDisplay.current.hide
     val artist=remember(group.tracks){group.tracks.mapNotNull{it.artist?.trim()?.takeIf{a->a.isNotEmpty()}}.distinct().singleOrNull()}

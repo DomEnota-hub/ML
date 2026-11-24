@@ -30,13 +30,18 @@ class MusicDuplicatePreliminaryTest {
         compose.setContent{MaterialTheme{PreliminaryMusicGroups(groups.value,100,emptyMap())}}
         val card=compose.onNodeWithTag("music-preliminary-${first.key}")
         compose.onNodeWithText("2 файла",useUnmergedTree=true).assertExists()
-        compose.onNodeWithText("track-a.mp3").assertDoesNotExist()
-        card.performClick()
+        // QA-225-04: initial expansion, independent manual collapse survives updates.
         compose.onNodeWithText("track-a.mp3").assertExists()
+        card.performClick()
+        compose.onNodeWithText("track-a.mp3").assertDoesNotExist()
         compose.runOnIdle{groups.value=listOf(first,group("c","d"))}
+        compose.onNodeWithText("track-a.mp3").assertDoesNotExist()
+        compose.onNodeWithText("track-c.mp3").assertExists()
+        card.performClick()
         compose.onNodeWithText("track-a.mp3").assertExists()
         compose.onNodeWithText("Переместить в корзину").assertDoesNotExist()
         compose.onNodeWithText("Сравнить записи").assertDoesNotExist()
+        compose.onNodeWithText("Сравнить").assertDoesNotExist()
         card.performClick()
         compose.onNodeWithText("track-a.mp3").assertDoesNotExist()
     }
@@ -44,7 +49,7 @@ class MusicDuplicatePreliminaryTest {
     @Test fun largeGroupHasAccessToAllFilesWithoutEagerRendering(){
         val big=group(*Array(15){"f$it"})
         compose.setContent{MaterialTheme{PreliminaryMusicGroups(listOf(big),1400,emptyMap())}}
-        compose.onNodeWithTag("music-preliminary-${big.key}").performClick()
+        compose.onNodeWithTag("music-preliminary-${big.key}").assertExists()
         compose.onNodeWithTag("music-preliminary-groups").performScrollToNode(hasText("Показать все 15 файлов"))
         compose.onNodeWithText("Показать все 15 файлов").performClick()
         compose.onNodeWithTag("music-preliminary-all-files").performScrollToNode(hasText("track-f14.mp3"))

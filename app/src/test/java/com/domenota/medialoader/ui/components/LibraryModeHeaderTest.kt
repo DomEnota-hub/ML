@@ -27,6 +27,8 @@ class LibraryModeHeaderTest {
             compose.onNodeWithContentDescription("Сменить режим").performClick()
             compose.onNodeWithText(label).performClick()
             compose.onNodeWithText(label).assertExists()
+            val arrow=compose.onNodeWithTag("app-mode-chevron",useUnmergedTree=true)
+            if(label=="Загрузчик")arrow.assertExists() else arrow.assertDoesNotExist()
         }
     }
 }

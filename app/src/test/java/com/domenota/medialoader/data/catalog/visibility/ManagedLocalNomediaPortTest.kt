@@ -36,9 +36,10 @@ class ManagedLocalNomediaPortTest {
     @Test fun exactPhysicalAlbumCreatesOnlyOwnedMarkerAndRestoresWithoutTouchingMedia()=fixture { root,folder,tree ->
         val first=File(folder,"a.jpg").apply { writeBytes(byteArrayOf(1,2,3));setLastModified(1_600_000_000_000) }
         val second=File(folder,"b.mp3").apply { writeBytes(byteArrayOf(4,5,6,7));setLastModified(1_600_000_005_000) }
-        val files=listOf(first,second)
+        val third=File(folder,"c.mp4").apply { writeBytes(byteArrayOf(8,9,10));setLastModified(1_600_000_010_000) }
+        val files=listOf(first,second,third)
         val originals=files.map { Triple(it.readBytes().toList(),it.length(),it.lastModified()) }
-        val expected=listOf(NomediaMediaSignature("a.jpg",3),NomediaMediaSignature("b.mp3",4))
+        val expected=listOf(NomediaMediaSignature("a.jpg",3),NomediaMediaSignature("b.mp3",4),NomediaMediaSignature("c.mp4",3))
         val direct=port(root,expected)
         runBlocking {
             assertNull(direct.inspect(tree))
@@ -53,7 +54,7 @@ class ManagedLocalNomediaPortTest {
             assertNull(direct.inspect(tree))
         }
         assertEquals(originals,files.map { Triple(it.readBytes().toList(),it.length(),it.lastModified()) })
-        assertEquals(listOf("a.jpg","b.mp3"),files.map { it.name })
+        assertEquals(listOf("a.jpg","b.mp3","c.mp4"),files.map { it.name })
     }
 
     @Test fun sixSelectedFrom806PhysicalFilesNeverCreatesDirectoryWideMarker()=fixture { root,folder,tree ->
@@ -128,11 +129,13 @@ class ManagedLocalNomediaPortTest {
 
     @Test fun unknownSidecarIsNeverMistakenForOnlySelectedPhoto()=fixture { root,folder,tree ->
         File(folder,"photo.jpg").writeBytes(byteArrayOf(1,2))
-        File(folder,"unknown.custom").writeText("metadata")
-        assertThrows(IllegalStateException::class.java) {
-            port(root,listOf(NomediaMediaSignature("photo.jpg",2))).listMedia(tree)
-        }
+        val sidecar=File(folder,"unknown.custom").apply{writeText("metadata")}
+        val direct=port(root,listOf(NomediaMediaSignature("photo.jpg",2)))
+        assertThrows(IllegalStateException::class.java) { direct.listMedia(tree) }
+        assertThrows(IllegalStateException::class.java) { runBlocking { direct.createEmpty(tree) } }
         assertFalse(File(folder,".nomedia").exists())
+        assertEquals("metadata",sidecar.readText())
+        assertArrayEquals(byteArrayOf(1,2),File(folder,"photo.jpg").readBytes())
     }
 
 }

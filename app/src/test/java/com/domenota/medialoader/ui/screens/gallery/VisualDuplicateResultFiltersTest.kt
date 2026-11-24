@@ -44,13 +44,23 @@ class VisualDuplicateResultFiltersTest {
 
     @Test fun hiddenOldGallerySelectionFallsBackToAll() {
         var selected by mutableStateOf<VisualMatch?>(VisualMatch.EXACT)
+        var counts by mutableStateOf(mapOf(VisualMatch.SIMILAR_PHOTO to 1))
         compose.setContent { MaterialTheme {
-            VisualDuplicateResultFilters(mapOf(VisualMatch.SIMILAR_PHOTO to 1),selected,{
+            VisualDuplicateResultFilters(counts,selected,{
                 selected=it
             })
         } }
         compose.onNodeWithTag("visual-result-filter-ALL").assertIsSelected()
         compose.onNodeWithTag("visual-result-filter-SIMILAR_PHOTO").performClick()
         compose.runOnIdle { assertEquals(VisualMatch.SIMILAR_PHOTO,selected) }
+        compose.runOnIdle { counts=mapOf(VisualMatch.EXACT to 2,VisualMatch.SIMILAR_VIDEO to 3) }
+        val all=compose.onNodeWithTag("visual-result-filter-ALL").fetchSemanticsNode().boundsInRoot
+        val exact=compose.onNodeWithTag("visual-result-filter-EXACT").fetchSemanticsNode().boundsInRoot
+        val video=compose.onNodeWithTag("visual-result-filter-SIMILAR_VIDEO").fetchSemanticsNode().boundsInRoot
+        assertEquals(all.top,exact.top,1f)
+        assertEquals(all.top,video.top,1f)
+        assertEquals(all.width,video.width,1f)
+        compose.onNodeWithText("Точные: 2").assertExists()
+        compose.onNodeWithText("Видео: 3").assertExists()
     }
 }
