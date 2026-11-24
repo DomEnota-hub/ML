@@ -157,8 +157,6 @@ fun DownloadsScreen(
     onMoveToPrivate: (String) -> Unit = {},
     onMoveGroupToPrivate: (List<String>) -> Unit = {},
     onSimpleArchive: ((List<String>) -> Unit)? = null,
-    onArchiveFolder: ((String) -> Unit)? = null,
-    onArchivePublication: ((String, String, List<String>) -> Unit)? = null,
     onOpenSimpleArchive: (() -> Unit)? = null,
     onSetFavorite: suspend (String, Boolean) -> Unit = { _, _ -> },
     onDeleteGroupFile: suspend (String) -> Unit = {},
@@ -181,6 +179,8 @@ fun DownloadsScreen(
     onOpenSafFile: (suspend (String,String)->android.net.Uri)? = null,
     onOpenFromFolder: ((String,List<String>,String?) -> Unit)? = null,
     onShareFromFolder: ((String,String?) -> Unit)? = null,
+    onArchiveFolder: ((String) -> Unit)? = null,
+    onArchivePublication: ((String, String, List<String>) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val listScrollState = rememberLazyListState()
