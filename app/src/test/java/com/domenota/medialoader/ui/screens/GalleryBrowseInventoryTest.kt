@@ -82,4 +82,26 @@ class GalleryBrowseInventoryTest {
         }
     }
 
+
+    @Test fun preparedDayCountsTrackOnlySelectedPublicAddressesAndRemoval() {
+        val zone=java.time.ZoneId.of("UTC")
+        val day=java.time.LocalDate.of(2026,11,24)
+        val today=day.atStartOfDay(zone).toInstant().toEpochMilli()
+        val rows=listOf(row("a").copy(createdAtEpochMillis=today),
+            row("b").copy(createdAtEpochMillis=today+1000),
+            row("c").copy(createdAtEpochMillis=today-1000))
+        val browse=GalleryBrowseInventory.build(rows,emptyList(),emptyList(),LibrarySource.PHONE,emptyMap(),emptySet())
+        val key=GalleryGridKey("all","",false,0,GalleryAlbumFileSort.entries.first(),emptySet(),day,zone)
+        val grid=browse.prepareGrid(key)
+        assertEquals(setOf("a","b"),grid.dayIds.getValue(day).toSet())
+        assertEquals(mapOf(day to 2,day.minusDays(1) to 1),grid.selectionCounts(setOf("a","b","c","missing")))
+        assertTrue(grid.selectionCounts(emptySet()).isEmpty())
+        assertSame(grid,grid.retainAllowed(key,browse::containsAddress))
+        val changed=GalleryBrowseInventory.build(listOf(rows[0],rows[1].copy(savedUri="content://media/replaced")),
+            emptyList(),emptyList(),LibrarySource.PHONE,emptyMap(),emptySet())
+        val safe=grid.retainAllowed(key,changed::containsAddress)
+        assertEquals(listOf("a"),safe.queue)
+        assertEquals(mapOf(day to 1),safe.selectionCounts(setOf("a","b","c")))
+        assertFalse(changed.containsAddress(rows[1]))
+    }
 }

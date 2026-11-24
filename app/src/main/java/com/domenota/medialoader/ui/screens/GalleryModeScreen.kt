@@ -198,18 +198,22 @@ internal fun GalleryModeScreen(
         } else if (!checkingAlbum) { AppNotice.post(context, "Альбом недоступен"); onAlbumRequestHandled() }
     }
     val orderedAlbums = remember(albums, albumSettings.order) { orderedGalleryAlbums(albums, albumSettings) }
-    val visibleAlbums = orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
+    val visibleAlbums = remember(orderedAlbums,albumSettings.hiddenAlbums) {
+        orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
+    }
     val standardQuickKeys = remember(visibleAlbums) {
         galleryStandardAlbums(visibleAlbums).map { it.key }.toSet()
     }
     // The five fixed shortcuts come first; device Camera/Screenshots never duplicate pinned cards.
-    val quickAlbums = visibleAlbums.filter {
-        it.key in albumSettings.quickAlbums && it.key !in standardQuickKeys
+    val quickAlbums = remember(visibleAlbums,albumSettings.quickAlbums,standardQuickKeys) {
+        visibleAlbums.filter { it.key in albumSettings.quickAlbums && it.key !in standardQuickKeys }
     }
-    val regularAlbums = visibleAlbums.filter {
-        it.key !in albumSettings.quickAlbums && it.key !in standardQuickKeys
+    val regularAlbums = remember(visibleAlbums,albumSettings.quickAlbums,standardQuickKeys) {
+        visibleAlbums.filter { it.key !in albumSettings.quickAlbums && it.key !in standardQuickKeys }
     }
-    val otherAlbums = orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
+    val otherAlbums = remember(orderedAlbums,albumSettings.hiddenAlbums) {
+        orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
+    }
     val gridKey=GalleryGridKey(selection,search,detailOpen,tab,albumFileSort,albumSettings.excludedFromMedia,
         LocalDate.now(),ZoneId.systemDefault())
     val canPrepare=preparedBrowse?.usable!=false
@@ -221,11 +225,11 @@ internal fun GalleryModeScreen(
         LaunchedEffect(browse,gridKey,canPrepare,preparedBrowseAccess){
             if(canPrepare)retained=cached?:withContext(Dispatchers.Default){browse.prepareGrid(gridKey)}
         }
-        val allowedRows=remember(browse){browse.items.associate { it.id to it.savedUri }}
-        val safeRetained=remember(retained,browse,gridKey){retained?.retainAllowed(gridKey){row ->
-            allowedRows.containsKey(row.id) && allowedRows[row.id]==row.savedUri
-        }}
-        if(canPrepare)cached?:safeRetained else null
+        // A current prepared grid needs no whole-catalog retention scan.
+        // Keep the synchronous removal guard for an older grid.
+        if(!canPrepare)null else cached?:remember(retained,browse,gridKey){
+            retained?.retainAllowed(gridKey,browse::containsAddress)
+        }
     }
     val gridReady=grid!=null
     val shortcutAllMedia=grid?.allVisible ?: browse.media.takeIf{albumSettings.excludedFromMedia.isEmpty()}.orEmpty()
@@ -264,6 +268,7 @@ internal fun GalleryModeScreen(
     // LazyVerticalGrid offsets. No catalog-wide date parsing on the UI thread.
     val selectableDateRange=grid?.dateRange
     val dateSections=grid?.sections.orEmpty()
+    val daySelectionCounts=remember(grid,selectedSet){grid?.selectionCounts(selectedSet).orEmpty()}
     val galleryScrollLabels=grid?.labels.orEmpty()
     LaunchedEffect(jumpToMedia, orderedDisplayed, detailOpen, tab, albumFileSort) {
         val id = jumpToMedia ?: return@LaunchedEffect
@@ -651,8 +656,8 @@ internal fun GalleryModeScreen(
                     }
                 } else dateSections.forEach { (date, rows) ->
                         item(key = "date:$date", span = { GridItemSpan(maxLineSpan) }) {
-                            val dayIds = remember(rows) { rows.map { it.id } }
-                            val selectedInDay = dayIds.count { it in selectedSet }
+                            val dayIds = grid?.dayIds?.get(date).orEmpty()
+                            val selectedInDay = daySelectionCounts[date] ?: 0
                             Row(
                                 Modifier.fillMaxWidth().padding(start = 17.dp, end = 9.dp, top = 4.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
