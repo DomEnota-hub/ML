@@ -530,7 +530,7 @@ internal fun MusicModeScreen(
                     if (searchVisible != false && playlist == null) OutlinedTextField(search, { search = it },
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp), singleLine = true,
                         label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
-                    if (searchVisible == true && playlist == null && onOpenDuplicates != null && onTrashDuplicates != null)
+                    if (tab == 0 && searchVisible == true && playlist == null && onOpenDuplicates != null && onTrashDuplicates != null)
                         DuplicateSearchShortcut(::openDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     if (tab == 0) BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
                         val wide = !listeningEnabled || maxWidth >= 480.dp

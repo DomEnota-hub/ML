@@ -61,8 +61,6 @@ internal fun ResumeMusicScreen(sessions:List<ResolvedResumeQueue>,rows:Map<Strin
                 Text(if(editingId==null)"Продолжить слушать" else "Состав очереди",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
                 if(store!=null && editingId==null)IconButton({clearAll=true},enabled=sessions.isNotEmpty()&&!busy){Icon(Icons.Rounded.DeleteSweep,"Очистить все сеансы")}
             }
-            Text("Вернись к очереди, треку и позиции, на которой остановился. Сохраняются последние ${com.domenota.medialoader.data.playback.ResumeQueuePolicy.MAX_SESSIONS} сеансов.",
-                Modifier.padding(horizontal=17.dp,vertical=8.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
             problem?.let { Text(it,Modifier.padding(17.dp),color=MaterialTheme.colorScheme.error) }
             if(loading||busy)LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal=17.dp))
             if(error)Text("Не удалось прочитать сохранённые сеансы",Modifier.padding(17.dp),color=MaterialTheme.colorScheme.error)

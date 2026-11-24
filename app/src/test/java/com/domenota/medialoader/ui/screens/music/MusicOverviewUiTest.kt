@@ -73,6 +73,22 @@ class MusicOverviewUiTest {
         compose.onNodeWithTag("music-collections").performClick()
         compose.runOnIdle{assertEquals(1,opened)}
     }
+    @Test fun duplicateShortcutOnlyAppearsInOrdinaryTrackSearch(){
+        val tab = androidx.compose.runtime.mutableIntStateOf(1)
+        var opened = 0
+        compose.setContent { MaterialTheme {
+            MusicModeScreen(emptyList(),emptyList(),emptyList(),{},false,null,{_,_->},{},
+                {"new"},{_,_->},{},{_,_->},{_,_->},{_,_,_->},{},{},
+                searchVisible=true,tabOverride=tab.intValue,onOpenDuplicates={opened++},onTrashDuplicates={})
+        } }
+        compose.onNodeWithText("Поиск музыки").assertExists()
+        compose.onNodeWithTag("duplicate-search-shortcut").assertDoesNotExist()
+        compose.runOnIdle { tab.intValue = 0 }
+        compose.onNodeWithTag("duplicate-search-shortcut").assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, opened); tab.intValue = 1 }
+        compose.onNodeWithTag("duplicate-search-shortcut").assertDoesNotExist()
+        compose.onNodeWithText("Поиск музыки").assertExists()
+    }
     @Test fun largerFontGrowsCardInsteadOfClippingThePeriod(){
         compose.setContent{MaterialTheme{
             val density=LocalDensity.current.density

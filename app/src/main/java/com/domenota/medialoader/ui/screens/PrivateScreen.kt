@@ -36,6 +36,10 @@ import com.domenota.medialoader.ui.components.PrivateAccessGate
 import com.domenota.medialoader.ui.components.PrivateProtectionSettings
 import com.domenota.medialoader.ui.model.toUi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.domenota.medialoader.data.privatevault.VaultOperations
 
 @Composable
 fun PrivateScreen(
@@ -54,7 +58,8 @@ fun PrivateScreen(
     onSetFavorite: suspend (String, Boolean) -> Unit = { _, _ -> },
     onCreateFolder: suspend (String) -> String = { "" },
     onOpenGrid: ((String, List<String>) -> Unit)? = null,
-    onOpenVault: () -> Unit = {},
+    onOpenVault: (() -> Unit)? = null,
+    legacyRecoveryProbe: (suspend () -> Boolean)? = null,
 ) {
     val state by access.state.collectAsState()
     var settings by remember { mutableStateOf(false) }
@@ -69,6 +74,22 @@ fun PrivateScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("ui", 0) }
+    // No permanent legacy entry on ordinary installations. Probe only after authorization,
+    // off the main thread, and retain recovery access on an unreadable or failed index.
+    var legacyRecoveryAvailable by remember(state.unlocked) { mutableStateOf(false) }
+    LaunchedEffect(state.unlocked, onOpenVault != null, legacyRecoveryProbe) {
+        if (!state.unlocked || onOpenVault == null) return@LaunchedEffect
+        val required = try {
+            withContext(Dispatchers.IO) {
+                access.requireUnlocked()
+                legacyRecoveryProbe?.invoke() ?: VaultOperations(context).snapshot().let {
+                    it.items.isNotEmpty() || it.unreadableRecords > 0
+                }
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { true }
+        if (access.state.value.unlocked) legacyRecoveryAvailable = required
+    }
     var gridMode by rememberSaveable { mutableStateOf(prefs.getBoolean("private_grid", false)) }
     var mediaType by rememberSaveable { mutableStateOf<com.domenota.medialoader.core.model.MediaType?>(null) }
     val visibleItems=remember(items,mediaType){
@@ -127,7 +148,10 @@ fun PrivateScreen(
                 }
             }
             if (state.unlocked && !settings && !selecting) {
-                TextButton(onClick=onOpenVault,enabled=!busy && !externalBusy) { Text("Ранее защищённые файлы") }
+                if (legacyRecoveryAvailable && onOpenVault != null) {
+                    TextButton(onClick = { if (access.state.value.unlocked) onOpenVault() },
+                        enabled = !busy && !externalBusy) { Text("Ранее защищённые файлы") }
+                }
                 IconButton(onClick = {
                     gridMode = !gridMode
                     prefs.edit().putBoolean("private_grid", gridMode).apply()

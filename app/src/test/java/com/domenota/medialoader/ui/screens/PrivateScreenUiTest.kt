@@ -45,7 +45,7 @@ class PrivateScreenUiTest {
         access.lock()
     }
 
-    private fun showPrivateScreen() {
+    private fun showPrivateScreen(legacyRecovery: Boolean = false) {
         val secret = DownloadEntity(
             id = "private-photo", providerId = "test", originalName = secretName,
             mediaType = MediaType.PHOTO, state = DownloadState.COMPLETED,
@@ -54,7 +54,8 @@ class PrivateScreenUiTest {
         compose.setContent {
             MaterialTheme {
                 PrivateScreen(access, listOf(secret), onBack = {}, onOpen = {},
-                    onRestore = {}, onFinishMove = {}, onDelete = {}, onRename = { _, _ -> })
+                    onRestore = {}, onFinishMove = {}, onDelete = {}, onRename = { _, _ -> },
+                    onOpenVault = {}, legacyRecoveryProbe = { legacyRecovery })
             }
         }
     }
@@ -84,6 +85,7 @@ class PrivateScreenUiTest {
         enterPin("123456")
         compose.waitUntil(10_000) { access.state.value.unlocked }
         compose.onNodeWithText(secretName).assertIsDisplayed()
+        compose.onNodeWithText("Ранее защищённые файлы").assertDoesNotExist()
 
         compose.onNodeWithContentDescription("Заблокировать личное").assertDoesNotExist()
         // Exercise the same authorization revocation used by the root lifecycle observer.
@@ -136,10 +138,14 @@ class PrivateScreenUiTest {
 
 
     @Test fun mediaFiltersAreAvailableOnlyInsideAuthenticatedPrivateLibrary(){
-        showPrivateScreen()
+        showPrivateScreen(legacyRecovery = true)
+        compose.onNodeWithText("Ранее защищённые файлы").assertDoesNotExist()
         compose.onNodeWithText("Музыка",substring=false).assertDoesNotExist()
         enterPin("123456")
         compose.waitUntil(10_000){access.state.value.unlocked}
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(androidx.compose.ui.test.hasText("Ранее защищённые файлы")).fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithText("Музыка",substring=false).performScrollTo().performClick()
         compose.onNodeWithText(secretName,useUnmergedTree=true).assertDoesNotExist()
         compose.onNodeWithText("Все",substring=false).performClick()
@@ -147,6 +153,7 @@ class PrivateScreenUiTest {
         compose.onNodeWithContentDescription("Заблокировать личное").assertDoesNotExist()
         compose.runOnIdle { access.lock() }
         compose.onNodeWithText("Музыка",substring=false).assertDoesNotExist()
+        compose.onNodeWithText("Ранее защищённые файлы").assertDoesNotExist()
         compose.onNodeWithText(secretName,useUnmergedTree=true).assertDoesNotExist()
     }
 }
