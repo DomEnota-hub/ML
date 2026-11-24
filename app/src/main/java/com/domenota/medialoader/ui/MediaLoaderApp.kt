@@ -2687,12 +2687,18 @@ fun MediaLoaderApp(
                 val favorites=com.domenota.medialoader.ui.components.addressedLibraryProjection(
                     emptyList<com.domenota.medialoader.core.database.DownloadEntity>(),favoriteGuard,
                     publicLibraryRefs,libraryCatalogAssignments,organizationHidden,
-                    revalidateRetained={previous->previous.filter{row->
-                        val ref=libraryRefsByAlias[row.id]
-                        ref!=null&&ref.item.savedUri==row.savedUri&&
-                            !collectionRefBlocked(ref,collectionBlocked)&&retainedPublicRow(row)&&
-                            (ref.appDownloadId!=null||row.mediaType in allowedPhoneTypes)
-                    }}
+                    revalidateRetained={previous->
+                        val safeRefs=previous.mapNotNull{row->
+                            libraryRefsByAlias[row.id]?.takeIf{ref->
+                                ref.item.savedUri==row.savedUri&&retainedPublicRow(row)&&
+                                    (ref.appDownloadId!=null||row.mediaType in allowedPhoneTypes)
+                            }
+                        }
+                        // A retained projection may only shrink. In particular
+                        // an unfavorite must disappear before the new worker pass.
+                        com.domenota.medialoader.ui.navigation.publicFavoriteRows(
+                            safeRefs,libraryCatalogAssignments,collectionBlocked,organizationHidden)
+                    }
                 ){
                     com.domenota.medialoader.ui.navigation.publicFavoriteRows(
                         publicLibraryRefs.filter{it.appDownloadId!=null||it.item.mediaType in allowedPhoneTypes},

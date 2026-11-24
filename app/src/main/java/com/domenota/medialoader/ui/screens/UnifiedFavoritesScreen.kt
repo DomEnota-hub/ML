@@ -48,6 +48,7 @@ internal fun UnifiedFavoritesScreen(rows:List<DownloadEntity>,ready:Boolean,load
             items(visible,key={it.id}){row->
                 val ui=row.toUi()
                 Surface(onClick={onOpen(row.id,queues[row.mediaType].orEmpty())},
+                    modifier=Modifier.testTag("favorite-row-${row.id}"),
                     shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainer){
                     Row(Modifier.fillMaxWidth().padding(10.dp),verticalAlignment=Alignment.CenterVertically,
                         horizontalArrangement=Arrangement.spacedBy(12.dp)){
