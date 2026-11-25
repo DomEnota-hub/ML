@@ -10,12 +10,15 @@ internal enum class DrawerEntry(val label:String){
     MUSIC_SEARCH("Поиск музыки"),
     FAVORITES("Избранное"),PRIVATE("Личное"),ARCHIVE("Архив"),
     COLLECTIONS("Коллекции"),TRASH("Корзина"),
-    SETTINGS("Настройки"),APPEARANCE("Оформление"),JOURNAL("Журнал")
+    SETTINGS("Настройки"),APPEARANCE("Оформление"),JOURNAL("Журнал"),
+    VISUAL_DUPLICATES("Дубликаты фото и видео"), MUSIC_DUPLICATES("Дубликаты музыки"),
+    EQUALIZER("Эквалайзер"), BULK_DOWNLOAD("Массовая загрузка"),
+    DIAGNOSTICS("Диагностика"), VK_IMAGES("Изображения VK")
 }
 /** All ordinary destinations are available after NAV-08. Journal follows
  * the same persisted developer gate as Settings, never an independent flag. */
 internal fun drawerAvailableEntries(journalUnlocked:Boolean):Set<DrawerEntry> =
-    DrawerEntry.entries.filterTo(linkedSetOf()){it!=DrawerEntry.JOURNAL||journalUnlocked}
+    DrawerEntry.entries.filterTo(linkedSetOf()){journalUnlocked || (it!=DrawerEntry.JOURNAL && it!=DrawerEntry.DIAGNOSTICS)}
 
 internal fun drawerRouteAllowed(route:String?,mode:AppMode):Boolean =
     when(route){
