@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.ui.components.DownloadThumbnail
+import com.domenota.medialoader.ui.components.AppCard
 import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.data.archive.SimpleArchiveRecord
 import com.domenota.medialoader.data.catalog.visibility.SelectiveArchiveQaEntry
@@ -227,28 +228,42 @@ internal fun SimpleArchiveScreen(
                     val ids = members.mapTo(mutableSetOf()) { it.catalogId }
                     val allSelected = chosen.containsAll(ids)
                     item(key = "group:" + key, span = { GridItemSpan(maxLineSpan) }) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Row(Modifier.weight(1f).combinedClickable(enabled = !busy,
-                                onClick = { expandedGroups = if (expanded) expandedGroups - key else expandedGroups + key },
-                                onLongClick = { selected = if (allSelected) selected - ids else selected + ids })
-                                .padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.primary)
-                                Column(Modifier.weight(1f)) {
-                                    Text(members.first().group?.name.orEmpty(), maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                                    Text("Файлов: ${members.size}", style = MaterialTheme.typography.bodySmall)
+                        // Same card surface and cover layout as DownloadGroupCard, with Archive-specific actions.
+                        AppCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                            .testTag("archive-group-$key")) {
+                            Row(Modifier.fillMaxWidth().padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.weight(1f).testTag("archive-group-expand-$key")
+                                    .combinedClickable(enabled = !busy,
+                                        onClick = { expandedGroups = if (expanded) expandedGroups - key else expandedGroups + key },
+                                        onLongClick = { selected = if (allSelected) selected - ids else selected + ids })
+                                    .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    val cover = members.firstNotNullOfOrNull { liveRows[it.catalogId] }
+                                    if (cover != null) {
+                                        DownloadThumbnail(cover.savedUri, cover.previewUrl, cover.toUi().kind,
+                                            Modifier.size(44.dp))
+                                    } else {
+                                        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                    Column(Modifier.weight(1f)) {
+                                        Text(members.first().group?.name.orEmpty(), maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                                        Text("Файлов: ${members.size}", style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                        if (expanded) "Свернуть" else "Развернуть")
                                 }
-                                Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                                    if (expanded) "Свернуть" else "Развернуть")
-                            }
-                            IconButton(onClick = { selected = if (allSelected) selected - ids else selected + ids },
-                                enabled = !busy) {
-                                Icon(if (allSelected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                                    if (allSelected) "Снять выбор группы" else "Выбрать группу",
-                                    tint = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                IconButton(onClick = { selected = if (allSelected) selected - ids else selected + ids },
+                                    enabled = !busy, modifier = Modifier.testTag("archive-group-select-$key")) {
+                                    Icon(if (allSelected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                        if (allSelected) "Снять выбор группы" else "Выбрать группу",
+                                        tint = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                     }
