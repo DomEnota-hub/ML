@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.R
 import com.domenota.medialoader.data.share.InstagramShareSettings
 import com.domenota.medialoader.ui.navigation.DrawerEntry
+import com.domenota.medialoader.ui.navigation.DrawerConfiguration
 import com.domenota.medialoader.ui.navigation.DrawerGesturePolicy
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -98,6 +99,7 @@ internal fun MediaNavigationDrawer(
     journalUnlocked:Boolean=false,
     available:Set<DrawerEntry> = com.domenota.medialoader.ui.navigation.drawerAvailableEntries(journalUnlocked),
     onSelect:(DrawerEntry)->Unit,
+    configuration:DrawerConfiguration=DrawerConfiguration.DEFAULT,
     content:@Composable ()->Unit,
 ){
     val scope=rememberCoroutineScope()
@@ -107,6 +109,7 @@ internal fun MediaNavigationDrawer(
     val latestAllowed by rememberUpdatedState(allowed)
     val latestSelect by rememberUpdatedState(onSelect)
     val latestAvailable by rememberUpdatedState(available)
+    val latestVisible by rememberUpdatedState(configuration.entries(journalUnlocked))
     fun settle(open:Boolean){
         animation?.cancel()
         if(!latestAllowed){progress=0f;return}
@@ -194,8 +197,8 @@ internal fun MediaNavigationDrawer(
                     .pointerInput(Unit){awaitPointerEventScope{while(true)awaitPointerEvent()}},
                     color=MaterialTheme.colorScheme.surfaceContainer,
                     shadowElevation=8.dp){
-                    DrawerContents(active,latestAvailable,journalUnlocked,shown>=.999f){entry->
-                        if(latestAllowed&&entry in latestAvailable){
+                    DrawerContents(active,latestAvailable,configuration,latestVisible,shown>=.999f){entry->
+                        if(latestAllowed&&entry in latestAvailable&&entry in latestVisible){
                             animation?.cancel();progress=0f;latestSelect(entry)
                         }
                     }
@@ -218,8 +221,8 @@ internal fun MediaNavigationDrawer(
 }
 
 @Composable
-private fun DrawerContents(active:DrawerEntry?,available:Set<DrawerEntry>,journalUnlocked:Boolean,
-    fullyOpen:Boolean,onSelect:(DrawerEntry)->Unit){
+private fun DrawerContents(active:DrawerEntry?,available:Set<DrawerEntry>,configuration:DrawerConfiguration,
+    visible:List<DrawerEntry>,fullyOpen:Boolean,onSelect:(DrawerEntry)->Unit){
     val colors=MaterialTheme.colorScheme
     val context=LocalContext.current
     val automatic=InstagramShareSettings.rememberAutomatic()
@@ -245,27 +248,21 @@ private fun DrawerContents(active:DrawerEntry?,available:Set<DrawerEntry>,journa
             }
         }
         HorizontalDivider(color=colors.outlineVariant)
-        for(entry in listOf(DrawerEntry.HOME,DrawerEntry.DOWNLOADS,DrawerEntry.GALLERY,DrawerEntry.MUSIC,DrawerEntry.MUSIC_SEARCH))
-            DrawerRow(entry,active==entry,entry in available,onSelect,if(entry==DrawerEntry.HOME)Modifier.focusRequester(firstFocus)else Modifier)
-        HorizontalDivider(color=colors.outlineVariant)
-        Text("Библиотека",Modifier.padding(start=12.dp,top=10.dp,bottom=2.dp),
-            style=MaterialTheme.typography.labelMedium,color=colors.onSurfaceVariant)
-        for(entry in listOf(DrawerEntry.FAVORITES,DrawerEntry.PRIVATE,DrawerEntry.ARCHIVE,DrawerEntry.COLLECTIONS,DrawerEntry.TRASH))
-            DrawerRow(entry,active==entry,entry in available,onSelect)
-        HorizontalDivider(color=colors.outlineVariant)
-        for(entry in listOf(DrawerEntry.SETTINGS,DrawerEntry.APPEARANCE)+
-            if(journalUnlocked&&DrawerEntry.JOURNAL in available)listOf(DrawerEntry.JOURNAL)else emptyList())
-            DrawerRow(entry,active==entry,entry in available,onSelect)
+        for ((index, entry) in visible.withIndex()) {
+            if (configuration == DrawerConfiguration.DEFAULT &&
+                entry in setOf(DrawerEntry.FAVORITES, DrawerEntry.SETTINGS) && index > 0) {
+                HorizontalDivider(color=colors.outlineVariant)
+            }
+            DrawerRow(entry,active==entry,entry in available,onSelect,
+                if(index==0)Modifier.focusRequester(firstFocus)else Modifier)
+        }
     }
-    LaunchedEffect(fullyOpen){if(fullyOpen)firstFocus.requestFocus()}
+    LaunchedEffect(fullyOpen,visible.firstOrNull()){
+        if(fullyOpen && visible.isNotEmpty())firstFocus.requestFocus()
+    }
 }
 
-@Composable
-private fun DrawerRow(entry:DrawerEntry,selected:Boolean,enabled:Boolean,onSelect:(DrawerEntry)->Unit,
-    modifier:Modifier=Modifier){
-    val colors=MaterialTheme.colorScheme
-    val tint=when{!enabled->colors.onSurface.copy(alpha=.38f);selected->colors.primary;else->colors.onSurface}
-    val icon=when(entry){
+internal fun drawerEntryIcon(entry:DrawerEntry) = when(entry){
         DrawerEntry.HOME->Icons.Rounded.Home
         DrawerEntry.DOWNLOADS->Icons.Rounded.Download
         DrawerEntry.GALLERY->Icons.Rounded.PhotoLibrary
@@ -279,7 +276,20 @@ private fun DrawerRow(entry:DrawerEntry,selected:Boolean,enabled:Boolean,onSelec
         DrawerEntry.SETTINGS->Icons.Rounded.Settings
         DrawerEntry.APPEARANCE->Icons.Rounded.Palette
         DrawerEntry.JOURNAL->Icons.Rounded.Description
-    }
+        DrawerEntry.VISUAL_DUPLICATES->Icons.Rounded.PhotoLibrary
+        DrawerEntry.MUSIC_DUPLICATES->Icons.Rounded.LibraryMusic
+        DrawerEntry.EQUALIZER->Icons.Rounded.GraphicEq
+        DrawerEntry.BULK_DOWNLOAD->Icons.Rounded.Download
+        DrawerEntry.DIAGNOSTICS->Icons.Rounded.BugReport
+        DrawerEntry.VK_IMAGES->Icons.Rounded.InsertPhoto
+}
+
+@Composable
+private fun DrawerRow(entry:DrawerEntry,selected:Boolean,enabled:Boolean,onSelect:(DrawerEntry)->Unit,
+    modifier:Modifier=Modifier){
+    val colors=MaterialTheme.colorScheme
+    val tint=when{!enabled->colors.onSurface.copy(alpha=.38f);selected->colors.primary;else->colors.onSurface}
+    val icon=drawerEntryIcon(entry)
     Row(modifier.fillMaxWidth().heightIn(min=48.dp).clip(RoundedCornerShape(12.dp))
         .background(if(selected)colors.primary.copy(alpha=.14f)else Color.Transparent)
         .testTag("drawer-entry-${entry.name}")
