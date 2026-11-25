@@ -6,6 +6,9 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.ui.model.DownloadUiState
+import com.domenota.medialoader.data.archive.*
+import com.domenota.medialoader.core.model.MediaType
+import com.domenota.medialoader.ui.screens.SimpleArchiveScreen
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -67,4 +70,36 @@ class DownloadGroupCardUiTest {
         compose.onNodeWithText("В архив").assertDoesNotExist()
         assertEquals(0, archived)
     }
+    @Test fun archiveCardsExpandAndSelectBothGroupKindsInListAndGrid() {
+        val prefs = compose.activity.getSharedPreferences("ui", 0)
+        prefs.edit().putBoolean("archive_grid", false).commit()
+        val folder = SimpleArchiveGroup(SimpleArchiveGroupKind.VIRTUAL_FOLDER, "folder", "Тест")
+        val post = SimpleArchiveGroup(SimpleArchiveGroupKind.PUBLICATION, "post", "Публикация")
+        val records = listOf(
+            SimpleArchiveRecord("one", "content://one", MediaType.PHOTO, "one.jpg",
+                ArchiveEntrySource.DOWNLOADER, 100, 2, folder),
+            SimpleArchiveRecord("two", "content://two", MediaType.PHOTO, "two.jpg",
+                ArchiveEntrySource.DOWNLOADER, 100, 1, post)
+        )
+        var restored = emptySet<String>()
+        compose.setContent { MaterialTheme {
+            SimpleArchiveScreen(records, {}, {}, { restored = it })
+        } }
+        compose.onNodeWithText("Тест").assertIsDisplayed()
+        compose.onNodeWithText("Публикация").assertIsDisplayed()
+        compose.onNodeWithTag("archive-group-expand-VIRTUAL_FOLDER:folder").performClick()
+        compose.onNodeWithText("one.jpg").assertIsDisplayed()
+        compose.onNodeWithTag("archive-group-expand-VIRTUAL_FOLDER:folder").performClick()
+        compose.onNodeWithTag("archive-group-select-VIRTUAL_FOLDER:folder").performClick()
+        compose.onNodeWithTag("simple-archive-restore").performClick()
+        assertEquals(setOf("one"), restored)
+        compose.onNodeWithContentDescription("Отменить выбор").performClick()
+        compose.onNodeWithContentDescription("Показать сеткой").performClick()
+        compose.onNodeWithTag("archive-group-expand-PUBLICATION:post").performClick()
+        compose.onNodeWithText("two.jpg").assertIsDisplayed()
+        compose.onNodeWithTag("archive-group-select-PUBLICATION:post").performClick()
+        compose.onNodeWithTag("simple-archive-restore").performClick()
+        assertEquals(setOf("two"), restored)
+    }
+
 }
