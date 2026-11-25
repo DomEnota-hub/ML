@@ -96,4 +96,22 @@ internal class SimpleArchivePolicyTest {
             SimpleArchivePolicy.archive(emptyList(), listOf(unknown, one, two))
         }
     }
+    @Test fun folderDisappearsOnlyWhenEveryMemberIsArchivedAndReturnsOnPartialRestore() {
+        val one = entry("one", "content://one")
+        val two = entry("two", "content://two")
+        val members = mapOf(
+            "full" to listOf(candidate("one", "content://one"), candidate("two", "content://two")),
+            "partial" to listOf(candidate("one", "content://one"), candidate("three", "content://three")),
+            "empty" to emptyList(),
+            "unknown" to listOf(candidate("one", "content://one"), null),
+            "changed" to listOf(candidate("one", "content://one", size = 999)),
+            "reused" to listOf(candidate("one", "content://different"))
+        )
+        val archived = listOf(one, two)
+        assertEquals(setOf("full"), SimpleArchivePolicy.fullyArchivedFolderIds(archived, members))
+        assertTrue(SimpleArchivePolicy.fullyArchivedFolderIds(
+            SimpleArchivePolicy.restore(archived, setOf("one")), members).isEmpty())
+        assertTrue(SimpleArchivePolicy.fullyArchivedFolderIds(emptyList(), members).isEmpty())
+    }
+
 }
