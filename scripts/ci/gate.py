@@ -64,11 +64,45 @@ def validate_batch_markers(manifest,expected,markers):
     if manifest.get('runner')!='batched' or manifest.get('gradle_invocations')!=2 or sorted(markers)!=sorted(wanted):
         raise ValueError('Missing/duplicate/unexpected fresh batch worker markers')
 
-def validate_receipts(receipts,sha,run,attempt):
-    if len(receipts)!=3 or {r.get('lane') for r in receipts}!={'jvm','lint','arm64'}:raise ValueError('Three unique required lanes must pass')
+def validate_receipts(receipts,sha,run,attempt,lanes=None,mode=None):
+    lanes={'jvm','lint','arm64'} if lanes is None else set(lanes)
+    if len(receipts)!=len(lanes) or {r.get('lane') for r in receipts}!=lanes:raise ValueError('Required unique lanes must pass')
     for r in receipts:
+        if mode is not None and r.get('mode')!=mode:raise ValueError('Receipt mode mismatch')
         if r.get('success') is not True:raise ValueError('Receipt must explicitly succeed')
         if (r.get('sha'),str(r.get('run')),r.get('success'))!=(sha,str(run),True) or not 1<=int(r.get('attempt',0))<=int(attempt):raise ValueError('Unqualified, stale or mixed-source receipt')
+
+def qa_plan(names,lint):
+    import focused
+    names=focused.profiles(','.join(names))
+    if names==('baseline',) or type(lint) is not bool or (set(names)&focused.RISK_LINT and not lint):
+        raise ValueError('Invalid QA risk selection')
+    runner=focused.load('qa_runner','scripts/run-jvm-ci.py')
+    required,_,methods=focused.make_plan(names,runner)
+    return {'profiles':list(names),'lint':lint,'total':len(required),
+            'allowed_skips':[k for k,v in required.items() if v.get('skipped',False)],
+            'isolated_methods':len(methods),'workers_observed':1+len(methods)}
+
+def validate_qa_receipts(receipts,sha,run,attempt,names,lint):
+    plan=qa_plan(names,lint)
+    validate_receipts(receipts,sha,run,attempt,{'jvm','arm64','lint'} if lint else {'jvm','arm64'},'qa')
+    jvm=next(r for r in receipts if r['lane']=='jvm')
+    report=jvm.get('coverage',{})
+    skipped=report.get('skipped')
+    if not isinstance(skipped,list) or len(set(skipped))!=len(skipped) or not set(skipped)<=set(plan['allowed_skips']):
+        raise ValueError('Unexpected QA skip')
+    if jvm.get('lint') is not lint or report.get('qualification') is not False or report.get('passed')!=plan['total']-len(skipped):
+        raise ValueError('Invalid QA coverage')
+    for key in ('profiles','total','isolated_methods','workers_observed'):
+        if report.get(key)!=plan[key]:raise ValueError('QA coverage mismatch: '+key)
+    return report
+
+def validate_handoff(receipt,kind):
+    if receipt.get('kind')!=kind or receipt.get('unsigned') is not True or receipt.get('device_qa')!='pending':
+        raise ValueError('Wrong handoff kind or candidate state')
+    if kind=='qa':
+        return validate_qa_receipts(receipt['receipts'],receipt['sha'],receipt['run'],receipt['attempt'],receipt['profiles'],receipt['lint'])
+    validate_receipts(receipt['receipts'],receipt['sha'],receipt['run'],receipt['attempt'],mode='qualify')
 
 def infrastructure_failure(log):
     # Never retry after any test execution, compiler diagnostic, lint or integrity error.
@@ -120,7 +154,7 @@ def validate_candidate(candidate,manifest,sha):
         if z.comment.decode()!=sha or z.testzip() is not None:raise ValueError('Archive not exact source')
 
 def validate_request(mode,fault):
-    if mode not in {'quick','qualify','perf','verify'} or fault not in {'none','compile','lint','test'}:raise ValueError('Invalid CI request')
+    if mode not in {'quick','qa','qualify','perf','verify'} or fault not in {'none','compile','lint','test'}:raise ValueError('Invalid CI request')
     if fault!='none' and mode!='qualify':raise ValueError('Negative probes require mode=qualify')
 
 def validate_consumption(receipt,live_sha,run):
@@ -169,11 +203,26 @@ def main():
         r['workers_observed']=workers
         (out/'jvm-coverage.json').write_text(json.dumps(r,indent=2)+'\n');print(json.dumps(r))
     elif action=='receipt':
-        lane=sys.argv[2];r={'lane':lane,'sha':exact_sha(),'run':os.environ['GITHUB_RUN_ID'],'attempt':os.environ['GITHUB_RUN_ATTEMPT'],'success':True}
+        lane=sys.argv[2];mode=os.environ['ML_MODE']
+        if mode not in {'qa','qualify'} or lane not in {'jvm','lint','arm64'} or os.environ['ML_FAULT']!='none':
+            raise ValueError('Receipt not allowed')
+        r={'lane':lane,'mode':mode,'sha':exact_sha(),'run':os.environ['GITHUB_RUN_ID'],'attempt':os.environ['GITHUB_RUN_ATTEMPT'],'success':True}
+        if mode=='qa' and lane=='jvm':
+            import focused
+            names,lint=focused.request()
+            r.update(coverage=json.loads((out/'focused-coverage.json').read_text()),lint=lint)
         (out/f'{lane}-receipt.json').write_text(json.dumps(r,indent=2)+'\n')
     elif action=='qualify':
+        mode=os.environ['ML_MODE']
+        if mode not in {'qa','qualify'} or os.environ['ML_FAULT']!='none':raise ValueError('Handoff not allowed')
         receipts=[json.loads(p.read_text()) for p in (ROOT/'received').rglob('*-receipt.json')]
-        validate_receipts(receipts,exact_sha(),os.environ['GITHUB_RUN_ID'],os.environ['GITHUB_RUN_ATTEMPT'])
+        names=();lint=True;coverage=None
+        if mode=='qa':
+            import focused
+            names,lint=focused.request()
+            coverage=validate_qa_receipts(receipts,exact_sha(),os.environ['GITHUB_RUN_ID'],os.environ['GITHUB_RUN_ATTEMPT'],names,lint)
+        else:
+            validate_receipts(receipts,exact_sha(),os.environ['GITHUB_RUN_ID'],os.environ['GITHUB_RUN_ATTEMPT'],mode='qualify')
         candidate=ROOT/'received/arm64-candidate'
         manifest=json.loads((candidate/'CANDIDATE.json').read_text())
         validate_candidate(candidate,manifest,exact_sha())
@@ -183,15 +232,19 @@ def main():
         dest=ROOT/'qualified';dest.mkdir()
         (dest/'CANDIDATE.json').write_bytes((candidate/'CANDIDATE.json').read_bytes())
         receipt={'candidate_manifest_sha256':sha256(candidate/'CANDIDATE.json'),'sha':sha,'run':os.environ['GITHUB_RUN_ID'],'attempt':os.environ['GITHUB_RUN_ATTEMPT'],'repository':repository,'branch':branch,'pr':pr,'candidate_artifact':'ml-ci-'+os.environ['GITHUB_RUN_ID']+'-UNQUALIFIED-arm64','receipts':receipts,'unsigned':True,'device_qa':'pending','required_certificate_sha256':'4f6f0ddf4d8fd2669fd2a3a6ebab6e84bda17281a3a5badada0e1eeb73a4f1d2'}
-        (dest/'QUALIFIED.json').write_text(json.dumps(receipt,indent=2)+'\n')
-    elif action=='consume':
+        receipt['kind']='qa' if mode=='qa' else 'stable'
+        if mode=='qa':receipt.update(profiles=list(names),lint=lint,coverage=coverage)
+        validate_handoff(receipt,receipt['kind'])
+        (dest/('QA_ONLY.json' if mode=='qa' else 'QUALIFIED.json')).write_text(json.dumps(receipt,indent=2)+'\n')
+    elif action in {'consume','consume-qa'}:
         receipt=json.loads(Path(sys.argv[2]).read_text())
+        validate_handoff(receipt,'qa' if action=='consume-qa' else 'stable')
         manifest_path=Path(sys.argv[2]).parent/'CANDIDATE.json'
         if sha256(manifest_path)!=receipt['candidate_manifest_sha256']:raise ValueError('Qualification manifest changed')
         validate_candidate(Path(sys.argv[3]),json.loads(manifest_path.read_text()),receipt['sha'])
         run=api('/repos/'+receipt['repository']+'/actions/runs/'+str(receipt['run']))
         validate_consumption(receipt,live_sha(receipt['repository'],receipt['branch'],receipt.get('pr')),run)
-        print('Successful exact-source qualification is current:',receipt['sha'])
+        print('Successful exact-source handoff is current:',receipt['kind'],receipt['sha'])
     else:raise ValueError('Unknown gate action')
     return 0
 

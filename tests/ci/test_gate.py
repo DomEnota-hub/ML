@@ -165,3 +165,21 @@ class BatchMarkerTest(unittest.TestCase):
         for bad in [markers[:-1],markers+[markers[1]],[markers[0],markers[1],markers[1]],markers[:-1]+['ML_CI_TEST_EXECUTED task=:app:unknown']]:
             with self.assertRaises(ValueError):gate.validate_batch_markers(manifest,expected,bad)
         with self.assertRaises(ValueError):gate.validate_batch_markers({'runner':'legacy','gradle_invocations':3},expected,markers)
+
+class QAHandoffTest(unittest.TestCase):
+    def test_qa_cannot_impersonate_stable_and_required_lint_cannot_be_omitted(self):
+        import sys
+        from unittest.mock import patch
+        with patch.dict(sys.modules, {'focused': __import__('test_focused').focused}):
+            names=['chrome']; plan=gate.qa_plan(names,False)
+            coverage=dict(profiles=names,total=plan['total'],passed=plan['total'],skipped=[],
+                          isolated_methods=plan['isolated_methods'],workers_observed=plan['workers_observed'],qualification=False)
+            rows=[dict(lane=lane,mode='qa',sha='a'*40,run='1',attempt='1',success=True) for lane in ('jvm','arm64')]
+            rows[0].update(coverage=coverage,lint=False)
+            receipt=dict(kind='qa',unsigned=True,device_qa='pending',receipts=rows,sha='a'*40,run='1',attempt='1',profiles=names,lint=False)
+            gate.validate_handoff(receipt,'qa')
+            with self.assertRaises(ValueError):gate.validate_handoff(receipt,'stable')
+            with self.assertRaises(ValueError):gate.validate_qa_receipts(rows,'a'*40,'1','1',['storage'],False)
+            with self.assertRaises(ValueError):gate.validate_qa_receipts(rows,'a'*40,'1','1',names,True)
+            rows[0]['coverage']['total']-=1
+            with self.assertRaises(ValueError):gate.validate_handoff(receipt,'qa')

@@ -52,6 +52,16 @@ class FocusedTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             focused.select(bad, baseline, ('archive',), isolated)
 
+    def test_qa_requests(self):
+        self.assertEqual(focused.resolve_request('qa','chrome','',[],'false'),(('chrome',),False))
+        self.assertEqual(focused.resolve_request('qa','baseline','ci:qa-storage',['ci:qa-storage'],'false'),(('storage',),True))
+        self.assertEqual(focused.resolve_request('qa','chrome,collections','',[],'true'),(('chrome','collections'),True))
+        for args in [('qa','baseline','',[],'false'),
+                     ('qa','chrome','ci:quick-chrome',['ci:quick-chrome'],'false'),
+                     ('qa','chrome','ci:qa-chrome',['ci:qa-chrome','ci:verify'],'false')]:
+            with self.assertRaises(ValueError):
+                focused.resolve_request(*args)
+
     def test_risk_and_split_profiles(self):
         runner = focused.load('runner', 'scripts/run-jvm-ci.py')
         chrome, _, isolated = focused.make_plan(('chrome',),runner)

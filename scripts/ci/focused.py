@@ -30,7 +30,7 @@ PROFILES = {
 RISK_LINT = {'archive', 'privacy', 'storage'}
 GUARDED_PROFILES = {'archive', 'privacy', 'storage', 'library', 'navigation', 'playback', 'collections'}
 DEVICE_COMPILE_PROFILES = {'archive', 'privacy', 'storage', 'editors'}
-CI_LABELS = {'ci:verify', 'ci:qualify'} | {'ci:quick-' + p for p in PROFILES}
+CI_LABELS = {'ci:verify', 'ci:qualify'} | {prefix + p for prefix in ('ci:quick-', 'ci:qa-') for p in PROFILES}
 
 def load(name, path):
     spec = importlib.util.spec_from_file_location(name, ROOT / path)
@@ -47,19 +47,22 @@ def profiles(raw):
 def resolve_request(mode, raw, event_label, active_labels, lint):
     if lint not in {'true', 'false'}:
         raise ValueError('Invalid quick_lint')
-    active = [x for x in active_labels if x in CI_LABELS or x.startswith('ci:quick-') or x == 'ci:audit']
+    active = [x for x in active_labels if x in CI_LABELS or x.startswith(('ci:quick-', 'ci:qa-')) or x == 'ci:audit']
     if event_label:
         if event_label not in CI_LABELS or active != [event_label]:
             raise ValueError('Require exactly one explicit supported CI label')
-        want = 'quick' if event_label.startswith('ci:quick-') else event_label.removeprefix('ci:')
+        want = ('quick' if event_label.startswith('ci:quick-') else
+                'qa' if event_label.startswith('ci:qa-') else event_label.removeprefix('ci:'))
         if mode != want:
             raise ValueError('CI mode/label mismatch')
-        if want == 'quick':
-            raw = event_label.removeprefix('ci:quick-')
-    elif mode != 'quick' and (raw != 'baseline' or lint == 'true'):
+        if want in {'quick', 'qa'}:
+            raw = event_label.removeprefix('ci:' + want + '-')
+    elif mode not in {'quick', 'qa'} and (raw != 'baseline' or lint == 'true'):
         raise ValueError('Focused options only valid in quick mode')
     names = profiles(raw)
-    return names, mode == 'quick' and (lint == 'true' or bool(set(names) & RISK_LINT))
+    if mode == 'qa' and names == ('baseline',):
+        raise ValueError('QA requires an explicit functional or visual profile')
+    return names, mode in {'quick', 'qa'} and (lint == 'true' or bool(set(names) & RISK_LINT))
 
 def request():
     labels = json.loads(os.getenv('ML_CI_LABELS') or 'null') or []
@@ -156,7 +159,7 @@ def main():
     names, lint = request()
     action = sys.argv[1]
     if action == 'request':
-        if os.environ['ML_MODE'] == 'quick':
+        if os.environ['ML_MODE'] in {'quick', 'qa'}:
             runner = load('ml_runner', 'scripts/run-jvm-ci.py')
             required, bulk, methods = make_plan(names, runner)
             print(json.dumps({'profiles': names, 'required': len(required),
@@ -166,8 +169,8 @@ def main():
                 f.write('lint=' + str(lint).lower() + '\n')
                 f.write('device_compile=' + str(bool(set(names) & DEVICE_COMPILE_PROFILES)).lower() + '\n')
         return 0
-    if os.environ['ML_MODE'] != 'quick':
-        raise ValueError('Focused runner is quick-only')
+    if os.environ['ML_MODE'] not in {'quick', 'qa'}:
+        raise ValueError('Focused runner requires quick or qa')
     runner = load('ml_runner', 'scripts/run-jvm-ci.py')
     gate = load('ml_gate', 'scripts/ci/gate.py')
     if action == 'run':
