@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.domenota.medialoader.core.database.DownloadEntity
+import com.domenota.medialoader.core.database.CatalogAssignmentEntity
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.archive.*
@@ -63,6 +64,39 @@ internal fun rememberSimpleArchiveSession(context: Context): SimpleArchiveSessio
     val session = remember(store, records) { SimpleArchiveSession(store, records) }
     LaunchedEffect(session) { session.refresh() }
     return session
+}
+
+/** Keep folder membership independent of filtered download rows. No catalog mutation. */
+@Composable
+internal fun rememberFullyArchivedFolderIds(
+    session: SimpleArchiveSession,
+    assignments: List<CatalogAssignmentEntity>,
+    downloads: List<DownloadEntity>,
+    external: List<ExternalMediaEntry>,
+): Set<String> {
+    val records = session.records
+    val loaded = session.loaded
+    return remember(records, loaded, assignments, downloads, external) {
+        if (!loaded || records.isEmpty()) return@remember emptySet()
+        val candidates = downloads.associateBy { it.id }
+        val members = mutableMapOf<String, MutableList<SimpleArchiveCandidate?>>()
+        fun candidate(row: DownloadEntity?): SimpleArchiveCandidate? {
+            if (row == null || row.isPrivate || row.hidden || row.state != DownloadState.COMPLETED) return null
+            val uri = row.savedUri ?: return null
+            return SimpleArchiveCandidate(row.id, uri, row.mediaType, row.sizeBytes)
+        }
+        assignments.forEach { assignment ->
+            assignment.folderId?.let { folder ->
+                members.getOrPut(folder) { mutableListOf() }.add(candidate(candidates[assignment.downloadId]))
+            }
+        }
+        external.forEach { entry ->
+            entry.folderId?.let { folder ->
+                members.getOrPut(folder) { mutableListOf() }.add(candidate(entry.ref.item))
+            }
+        }
+        SimpleArchivePolicy.fullyArchivedFolderIds(records, members)
+    }
 }
 
 internal data class SimpleArchiveProjection(
