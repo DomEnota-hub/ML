@@ -1179,6 +1179,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.archive.SimpleArchivePolicyTest#folderDisappearsOnlyWhenEveryMemberIsArchivedAndReturnsOnPartialRestore": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.archive.SimpleArchivePolicyTest#recycledIdDifferentUriAndSameNameDoNotAccidentallyHideNewFile": {
     "skipped": false,
     "failed": false
@@ -7739,6 +7743,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.DownloadGroupCardUiTest#archiveCardsExpandAndSelectBothGroupKindsInListAndGrid": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.DownloadGroupCardUiTest#collapsedMenuInvokesOnlyChosenCallbackAndDoesNotExpand": {
     "skipped": false,
     "failed": false
@@ -8600,6 +8608,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.DownloadsGalleryOnlyFoldersTest#folderWithRealDownloadRemainsVisibleEvenIfItAlsoHasGalleryMedia": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.DownloadsGalleryOnlyFoldersTest#fullyArchivedFolderIsHiddenWithoutRemovingEmptyOrAssignableFolders": {
     "skipped": false,
     "failed": false
   },
