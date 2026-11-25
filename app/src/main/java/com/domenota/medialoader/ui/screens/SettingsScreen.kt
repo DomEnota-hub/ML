@@ -243,6 +243,7 @@ fun SettingsScreen(
     editorAlbumsById: Map<String, List<String>> = emptyMap(),
     openAppearance:Boolean=false,onAppearanceOpened:()->Unit={},
     openJournal:Boolean=false,onJournalOpened:()->Unit={},
+    onOpenDrawerSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val permissionOwner = LocalLifecycleOwner.current
@@ -1263,6 +1264,10 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
+            SettingRow(Icons.Rounded.FormatListBulleted, "Боковое меню",
+                "Порядок и видимость разделов", grouped = true,
+                iconTone = SettingIconTone.APPEARANCE, onClick = onOpenDrawerSettings)
+            GroupDivider()
             SettingRow(Icons.Rounded.Palette, "Оформление и просмотр",
                 "Тема, миниатюры, проигрыватель и ярлыки", grouped = true,
                 iconTone = SettingIconTone.APPEARANCE, expanded = interfaceOptionsExpanded,
