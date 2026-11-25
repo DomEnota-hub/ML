@@ -7,6 +7,9 @@ import com.domenota.medialoader.ui.components.DrawerAdmission
 import com.domenota.medialoader.ui.components.LocalDrawerAdmission
 import com.domenota.medialoader.ui.components.MediaNavigationDrawer
 import com.domenota.medialoader.ui.navigation.DrawerEntry
+import com.domenota.medialoader.ui.navigation.DrawerConfiguration
+import com.domenota.medialoader.ui.navigation.rememberDrawerConfiguration
+import com.domenota.medialoader.ui.screens.DrawerSettingsScreen
 import com.domenota.medialoader.ui.navigation.FAVORITES_ROUTE
 import com.domenota.medialoader.ui.navigation.JournalAccess
 import com.domenota.medialoader.ui.navigation.rememberJournalUnlocked
@@ -310,6 +313,7 @@ fun MediaLoaderApp(
     var appearanceRequested by rememberSaveable{mutableStateOf(false)}
     var journalRequested by rememberSaveable{mutableStateOf(false)}
     val journalUnlocked=rememberJournalUnlocked(uiPrefs)
+    val drawerConfiguration=rememberDrawerConfiguration(uiPrefs)
     val phoneGallery by libraryModel.gallery.collectAsStateWithLifecycle()
     val phoneMusic by libraryModel.music.collectAsStateWithLifecycle()
     val libraryIndex by libraryModel.index.collectAsStateWithLifecycle()
@@ -3145,14 +3149,24 @@ fun MediaLoaderApp(
                     onBulkDownload = { navController.navigate(BULK_ROUTE) },
                     onVkCommunityImages = { navController.navigate("vk-community") },
                     onOpenDiagnostics = { navController.navigate("diagnostics") },
+                    onOpenDrawerSettings = { navController.navigate("drawer-settings") { launchSingleTop=true } },
                 )
             },
+            LibraryRouteContent("drawer-settings") {
+                DrawerSettingsScreen(drawerConfiguration,journalUnlocked,
+                    onChange={ DrawerConfiguration.write(uiPrefs,it) },
+                    onBack={ navController.popBackStack() })
+            },
             LibraryRouteContent("diagnostics") {
-                DiagnosticsScreen(
-                    onBack = { navController.popBackStack() },
-                    versionName = BuildConfig.VERSION_NAME,
-                    versionCode = BuildConfig.VERSION_CODE,
-                )
+                if (journalUnlocked && JournalAccess.allowed(uiPrefs)) {
+                    DiagnosticsScreen(
+                        onBack = { navController.popBackStack() },
+                        versionName = BuildConfig.VERSION_NAME,
+                        versionCode = BuildConfig.VERSION_CODE,
+                    )
+                } else {
+                    LaunchedEffect(Unit) { navController.popBackStack() }
+                }
             },
             LibraryRouteContent("vk-community") {
                 VkCommunityScreen(onBack = { navController.popBackStack() })
@@ -3686,6 +3700,7 @@ fun MediaLoaderApp(
         com.domenota.medialoader.ui.navigation.returnDrawerHome(navController)
     }
     fun navigateDrawerEntry(entry:DrawerEntry){
+        if(entry !in DrawerConfiguration.read(uiPrefs).entries(JournalAccess.allowed(uiPrefs)))return
         if(currentRoute==PRIVATE_ROUTE){
             if(!viewModel.privateAccess.state.value.unlocked||entry==DrawerEntry.PRIVATE)return
             viewModel.privateAccess.lock()
@@ -3721,6 +3736,20 @@ fun MediaLoaderApp(
                     journalRequested=true
                     navController.navigate(AppDestination.Settings.route){launchSingleTop=true}
                 }
+                DrawerEntry.VISUAL_DUPLICATES->{
+                    openDrawerHome(AppMode.GALLERY)
+                    navController.navigate("visual-duplicates"){launchSingleTop=true}
+                }
+                DrawerEntry.MUSIC_DUPLICATES->{
+                    openDrawerHome(AppMode.MUSIC)
+                    navController.navigate("music-duplicates"){launchSingleTop=true}
+                }
+                DrawerEntry.EQUALIZER->navController.navigate("equalizer"){launchSingleTop=true}
+                DrawerEntry.BULK_DOWNLOAD->navController.navigate(BULK_ROUTE){launchSingleTop=true}
+                DrawerEntry.DIAGNOSTICS->if(JournalAccess.allowed(uiPrefs)){
+                    navController.navigate("diagnostics"){launchSingleTop=true}
+                }
+                DrawerEntry.VK_IMAGES->navController.navigate("vk-community"){launchSingleTop=true}
             }
     }
     MediaNavigationDrawer(
@@ -3728,6 +3757,7 @@ fun MediaLoaderApp(
         allowed=drawerAllowed(currentRoute,appMode,drawerAdmission.admitted,drawerBlocked),
         active=drawerActiveEntry(currentRoute,appMode),
         available=drawerAvailableEntries(journalUnlocked),journalUnlocked=journalUnlocked,
+        configuration=drawerConfiguration,
         onSelect={entry->
             if(currentRoute=="music-duplicates"){
                 val owner=backStackEntry?.id
@@ -3753,7 +3783,7 @@ fun MediaLoaderApp(
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
                 currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" && currentRoute != "collections" &&
-                currentRoute != FAVORITES_ROUTE && currentRoute != SIMPLE_ARCHIVE_ROUTE && currentRoute != MUSIC_SEARCH_ROUTE && currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
+                currentRoute != FAVORITES_ROUTE && currentRoute != SIMPLE_ARCHIVE_ROUTE && currentRoute != MUSIC_SEARCH_ROUTE && currentRoute != "drawer-settings" && currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
                     // Gallery intentionally has no player chrome. Playback is
@@ -3821,7 +3851,7 @@ fun MediaLoaderApp(
     ) { innerPadding ->
         Box(Modifier.fillMaxSize()) {
         LibraryRefreshShield(
-            checkingPhoneAccess && currentRoute != AppDestination.Settings.route &&
+            checkingPhoneAccess && currentRoute != AppDestination.Settings.route && currentRoute != "drawer-settings" &&
                 !(appMode == AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route),
             Modifier.padding(innerPadding),
             onExit = if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
