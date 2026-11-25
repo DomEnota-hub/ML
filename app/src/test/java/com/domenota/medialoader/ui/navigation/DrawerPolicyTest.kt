@@ -74,7 +74,7 @@ class DrawerPolicyTest{
     @Test fun allLibraryDestinationsAreEnabledButJournalFollowsGate(){
         val public=DrawerEntry.entries.toSet()-setOf(DrawerEntry.JOURNAL, DrawerEntry.DIAGNOSTICS)
         assertEquals(public,drawerAvailableEntries(false))
-        assertEquals(DrawerEntry.entries.toSet(),drawerAvailableEntries(true))
+        assertEquals(DrawerEntry.entries.toSet()-DrawerEntry.DIAGNOSTICS,drawerAvailableEntries(true))
         assertTrue(setOf(DrawerEntry.FAVORITES,DrawerEntry.PRIVATE,DrawerEntry.ARCHIVE,
             DrawerEntry.COLLECTIONS,DrawerEntry.TRASH).all{it in public})
         val defaults=DrawerConfiguration.DEFAULT
@@ -89,7 +89,15 @@ class DrawerPolicyTest{
         assertFalse(DrawerEntry.HOME in customized.entries(true))
         assertTrue(DrawerEntry.SETTINGS in customized.entries(false))
         assertFalse(DrawerEntry.DIAGNOSTICS in customized.entries(false))
-        assertTrue(DrawerEntry.DIAGNOSTICS in customized.entries(true))
+        assertFalse(DrawerEntry.DIAGNOSTICS in customized.entries(true))
+        assertFalse(DrawerEntry.DIAGNOSTICS in customized.visible)
+        val legacyDiagnostics=DrawerConfiguration.decode("DIAGNOSTICS:1,JOURNAL:1,HOME:1")
+        assertFalse(DrawerEntry.DIAGNOSTICS in legacyDiagnostics.visible)
+        assertFalse(DrawerEntry.DIAGNOSTICS in legacyDiagnostics.entries(true))
+        assertFalse(DrawerEntry.DIAGNOSTICS in legacyDiagnostics.entries(false))
+        assertTrue(DrawerEntry.JOURNAL in legacyDiagnostics.entries(true))
+        assertFalse(DrawerEntry.JOURNAL in legacyDiagnostics.entries(false))
+        assertEquals(legacyDiagnostics,DrawerConfiguration.decode(legacyDiagnostics.encode()))
         assertEquals(customized,DrawerConfiguration.decode(customized.encode()))
         val migrated=DrawerConfiguration.decode("MUSIC:1,SETTINGS:0,MUSIC:0,UNKNOWN:1")
         assertEquals(DrawerEntry.MUSIC,migrated.order.first())

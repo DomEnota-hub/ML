@@ -185,7 +185,8 @@ class MediaNavigationDrawerTest{
         compose.runOnIdle{assertEquals(DrawerEntry.EQUALIZER,selected)}
         open()
         compose.runOnIdle{unlocked=true}
-        compose.onNodeWithTag("drawer-entry-DIAGNOSTICS").assertExists().assertIsEnabled()
+        compose.onNodeWithTag("drawer-entry-DIAGNOSTICS").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-entry-JOURNAL").assertExists().assertIsEnabled()
         compose.runOnIdle{unlocked=false}
         compose.onNodeWithTag("drawer-entry-DIAGNOSTICS").assertDoesNotExist()
     }
@@ -194,6 +195,10 @@ class MediaNavigationDrawerTest{
         compose.setContent { MaterialTheme {
             DrawerSettingsScreen(configuration,true,{configuration=it},{})
         } }
+        compose.onNodeWithTag("drawer-config-DIAGNOSTICS").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-config-switch-DIAGNOSTICS").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-config-handle-DIAGNOSTICS").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-config-JOURNAL").assertExists()
         compose.onNodeWithTag("drawer-config-switch-HOME").assertIsOn().performClick().assertIsOff()
         compose.runOnIdle { assertFalse(DrawerEntry.HOME in configuration.visible) }
         val handle=compose.onNodeWithTag("drawer-config-handle-DOWNLOADS")

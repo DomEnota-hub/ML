@@ -15,10 +15,9 @@ internal enum class DrawerEntry(val label:String){
     EQUALIZER("Эквалайзер"), BULK_DOWNLOAD("Массовая загрузка"),
     DIAGNOSTICS("Диагностика"), VK_IMAGES("Изображения VK")
 }
-/** All ordinary destinations are available after NAV-08. Journal follows
- * the same persisted developer gate as Settings, never an independent flag. */
+/** Diagnostics is hidden-only; Journal retains its persisted developer gate. */
 internal fun drawerAvailableEntries(journalUnlocked:Boolean):Set<DrawerEntry> =
-    DrawerEntry.entries.filterTo(linkedSetOf()){journalUnlocked || (it!=DrawerEntry.JOURNAL && it!=DrawerEntry.DIAGNOSTICS)}
+    DrawerEntry.entries.filterTo(linkedSetOf()){it!=DrawerEntry.DIAGNOSTICS && (journalUnlocked || it!=DrawerEntry.JOURNAL)}
 
 internal fun drawerRouteAllowed(route:String?,mode:AppMode):Boolean =
     when(route){

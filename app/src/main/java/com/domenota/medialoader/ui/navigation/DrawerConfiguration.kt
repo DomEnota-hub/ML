@@ -10,7 +10,7 @@ internal data class DrawerConfiguration private constructor(
     val visible: Set<DrawerEntry>,
 ) {
     fun setVisible(entry: DrawerEntry, enabled: Boolean): DrawerConfiguration =
-        if (entry == DrawerEntry.SETTINGS) this
+        if (entry == DrawerEntry.SETTINGS || entry == DrawerEntry.DIAGNOSTICS) this
         else copy(visible = if (enabled) visible + entry else visible - entry)
 
     fun move(entry: DrawerEntry, target: DrawerEntry): DrawerConfiguration {
@@ -49,7 +49,7 @@ internal data class DrawerConfiguration private constructor(
             val missing = DrawerEntry.entries.filterNot { it in stored }
             return DrawerConfiguration(
                 stored.keys.toList() + missing,
-                stored.filterValues { it }.keys + missing.filter { it in defaultVisible } + DrawerEntry.SETTINGS,
+                (stored.filterValues { it }.keys + missing.filter { it in defaultVisible } + DrawerEntry.SETTINGS) - DrawerEntry.DIAGNOSTICS,
             )
         }
 
