@@ -72,13 +72,17 @@ internal fun visibleDownloadFolders(
     assignments: Map<String, CatalogAssignmentEntity>,
     galleryOnlyFolderIds: Set<String>,
     assigning: Boolean,
+    fullyArchivedFolderIds: Set<String> = emptySet(),
 ): List<CatalogFolderEntity> {
     if (assigning) return folders
     val withDownloads = items.asSequence()
         .filter { it.state == DownloadUiState.COMPLETED }
         .mapNotNull { assignments[it.id]?.folderId }
         .toSet()
-    return folders.filter { it.id !in galleryOnlyFolderIds || it.id in withDownloads }
+    return folders.filter { folder ->
+        folder.id in withDownloads ||
+            (folder.id !in galleryOnlyFolderIds && folder.id !in fullyArchivedFolderIds)
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,6 +109,7 @@ internal fun DownloadFolderSheet(
     onVerifySafFile: (suspend (String,String) -> Boolean)? = null,
     onOpenSafFile: (suspend (String,String) -> android.net.Uri)? = null,
     onArchiveFolder: ((String) -> Unit)? = null,
+    fullyArchivedFolderIds: Set<String> = emptySet(),
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -118,8 +123,10 @@ internal fun DownloadFolderSheet(
     var safPlaying by remember { mutableStateOf<Pair<NomediaSafEntry,android.net.Uri>?>(null) }
     val completed = items.filter { it.state == DownloadUiState.COMPLETED }
     val shownFolders = visibleDownloadFolders(
-        folders, items, assignments, galleryOnlyFolderIds, assigning = targetDownloadId != null)
-    val hiddenGalleryFolders = folders.size - shownFolders.size
+        folders, items, assignments, galleryOnlyFolderIds, assigning = targetDownloadId != null,
+        fullyArchivedFolderIds = fullyArchivedFolderIds)
+    val hiddenGalleryFolders = folders.size - visibleDownloadFolders(
+        folders, items, assignments, galleryOnlyFolderIds, assigning = targetDownloadId != null).size
     val currentFolderId = targetDownloadId?.let { assignments[it]?.folderId }
     val general = completed.filter { DownloadCatalogSelection.includes(CATALOG_ALL, assignments[it.id], hiddenFolderIds) }
     val favoriteCount = general.count { assignments[it.id]?.isFavorite == true }
