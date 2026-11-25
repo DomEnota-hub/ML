@@ -24,6 +24,7 @@ import com.domenota.medialoader.ui.components.drawerEntryIcon
 import com.domenota.medialoader.ui.navigation.DrawerConfiguration
 import com.domenota.medialoader.ui.navigation.DrawerEntry
 import com.domenota.medialoader.ui.navigation.drawerAvailableEntries
+import com.domenota.medialoader.ui.navigation.mandatoryDrawerEntries
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
@@ -112,7 +113,7 @@ internal fun DrawerSettingsScreen(
                 entries.forEach { entry ->
                     key(entry) {
                         val enabled = entry in draft.visible
-                        val fixed = entry == DrawerEntry.SETTINGS
+                        val fixed = entry in mandatoryDrawerEntries
                         val activeDrag = dragged == entry
                         val iconTint = if (enabled) colors.primary else colors.onSurfaceVariant
                         Surface(
@@ -132,7 +133,7 @@ internal fun DrawerSettingsScreen(
                                 Switch(checked = enabled, enabled = !fixed && dragged == null,
                                     onCheckedChange = { save(draft.setVisible(entry, it)) },
                                     modifier = Modifier.testTag("drawer-config-switch-${entry.name}")
-                                        .semantics { contentDescription = if (fixed) "Настройки всегда доступны" else entry.label })
+                                        .semantics { contentDescription = if (fixed) "${entry.label}: всегда доступно" else entry.label })
                                 Box(Modifier.size(48.dp).testTag("drawer-config-handle-${entry.name}")
                                     .semantics {
                                         contentDescription = "Переместить ${entry.label}"

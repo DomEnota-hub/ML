@@ -24,7 +24,7 @@ class LibraryHeaderActionsTest {
         var changes = 0
         compose.setContent { MaterialTheme {
             var source by remember { mutableStateOf(LibrarySource.APP) }
-            LibraryModeHeader(AppMode.GALLERY, source, {}, { source = it; changes++ }, {}, {})
+            LibraryModeHeader(AppMode.GALLERY, source, { source = it; changes++ }, {}, {})
         } }
         compose.onNodeWithContentDescription("Источник файлов").performClick()
         compose.onAllNodesWithText("Файлы приложения")[1].performClick()
@@ -38,7 +38,7 @@ class LibraryHeaderActionsTest {
     @Test fun topActionsReachSearchPrivateAndSettings() {
         var search = 0; var private = 0; var settings = 0
         compose.setContent { MaterialTheme {
-            LibraryModeHeader(AppMode.MUSIC, LibrarySource.APP, {}, {}, {}, { settings++ },
+            LibraryModeHeader(AppMode.MUSIC, LibrarySource.APP, {}, {}, { settings++ },
                 onSearch = { search++ }, onPrivate = { private++ })
         } }
         compose.onNodeWithContentDescription("Поиск").performClick()
@@ -53,7 +53,7 @@ class LibraryHeaderActionsTest {
     @Test fun galleryTrashIsDirectActionWithoutAccessMenu() {
         var opened = 0
         compose.setContent { MaterialTheme {
-            LibraryModeHeader(AppMode.GALLERY, LibrarySource.PHONE, {}, {}, { opened++ }, {})
+            LibraryModeHeader(AppMode.GALLERY, LibrarySource.PHONE, {}, { opened++ }, {})
         } }
         compose.onNodeWithContentDescription("Корзина").performClick()
         compose.onNodeWithContentDescription("Дополнительно").assertDoesNotExist()
@@ -63,7 +63,7 @@ class LibraryHeaderActionsTest {
     @Test fun hiddenMusicTracksActionIsLeftOfSearchAndInvokesItsCallback() {
         var hidden=0
         compose.setContent { MaterialTheme {
-            LibraryModeHeader(AppMode.MUSIC,LibrarySource.PHONE,{},{},{},{},onHiddenTracks={hidden++})
+            LibraryModeHeader(AppMode.MUSIC,LibrarySource.PHONE,{},{},{},onHiddenTracks={hidden++})
         } }
         val eye=compose.onNodeWithContentDescription("Скрытые треки")
         val search=compose.onNodeWithContentDescription("Поиск")

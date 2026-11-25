@@ -67,12 +67,12 @@ class LibraryVisualCaptureTest {
                     contentColor = MaterialTheme.colorScheme.onBackground) { key(screen, dark) {
                     when (screen) {
                         "gallery", "albums", "album" -> GalleryModeScreen(photos, LibrarySource.APP, false, null, folders, listOf(assignment),
-                            { LibraryModeHeader(AppMode.GALLERY, LibrarySource.APP, {}, {}, {}, {}) },
+                            { LibraryModeHeader(AppMode.GALLERY, LibrarySource.APP, {}, {}, {}) },
                             { _, _ -> }, {}, { _, _ -> }, { _, _ -> }, { "folder" }, {}, {}, { _, _ -> }, {},
                             searchVisible = false)
                         "viewer" -> GalleryMediaViewer(photos.first(), photos, {}, {}, {}, {}, emptySet(), { _, _ -> }, folders, { _, _ -> }, {}, {}, {})
                         "music", "playlists", "playlist" -> MusicModeScreen(tracks, tracks, playlists,
-                            { LibraryModeHeader(AppMode.MUSIC, LibrarySource.APP, {}, {}, {}, {}) }, false, null,
+                            { LibraryModeHeader(AppMode.MUSIC, LibrarySource.APP, {}, {}, {}) }, false, null,
                             { _, _ -> }, {}, { "new" }, { _, _ -> }, {}, { _, _ -> }, { _, _ -> }, { _, _, _ -> }, {}, {},
                             searchVisible = false)
                         "add" -> PlaylistTracksScreen(playlists.first().copy(trackIds = emptyList()), LibrarySource.APP, {}, tracks, tracks,

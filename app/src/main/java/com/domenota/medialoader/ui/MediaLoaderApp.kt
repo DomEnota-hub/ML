@@ -747,7 +747,7 @@ fun MediaLoaderApp(
     }
     var hiddenMusicTracksOpen by remember { mutableStateOf(false) }
     val libraryHeader: @Composable () -> Unit = {
-        LibraryModeHeader(appMode, librarySource, ::changeAppMode, ::changeLibrarySource,
+        LibraryModeHeader(appMode, librarySource, ::changeLibrarySource,
             onTrash = { navController.navigate("trash") },
             onSettings = { navController.navigate(AppDestination.Settings.route) },
             onSearch = { setLibrarySearchVisible(!librarySearchVisible) },
@@ -2332,7 +2332,7 @@ fun MediaLoaderApp(
                 modeStates.SaveableStateProvider(appMode.name) {
                 if (appMode == AppMode.DOWNLOADER) HomeScreen(
                     title = { Row(verticalAlignment = Alignment.CenterVertically) {
-                        AppModeTitle(appMode, ::changeAppMode)
+                        AppModeTitle(appMode)
                         IconButton({ navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } }) { ArchiveActionIcon() }
                     } },
                     url = pendingUrl,

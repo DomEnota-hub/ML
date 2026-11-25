@@ -15,6 +15,11 @@ internal enum class DrawerEntry(val label:String){
     EQUALIZER("Эквалайзер"), BULK_DOWNLOAD("Массовая загрузка"),
     DIAGNOSTICS("Диагностика"), VK_IMAGES("Изображения VK")
 }
+/** Primary modes have no alternate switcher. Keep their destinations reachable. */
+internal val mandatoryDrawerEntries: Set<DrawerEntry> = setOf(
+    DrawerEntry.HOME, DrawerEntry.GALLERY, DrawerEntry.MUSIC, DrawerEntry.SETTINGS,
+)
+
 /** Diagnostics is hidden-only; Journal retains its persisted developer gate. */
 internal fun drawerAvailableEntries(journalUnlocked:Boolean):Set<DrawerEntry> =
     DrawerEntry.entries.filterTo(linkedSetOf()){it!=DrawerEntry.DIAGNOSTICS && (journalUnlocked || it!=DrawerEntry.JOURNAL)}

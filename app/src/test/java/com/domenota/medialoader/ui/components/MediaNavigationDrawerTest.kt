@@ -178,7 +178,7 @@ class MediaNavigationDrawerTest{
                 .setVisible(DrawerEntry.DIAGNOSTICS,true)
                 .move(DrawerEntry.EQUALIZER,DrawerEntry.HOME)
         }
-        compose.onNodeWithTag("drawer-entry-HOME").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-entry-HOME").assertExists().assertIsEnabled()
         compose.onNodeWithTag("drawer-entry-EQUALIZER").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithTag("drawer-entry-DIAGNOSTICS").assertDoesNotExist()
         compose.onNodeWithTag("drawer-entry-EQUALIZER").performClick()
@@ -199,9 +199,11 @@ class MediaNavigationDrawerTest{
         compose.onNodeWithTag("drawer-config-switch-DIAGNOSTICS").assertDoesNotExist()
         compose.onNodeWithTag("drawer-config-handle-DIAGNOSTICS").assertDoesNotExist()
         compose.onNodeWithTag("drawer-config-JOURNAL").assertExists()
-        compose.onNodeWithTag("drawer-config-switch-HOME").assertIsOn().performClick().assertIsOff()
-        compose.runOnIdle { assertFalse(DrawerEntry.HOME in configuration.visible) }
-        val handle=compose.onNodeWithTag("drawer-config-handle-DOWNLOADS")
+        for(entry in listOf(DrawerEntry.HOME,DrawerEntry.GALLERY,DrawerEntry.MUSIC)){
+            compose.onNodeWithTag("drawer-config-switch-${entry.name}").performScrollTo().assertIsOn().assertIsNotEnabled()
+        }
+        compose.runOnIdle { assertTrue(listOf(DrawerEntry.HOME,DrawerEntry.GALLERY,DrawerEntry.MUSIC).all { it in configuration.visible }) }
+        val handle=compose.onNodeWithTag("drawer-config-handle-DOWNLOADS").performScrollTo()
         val action=handle.fetchSemanticsNode().config[SemanticsActions.CustomActions].first { it.label=="Выше" }
         compose.runOnIdle { assertTrue(action.action()) }
         compose.runOnIdle { assertEquals(DrawerEntry.DOWNLOADS,configuration.order.first()) }

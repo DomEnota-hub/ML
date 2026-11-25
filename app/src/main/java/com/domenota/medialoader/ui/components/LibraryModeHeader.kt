@@ -1,6 +1,5 @@
 package com.domenota.medialoader.ui.components
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -8,9 +7,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
@@ -23,37 +19,22 @@ internal val AppMode.label: String get() = when (this) {
     AppMode.MUSIC -> "Музыка"
 }
 
+/** Mode changes are owned exclusively by the navigation drawer. */
 @Composable
-internal fun AppModeTitle(mode: AppMode, onChange: (AppMode) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    ReportDrawerOverlay(expanded)
-    Box {
-        Row(Modifier.semantics { contentDescription = "Сменить режим" }
-            .clickable { expanded = true }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(mode.label, fontSize = if (mode == AppMode.DOWNLOADER) 32.sp else 24.sp,
-                fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (mode == AppMode.DOWNLOADER) Icon(Icons.Rounded.ExpandMore, null, Modifier.padding(start = 6.dp).testTag("app-mode-chevron"))
-        }
-        DropdownMenu(expanded, { expanded = false }) {
-            AppMode.entries.forEach { item -> DropdownMenuItem(
-                text = { Text(item.label, color = if (mode == item) com.domenota.medialoader.ui.theme.musicPlaybackAccent else MaterialTheme.colorScheme.onSurface) }, onClick = { expanded = false; onChange(item) },
-                leadingIcon = { Icon(when (item) {
-                    AppMode.DOWNLOADER -> Icons.Rounded.Download
-                    AppMode.GALLERY -> Icons.Rounded.PhotoLibrary
-                    AppMode.MUSIC -> Icons.Rounded.MusicNote
-                }, null, tint = if (mode == item) com.domenota.medialoader.ui.theme.musicPlaybackAccent else MaterialTheme.colorScheme.onSurfaceVariant) }) }
-        }
-    }
+internal fun AppModeTitle(mode: AppMode) {
+    Text(mode.label, modifier = Modifier.padding(vertical = 6.dp),
+        fontSize = if (mode == AppMode.DOWNLOADER) 32.sp else 24.sp,
+        fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
-internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource, onMode: (AppMode) -> Unit,
+internal fun LibraryModeHeader(mode: AppMode, source: LibrarySource,
     onSource: (LibrarySource) -> Unit, onTrash: () -> Unit, onSettings: () -> Unit,
     onSearch: () -> Unit = {}, onPrivate: () -> Unit = {}, onVault: () -> Unit = {}, onHiddenTracks: (() -> Unit)? = null, onCalendar: (() -> Unit)? = null,
     unifiedDrawerRoutes:Boolean=false) {
     Column(Modifier.fillMaxWidth().padding(start = 17.dp, end = 17.dp, top = 9.dp, bottom = 15.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { AppModeTitle(mode, onMode) }
+            Box(Modifier.weight(1f)) { AppModeTitle(mode) }
             if (mode == AppMode.MUSIC && onHiddenTracks != null) {
                 IconButton(onHiddenTracks) {
                     Icon(Icons.Rounded.VisibilityOff, "Скрытые треки", Modifier.size(23.dp),

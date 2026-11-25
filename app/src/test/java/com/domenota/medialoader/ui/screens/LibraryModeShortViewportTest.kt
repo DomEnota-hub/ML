@@ -41,7 +41,7 @@ class LibraryModeShortViewportTest {
         var opened: Pair<String, List<String>>? = null
         compose.setContent { MaterialTheme { Box(Modifier.height(232.dp)) {
             GalleryModeScreen(listOf(item), source, false, null, emptyList(), emptyList(),
-                { LibraryModeHeader(AppMode.GALLERY, source, {}, {}, {}, {}) },
+                { LibraryModeHeader(AppMode.GALLERY, source, {}, {}, {}) },
                 { id, ids -> opened = id to ids }, {}, { _, _ -> }, { _, _ -> }, { "folder" }, {}, {}, { _, _ -> }, {})
         } } }
         compose.onNodeWithTag("gallery-library").performScrollToNode(hasContentDescription("Photo.jpg"))
@@ -54,7 +54,7 @@ class LibraryModeShortViewportTest {
         var opened: Pair<String, List<String>>? = null
         compose.setContent { MaterialTheme { Box(Modifier.height(232.dp)) {
             MusicModeScreen(listOf(track), listOf(track), emptyList(),
-                { LibraryModeHeader(AppMode.MUSIC, source, {}, {}, {}, {}) }, false, null,
+                { LibraryModeHeader(AppMode.MUSIC, source, {}, {}, {}) }, false, null,
                 { id, ids -> opened = id to ids }, {}, { "new" }, { _, _ -> }, {}, { _, _ -> },
                 { _, _ -> }, { _, _, _ -> }, {}, {})
         } } }

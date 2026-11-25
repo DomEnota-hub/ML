@@ -18,17 +18,17 @@ import org.robolectric.annotation.LooperMode
 @LooperMode(LooperMode.Mode.PAUSED)
 class LibraryModeHeaderTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    @Test fun titleSwitchesBetweenAllThreeModes() {
-        compose.setContent { MaterialTheme {
-            var mode by remember { mutableStateOf(AppMode.DOWNLOADER) }
-            AppModeTitle(mode) { mode = it }
-        } }
-        for (label in listOf("Галерея", "Музыка", "Загрузчик")) {
-            compose.onNodeWithContentDescription("Сменить режим").performClick()
-            compose.onNodeWithText(label).performClick()
-            compose.onNodeWithText(label).assertExists()
-            val arrow=compose.onNodeWithTag("app-mode-chevron",useUnmergedTree=true)
-            if(label=="Загрузчик")arrow.assertExists() else arrow.assertDoesNotExist()
+    @Test fun titlesAreStaticInAllThreeModes() {
+        var mode by mutableStateOf(AppMode.DOWNLOADER)
+        compose.setContent { MaterialTheme { AppModeTitle(mode) } }
+        for (item in AppMode.entries) {
+            compose.runOnIdle { mode = item }
+            compose.onNodeWithText(item.label).assertExists().assertHasNoClickAction()
+            compose.onNodeWithContentDescription("Сменить режим").assertDoesNotExist()
+            compose.onNodeWithTag("app-mode-chevron",useUnmergedTree=true).assertDoesNotExist()
+            for (other in AppMode.entries.filter { it != item }) {
+                compose.onNodeWithText(other.label).assertDoesNotExist()
+            }
         }
     }
 
@@ -36,7 +36,7 @@ class LibraryModeHeaderTest {
         var mode by mutableStateOf(AppMode.GALLERY)
         compose.setContent { MaterialTheme {
             LibraryModeHeader(mode,com.domenota.medialoader.data.library.LibrarySource.APP,
-                {},{}, {},{},onCalendar={},
+                {}, {},{},onCalendar={},
                 onHiddenTracks={},unifiedDrawerRoutes=true)
         } }
         compose.onNodeWithContentDescription("Личное").assertDoesNotExist()
