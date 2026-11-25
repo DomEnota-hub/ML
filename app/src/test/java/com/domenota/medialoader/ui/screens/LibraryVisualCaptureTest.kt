@@ -27,7 +27,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.*
 
-/** Native Compose captures for human comparison to HTML. No pixel-golden implementation tests. */
+/** Screen smoke in both themes; optional PNGs for human review via ML_VISUAL_CAPTURE_DIR. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w390dp-h800dp-xhdpi")
 @LooperMode(LooperMode.Mode.PAUSED)
@@ -35,7 +35,7 @@ import org.robolectric.annotation.*
 class LibraryVisualCaptureTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     @Test fun captureNativeScreensInBothThemes() {
-        val output = File("/tmp/medialoader-native-a").apply { mkdirs() }
+        val output = System.getenv("ML_VISUAL_CAPTURE_DIR")?.takeIf { it.isNotBlank() }?.let { File(it).apply { mkdirs() } }
         val photoFile = File("/tmp/medialoader-visual-fixture.jpg")
         if (!photoFile.exists()) {
             val image = Bitmap.createBitmap(120, 160, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.rgb(65, 87, 110)) }
@@ -98,11 +98,15 @@ class LibraryVisualCaptureTest {
                     if (page == "viewer") compose.waitUntil(5000) { compose.onAllNodesWithContentDescription("Фото 0.jpg").fetchSemanticsNodes().isNotEmpty() }
                     // PixelCopy captureToImage requires a display redraw callback unavailable in
                     // Robolectric. Draw the real native View tree into its software Canvas instead.
-                    val bitmap = compose.runOnIdle {
+                    if (output != null) {
+                        val bitmap = compose.runOnIdle {
                         val root = compose.activity.findViewById<android.view.View>(android.R.id.content)
                         Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888).also { root.draw(android.graphics.Canvas(it)) }
                     }
-                    File(output, "${if (theme) "dark" else "light"}-$page.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    try {
+                            File(output, "${if (theme) "dark" else "light"}-$page.png").outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                        } finally { bitmap.recycle() }
+                    }
                 }
             }
         } finally { player.release() }

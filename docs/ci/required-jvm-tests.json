@@ -6443,14 +6443,6 @@
     "skipped": false,
     "failed": false
   },
-  "com.domenota.medialoader.data.recognition.LocalTrackRecognitionSearchTest#alternativesAreBoundedAndStopAtFirstValidMatch": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.recognition.LocalTrackRecognitionSearchTest#shortSamplesAndBlankMatchesDoNotProduceAResult": {
-    "skipped": false,
-    "failed": false
-  },
   "com.domenota.medialoader.data.recognition.MicrophoneCaptureTest#earlyFinishReturnsOnlyCapturedSamplesAndReportsVolume": {
     "skipped": false,
     "failed": false
@@ -6612,6 +6604,14 @@
     "failed": false
   },
   "com.domenota.medialoader.data.recognition.TrackRecognitionRetryTest#rejectedResultDuringConfirmationDoesNotStopIndependentSearch": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.recognition.TrackRecognitionRetryTest#shortSamplesAndBlankMatchesConsumeBudgetWithoutOfferingCandidate": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.recognition.TrackRecognitionRetryTest#unsuccessfulWindowsAreBoundedAndFirstValidMatchStopsSearch": {
     "skipped": false,
     "failed": false
   },
@@ -10135,6 +10135,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.organization.LastCollectionCoverFallbackTest#unverifiedMediaStoreReadCannotCreateOrSwapAnAcceptedCover": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.organization.LastCollectionCoverPresentationTest#changingAutomaticToCustomKeepsAcceptedFrameWhileSnapshotWriterIsBlocked": {
     "skipped": false,
     "failed": false
@@ -10148,10 +10152,6 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.organization.LastCollectionCoverPresentationTest#unchangedBackgroundVerificationDoesNotDecodeAgainAndMemberRemovalCannotReuseOldFrame": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.ui.screens.organization.LastCollectionCoverPresentationTest#unverifiedMediaStoreReadCannotCreateOrSwapAnAcceptedCover": {
     "skipped": false,
     "failed": false
   },

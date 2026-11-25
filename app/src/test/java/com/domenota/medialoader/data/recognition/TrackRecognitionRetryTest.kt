@@ -63,4 +63,32 @@ class TrackRecognitionRetryTest {
         assertEquals(listOf(wrong),persisted.rejected)
         assertNull(persisted.candidate)
     }
+    @Test fun unsuccessfulWindowsAreBoundedAndFirstValidMatchStopsSearch()=runBlocking {
+        val starts=listOf(0L,24000L,48000L,72000L)
+        val decoded=mutableListOf<Long>()
+        val progress=mutableListOf<TrackRecognitionProgress>()
+        val result=TrackRecognitionRetry.search(TrackRetryState(starts),3,
+            { decoded+=it;pcm() },provider(null,right),{},{progress+=it})
+        assertEquals(right,result.candidate?.result)
+        assertEquals(starts.take(2),decoded)
+        assertEquals(starts.take(2),result.checked.map{it.startMs})
+        assertEquals(listOf(TrackRecognitionStage.DECODING,TrackRecognitionStage.SEARCHING,
+            TrackRecognitionStage.DECODING,TrackRecognitionStage.SEARCHING),progress.map{it.stage})
+        val exhaustedBudget=TrackRecognitionRetry.search(TrackRetryState(starts),2,{pcm()},provider(null,null),{})
+        assertNull(exhaustedBudget.candidate)
+        assertEquals(starts.drop(2),exhaustedBudget.remaining)
+    }
+
+    @Test fun shortSamplesAndBlankMatchesConsumeBudgetWithoutOfferingCandidate()=runBlocking {
+        val starts=listOf(0L,24000L,48000L,72000L)
+        val decoded=mutableListOf<Long>()
+        val result=TrackRecognitionRetry.search(TrackRetryState(starts),3,
+            { decoded+=it; if(it==0L) ShortArray(20){1000} else pcm() },
+            provider(right.copy(title=""),right.copy(artist="")),{})
+        assertNull(result.candidate)
+        assertEquals(starts.take(3),decoded)
+        assertEquals(starts.drop(3),result.remaining)
+        val done=TrackRetryState(listOf(0L),listOf(CheckedAudioWindow(0L,12000L)))
+        assertNull(TrackRecognitionRetry.search(done,3,{error("No new windows")},provider(),{}).candidate)
+    }
 }
