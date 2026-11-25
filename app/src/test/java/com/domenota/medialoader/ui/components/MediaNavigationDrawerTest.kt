@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.share.InstagramShareSettings
 import com.domenota.medialoader.ui.navigation.DrawerEntry
+import com.domenota.medialoader.ui.navigation.DrawerConfiguration
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -36,12 +37,12 @@ class MediaNavigationDrawerTest{
     }
     @Composable private fun TestHost(allowed:Boolean=true,identity:Int=0,
         active:DrawerEntry=DrawerEntry.MUSIC,onSelect:(DrawerEntry)->Unit={},
-        journalUnlocked:Boolean=false){
+        journalUnlocked:Boolean=false, configuration:DrawerConfiguration=DrawerConfiguration.DEFAULT){
         val density=LocalDensity.current
         val direction=LocalLayoutDirection.current
         val edge=WindowInsets.systemGestures.getLeft(density,direction)+with(density){4.dp.toPx()}
         SideEffect{edgePx=edge}
-        MediaNavigationDrawer(identity,allowed,active,journalUnlocked=journalUnlocked,onSelect=onSelect){
+        MediaNavigationDrawer(identity,allowed,active,journalUnlocked=journalUnlocked,onSelect=onSelect,configuration=configuration){
             Box(Modifier.fillMaxSize()){Text("Содержимое")}
         }
     }
@@ -53,6 +54,8 @@ class MediaNavigationDrawerTest{
         val panel=compose.onNodeWithTag("ml-drawer-panel").fetchSemanticsNode().boundsInRoot
         assertEquals(parent.width*.8f,panel.width,2f)
         compose.onNodeWithText("MediaLoader").assertExists()
+        compose.onNodeWithText("Библиотека").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-entry-EQUALIZER").assertDoesNotExist()
         compose.onNodeWithText("1.7.226").assertDoesNotExist()
         compose.onNodeWithTag("drawer-entry-MUSIC").assertIsSelected()
         compose.onNodeWithTag("drawer-entry-FAVORITES").assertIsEnabled()
@@ -152,7 +155,8 @@ class MediaNavigationDrawerTest{
     @Test fun libraryRowsNavigateAndJournalAppearsOnlyWhileUnlocked(){
         var unlocked by mutableStateOf(false)
         var selected:DrawerEntry?=null
-        compose.setContent{MaterialTheme{TestHost(onSelect={selected=it},journalUnlocked=unlocked)}}
+        var configuration by mutableStateOf(DrawerConfiguration.DEFAULT)
+        compose.setContent{MaterialTheme{TestHost(onSelect={selected=it},journalUnlocked=unlocked,configuration=configuration)}}
         open()
         compose.onNodeWithTag("drawer-entry-JOURNAL").assertDoesNotExist()
         for(entry in listOf(DrawerEntry.FAVORITES,DrawerEntry.PRIVATE,DrawerEntry.ARCHIVE,
@@ -166,5 +170,21 @@ class MediaNavigationDrawerTest{
         compose.onNodeWithTag("drawer-entry-JOURNAL").assertExists().assertIsEnabled()
         compose.runOnIdle{unlocked=false}
         compose.onNodeWithTag("drawer-entry-JOURNAL").assertDoesNotExist()
+        compose.runOnIdle {
+            configuration = configuration.setVisible(DrawerEntry.HOME,false)
+                .setVisible(DrawerEntry.EQUALIZER,true)
+                .setVisible(DrawerEntry.DIAGNOSTICS,true)
+                .move(DrawerEntry.EQUALIZER,DrawerEntry.HOME)
+        }
+        compose.onNodeWithTag("drawer-entry-HOME").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-entry-EQUALIZER").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithTag("drawer-entry-DIAGNOSTICS").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-entry-EQUALIZER").performClick()
+        compose.runOnIdle{assertEquals(DrawerEntry.EQUALIZER,selected)}
+        open()
+        compose.runOnIdle{unlocked=true}
+        compose.onNodeWithTag("drawer-entry-DIAGNOSTICS").assertExists().assertIsEnabled()
+        compose.runOnIdle{unlocked=false}
+        compose.onNodeWithTag("drawer-entry-DIAGNOSTICS").assertDoesNotExist()
     }
 }
