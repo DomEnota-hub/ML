@@ -1,5 +1,8 @@
 package com.domenota.medialoader.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -140,8 +143,6 @@ internal fun SimpleArchiveScreen(
                         }
                     }
                 }
-                Text(item.displayName, Modifier.padding(horizontal = 2.dp), maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -271,13 +272,19 @@ internal fun SimpleArchiveScreen(
                 }
             }
         }
-        if (chosen.isNotEmpty()) Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 5.dp) {
+        if (chosen.isNotEmpty()) Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF08090D),
+            contentColor = Color.White,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+        ) {
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Выбрано: ${chosen.size}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                 Button(onClick = { onRestore(chosen) }, enabled = !busy,
                     modifier = Modifier.testTag("simple-archive-restore")) { Text("Вернуть") }
                 IconButton(onClick = { selected = emptySet() }, enabled = !busy) {
-                    Icon(Icons.Rounded.Close, "Отменить выбор")
+                    Icon(Icons.Rounded.Close, "Отменить выбор", tint = Color.White)
                 }
             }
         }
