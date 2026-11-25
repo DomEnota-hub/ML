@@ -72,10 +72,32 @@ class DrawerPolicyTest{
     }
 
     @Test fun allLibraryDestinationsAreEnabledButJournalFollowsGate(){
-        val public=DrawerEntry.entries.toSet()-DrawerEntry.JOURNAL
+        val public=DrawerEntry.entries.toSet()-setOf(DrawerEntry.JOURNAL, DrawerEntry.DIAGNOSTICS)
         assertEquals(public,drawerAvailableEntries(false))
         assertEquals(DrawerEntry.entries.toSet(),drawerAvailableEntries(true))
         assertTrue(setOf(DrawerEntry.FAVORITES,DrawerEntry.PRIVATE,DrawerEntry.ARCHIVE,
             DrawerEntry.COLLECTIONS,DrawerEntry.TRASH).all{it in public})
+        val defaults=DrawerConfiguration.DEFAULT
+        assertEquals(DrawerEntry.entries.take(13), defaults.entries(true))
+        assertEquals(DrawerEntry.entries.take(12), defaults.entries(false))
+        val customized=defaults.setVisible(DrawerEntry.HOME,false)
+            .setVisible(DrawerEntry.DIAGNOSTICS,true)
+            .setVisible(DrawerEntry.MUSIC_DUPLICATES,true)
+            .setVisible(DrawerEntry.SETTINGS,false)
+            .move(DrawerEntry.MUSIC_DUPLICATES,DrawerEntry.HOME)
+        assertEquals(DrawerEntry.MUSIC_DUPLICATES,customized.entries(false).first())
+        assertFalse(DrawerEntry.HOME in customized.entries(true))
+        assertTrue(DrawerEntry.SETTINGS in customized.entries(false))
+        assertFalse(DrawerEntry.DIAGNOSTICS in customized.entries(false))
+        assertTrue(DrawerEntry.DIAGNOSTICS in customized.entries(true))
+        assertEquals(customized,DrawerConfiguration.decode(customized.encode()))
+        val migrated=DrawerConfiguration.decode("MUSIC:1,SETTINGS:0,MUSIC:0,UNKNOWN:1")
+        assertEquals(DrawerEntry.MUSIC,migrated.order.first())
+        assertTrue(DrawerEntry.MUSIC in migrated.visible)
+        assertTrue(DrawerEntry.SETTINGS in migrated.visible)
+        assertEquals(DrawerEntry.entries.toSet(),migrated.order.toSet())
+        assertEquals(DrawerEntry.entries.size,migrated.order.size)
+        assertFalse(DrawerEntry.VK_IMAGES in migrated.visible)
+        assertEquals(defaults,DrawerConfiguration.decode("garbage"))
     }
 }
