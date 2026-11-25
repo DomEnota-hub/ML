@@ -181,6 +181,7 @@ fun DownloadsScreen(
     onShareFromFolder: ((String,String?) -> Unit)? = null,
     onArchiveFolder: ((String) -> Unit)? = null,
     onArchivePublication: ((String, String, List<String>) -> Unit)? = null,
+    fullyArchivedFolderIds: Set<String> = emptySet(),
 ) {
     val context = LocalContext.current
     val listScrollState = rememberLazyListState()
@@ -251,9 +252,9 @@ fun DownloadsScreen(
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val assignmentById = remember(catalogAssignments) { catalogAssignments.associateBy { it.downloadId } }
     val folderNames = remember(catalogFolders) { catalogFolders.associate { it.id to it.name } }
-    val navigableFolderIds = remember(catalogFolders, items, assignmentById, galleryOnlyFolderIds) {
+    val navigableFolderIds = remember(catalogFolders, items, assignmentById, galleryOnlyFolderIds, fullyArchivedFolderIds) {
         visibleDownloadFolders(catalogFolders, items, assignmentById, galleryOnlyFolderIds,
-            assigning = false).mapTo(mutableSetOf()) { it.id }
+            assigning = false, fullyArchivedFolderIds = fullyArchivedFolderIds).mapTo(mutableSetOf()) { it.id }
     }
     LaunchedEffect(selectedCatalog, navigableFolderIds) {
         if (selectedCatalog.startsWith("folder:") &&
@@ -299,6 +300,7 @@ fun DownloadsScreen(
         assignments = assignmentById,
         items = items,
         galleryOnlyFolderIds = galleryOnlyFolderIds,
+        fullyArchivedFolderIds = fullyArchivedFolderIds,
         hiddenFolderIds = hiddenFolderIds,
         onFolderVisibility = onFolderVisibility,
         onArchiveFolder = onArchiveFolder,
