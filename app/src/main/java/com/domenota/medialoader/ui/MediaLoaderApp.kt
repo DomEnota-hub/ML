@@ -2883,6 +2883,7 @@ fun MediaLoaderApp(
                     catalogFolders = catalogFolders,
                     catalogAssignments = catalogAssignments,
                     galleryOnlyFolderIds = galleryOnlyFolderIds,
+                    fullyArchivedFolderIds = rememberFullyArchivedFolderIds(archiveSession, catalogAssignments, downloads, externalCatalog),
                     onCreateFolder = viewModel::createCatalogFolder,
                     onRenameFolder = viewModel::renameCatalogFolder,
                     onDeleteFolder = deleteVisibilityFolder,
