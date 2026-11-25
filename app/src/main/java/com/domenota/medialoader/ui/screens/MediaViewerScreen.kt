@@ -432,8 +432,8 @@ internal fun LocalVideoPlayer(
         if (galleryPagingEnabled) notifyControlsVisibility?.invoke(chromeVisible)
     }
     var unlockVisible by remember(uri) { mutableStateOf(false) }
-    var playerView by remember(uri, retryGeneration) { mutableStateOf<PlayerView?>(null) }
-    var posterView by remember(uri, retryGeneration) { mutableStateOf<ImageView?>(null) }
+    var playerView by remember(uri, retryGeneration, galleryPagingEnabled) { mutableStateOf<PlayerView?>(null) }
+    var posterView by remember(uri, retryGeneration, galleryPagingEnabled) { mutableStateOf<ImageView?>(null) }
     val poster = initialPoster ?: rememberVideoViewerPoster(itemId, uri)
     val initialPositionMs = remember(itemId, uri, retryGeneration, startAtBeginning) {
         if (startAtBeginning) 0L else poster.positionMs
@@ -725,8 +725,10 @@ internal fun LocalVideoPlayer(
     }
 
     LaunchedEffect(fullscreen, controlsLocked, playerView, galleryPagingEnabled) {
-        if (galleryPagingEnabled || controlsLocked) playerView?.hideController()
-        else if (!galleryPagingEnabled) playerView?.showController()
+        if (!galleryPagingEnabled) {
+            if (controlsLocked) playerView?.hideController()
+            else playerView?.showController()
+        }
     }
     LaunchedEffect(controlsLocked) {
         // Keep the unlock affordance visible immediately after locking.
@@ -822,7 +824,7 @@ internal fun LocalVideoPlayer(
             TextButton(onClick = { showGalleryTracks = false }) { Text("Закрыть") }
         },
     )
-    if (showPlayerSettings) AlertDialog(
+    if (!galleryPagingEnabled && showPlayerSettings) AlertDialog(
         onDismissRequest = { showPlayerSettings = false },
         title = { Text("Настройки плеера") },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -849,106 +851,115 @@ internal fun LocalVideoPlayer(
             .onSizeChanged { videoViewportSize = it },
         contentAlignment = Alignment.Center,
     ) {
-        AndroidView(
-            factory = { viewContext ->
-                PlayerView(viewContext).apply {
-                    playerView = this
-                    this.player = player
-                    useController = !galleryPagingEnabled && !controlsLocked
-                    setControllerAnimationEnabled(false)
-                    setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
-                        if (!galleryPagingEnabled) chromeVisible = visibility == android.view.View.VISIBLE
-                    })
-                    setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
-                    setShowRewindButton(false)
-                    setShowFastForwardButton(false)
-                    setShowPreviousButton(true)
-                    setShowNextButton(showAlbumSkipButton)
-                    // A one-item Media3 queue may DISABLE its previous button.
-                    // Keep the existing native slot but provide our own active
-                    // Compose control aligned over it.
-                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
-                        ?.apply { scaleX = 0f; scaleY = 0f }
-                    if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
-                        ?.apply { scaleX = 0f; scaleY = 0f }
-                    // Media3 restores the native button's alpha when playback state changes.
-                    // Keep its layout slot for adjacent buttons, but draw only our Compose icon.
-                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
-                        ?.apply { scaleX = 0f; scaleY = 0f }
-                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_settings)
-                        ?.visibility = android.view.View.GONE
-                    resizeMode = videoResizeMode
-                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_controller)
-                        ?.setPadding(0, 0, 0, 0)
-                    viewTreeObserver.addOnGlobalLayoutListener {
-                        fun centerInPlayer(child: android.view.View): Offset {
-                            var x = child.width / 2f
-                            var y = child.height / 2f
-                            var node: android.view.View? = child
-                            while (node != null && node !== this) {
-                                x += node.left - node.scrollX
-                                y += node.top - node.scrollY
-                                node = node.parent as? android.view.View
+        // A change of presentation must never reuse a native-controller hierarchy.
+        key(galleryPagingEnabled) {
+            AndroidView(
+                factory = { viewContext ->
+                    createLocalVideoPlayerView(viewContext, galleryPagingEnabled).apply {
+                        playerView = this
+                        if (!galleryPagingEnabled) {
+                            setControllerAnimationEnabled(false)
+                            useController = !controlsLocked
+                            setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
+                                if (!galleryPagingEnabled) chromeVisible = visibility == android.view.View.VISIBLE
+                            })
+                            setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
+                            setShowRewindButton(false)
+                            setShowFastForwardButton(false)
+                            setShowPreviousButton(true)
+                            setShowNextButton(showAlbumSkipButton)
+                            // A one-item Media3 queue may DISABLE its previous button.
+                            // Keep the existing native slot but provide our own active
+                            // Compose control aligned over it.
+                            findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
+                                ?.apply { scaleX = 0f; scaleY = 0f }
+                            if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
+                                ?.apply { scaleX = 0f; scaleY = 0f }
+                            // Media3 restores the native button's alpha when playback state changes.
+                            // Keep its layout slot for adjacent buttons, but draw only our Compose icon.
+                            findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
+                                ?.apply { scaleX = 0f; scaleY = 0f }
+                            findViewById<android.view.View>(androidx.media3.ui.R.id.exo_settings)
+                                ?.visibility = android.view.View.GONE
+                            findViewById<android.view.View>(androidx.media3.ui.R.id.exo_controller)
+                                ?.setPadding(0, 0, 0, 0)
+                            viewTreeObserver.addOnGlobalLayoutListener {
+                                fun centerInPlayer(child: android.view.View): Offset {
+                                    var x = child.width / 2f
+                                    var y = child.height / 2f
+                                    var node: android.view.View? = child
+                                    while (node != null && node !== this) {
+                                        x += node.left - node.scrollX
+                                        y += node.top - node.scrollY
+                                        node = node.parent as? android.view.View
+                                    }
+                                    return Offset(x, y)
+                                }
+                                findViewById<android.view.View>(androidx.media3.ui.R.id.exo_progress)
+                                    ?.takeIf { it.height > 0 }?.let {
+                                        timelineTop = centerInPlayer(it).y - it.height / 2f
+                                    }
+                                findViewById<android.view.View>(androidx.media3.ui.R.id.exo_position)
+                                    ?.takeIf { it.height > 0 }?.let { toolbarCenterY = centerInPlayer(it).y }
+                                findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
+                                    ?.takeIf { it.width > 0 && it.height > 0 }?.let {
+                                        nativePreviousCenter = centerInPlayer(it)
+                                    }
+                                if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
+                                    ?.takeIf { it.width > 0 && it.height > 0 }?.let {
+                                        nativeNextCenter = centerInPlayer(it)
+                                    }
+                                val button = findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
+                                if (button != null && button.width > 0) {
+                                    var x = button.width / 2f
+                                    var y = button.height / 2f
+                                    var node: android.view.View? = button
+                                    while (node != null && node !== this) {
+                                        x += node.left - node.scrollX
+                                        y += node.top - node.scrollY
+                                        node = node.parent as? android.view.View
+                                    }
+                                    nativePlayCenter = Offset(x, y)
+                                }
                             }
-                            return Offset(x, y)
                         }
-                        findViewById<android.view.View>(androidx.media3.ui.R.id.exo_progress)
-                            ?.takeIf { it.height > 0 }?.let {
-                                timelineTop = centerInPlayer(it).y - it.height / 2f
-                            }
-                        findViewById<android.view.View>(androidx.media3.ui.R.id.exo_position)
-                            ?.takeIf { it.height > 0 }?.let { toolbarCenterY = centerInPlayer(it).y }
-                        findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
-                            ?.takeIf { it.width > 0 && it.height > 0 }?.let {
-                                nativePreviousCenter = centerInPlayer(it)
-                            }
-                        if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
-                            ?.takeIf { it.width > 0 && it.height > 0 }?.let {
-                                nativeNextCenter = centerInPlayer(it)
-                            }
-                        val button = findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
-                        if (button != null && button.width > 0) {
-                            var x = button.width / 2f
-                            var y = button.height / 2f
-                            var node: android.view.View? = button
-                            while (node != null && node !== this) {
-                                x += node.left - node.scrollX
-                                y += node.top - node.scrollY
-                                node = node.parent as? android.view.View
-                            }
-                            nativePlayCenter = Offset(x, y)
-                        }
-                    }
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                    setBackgroundColor(android.graphics.Color.BLACK)
-                    // Keep a matching frame above the video surface until a real frame is drawn.
-                    // PlayerView's overlay is below its controller, so controls remain usable.
-                    overlayFrameLayout?.addView(ImageView(viewContext).apply {
-                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        // The gallery layout contains no PlayerControlView at all.
+                        // Native-only setters above require one in Media3 1.9.0.
+                        resizeMode = videoResizeMode
+                        this.player = player
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         setBackgroundColor(android.graphics.Color.BLACK)
+                        // Keep a matching frame above the video surface until a real frame is drawn.
+                        // PlayerView's overlay is below its controller, so controls remain usable.
+                        overlayFrameLayout?.addView(ImageView(viewContext).apply {
+                            scaleType = ImageView.ScaleType.FIT_CENTER
+                            setBackgroundColor(android.graphics.Color.BLACK)
+                            setImageBitmap(poster.bitmap)
+                            visibility = if (renderedFirstFrame) android.view.View.GONE else android.view.View.VISIBLE
+                            posterView = this
+                        }, android.widget.FrameLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        ))
+                    }
+                },
+                update = {
+                    if (!galleryPagingEnabled) {
+                        it.useController = !controlsLocked
+                        it.setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
+                    }
+                    it.player = player
+                    it.resizeMode = videoResizeMode
+                    it.findViewById<AspectRatioFrameLayout>(androidx.media3.ui.R.id.exo_content_frame)
+                        ?.setAspectRatio(forcedAspectRatio ?: sourceAspectRatio)
+                    posterView?.apply {
                         setImageBitmap(poster.bitmap)
                         visibility = if (renderedFirstFrame) android.view.View.GONE else android.view.View.VISIBLE
-                        posterView = this
-                    }, android.widget.FrameLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    ))
-                }
-            },
-            update = {
-                it.player = player
-                it.resizeMode = videoResizeMode
-                it.findViewById<AspectRatioFrameLayout>(androidx.media3.ui.R.id.exo_content_frame)
-                    ?.setAspectRatio(forcedAspectRatio ?: sourceAspectRatio)
-                it.useController = !galleryPagingEnabled && !controlsLocked
-                it.setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
-                posterView?.apply {
-                    setImageBitmap(poster.bitmap)
-                    visibility = if (renderedFirstFrame) android.view.View.GONE else android.view.View.VISIBLE
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         // Touches above the timeline control chrome; the timeline remains native and draggable.
         if (!controlsLocked) {
