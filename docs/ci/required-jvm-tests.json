@@ -1359,99 +1359,11 @@
     "skipped": false,
     "failed": false
   },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#durable46MemberPlanResumesAcrossEngineRecreationWithoutDuplicateRemoval": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#durableMembershipPreparationResumesAfterInterruption": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#emptyMembershipBatchDoesNotCopyOrDeleteBytes": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#explicitPauseStopsOnlyAfterCompletedMemberCheckpointAndResumesOnce": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#failedPreflightDoesNotMoveAnything": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#foreignPendingMoveCannotBeResumedByBatch": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#interruptedFinalCommitDoesNotToggleOrMoveTwice": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#interruptedMemberResumesWithoutRepeatingCompletedMembers": {
-    "skipped": false,
-    "failed": false
-  },
   "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#membershipCodecPreservesExternalSeedAndPriorReceipt": {
     "skipped": false,
     "failed": false
   },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#pauseBeforeTheFirstMemberDoesNotCopyOrDeleteAnything": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#receiptRecoversCrashBeforeBatchCursorAdvance": {
-    "skipped": false,
-    "failed": false
-  },
   "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityBatchTest#versionOneBatchRemainsReadable": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#changedSourceOrBindingBlocksCleanup": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#corruptedCopyNeverSwitchesOrDeletesOriginal": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#diskFullRetainsOriginalAndCanResume": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#engineStillRequiresFullBindingProofAfterRebindBeforeCleanup": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#hideAndShowVerifyBytesBeforeDeletion": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#pendingJournalBlocksSecondOperation": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#permissionRevocationNeverCountsAsMissing": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#processDeathAfterAllocationReusesSameDestination": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#processDeathAfterBindingReplaysWithoutDeletingOriginalEarly": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#processDeathAfterRemovalDoesNotDeleteAgain": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#publishedButUnconfirmedRestoreKeepsHiddenBytesAndJournalForResume": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.FolderVisibilityMoveTest#staleSystemIndexKeepsJournalUntilConfirmed": {
     "skipped": false,
     "failed": false
   },
@@ -1730,6 +1642,9 @@
   "com.domenota.medialoader.data.catalog.visibility.NomediaSafPickerPolicyTest#onlyExactSafTreeReturnedFromSystemCanBeAuthorized": {
     "skipped": false,
     "failed": false
+  },
+  "com.domenota.medialoader.data.catalog.visibility.RetiredFolderVisibilityManagerTest#realEntryPointsLeaveLegacyJournalCatalogAndOriginalUntouched": {
+    "skipped": false
   },
   "com.domenota.medialoader.data.catalog.visibility.RetiredFolderVisibilityTransferTest#attemptsFailBeforeAnyFolderOrJournalMutation": {
     "skipped": false,
@@ -2123,19 +2038,7 @@
     "skipped": false,
     "failed": false
   },
-  "com.domenota.medialoader.data.catalog.visibility.VisibilityPreflightV2Test#anyFailedSourceBlocksTheEntireBatch": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.VisibilityPreflightV2Test#changedSourceOrFingerprintInvalidatesApprovedPreview": {
-    "skipped": false,
-    "failed": false
-  },
   "com.domenota.medialoader.data.catalog.visibility.VisibilityPreflightV2Test#errorsAreTypedAndPresentationNeverIncludesSourceData": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.VisibilityPreflightV2Test#snapshotsSupportExactBatches1_8_46": {
     "skipped": false,
     "failed": false
   },
@@ -2264,14 +2167,6 @@
     "failed": false
   },
   "com.domenota.medialoader.data.catalog.visibility.VisibilityUserApprovalGateTest#unclaimedRequestTimesOutWithoutDeletingOrApprovingAnything": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.VisibilityV2CrashReplayTest#eachDurablePhaseCanBeReplayedExactlyOnceAfterProcessDeath": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.catalog.visibility.VisibilityV2CrashReplayTest#permissionRevocationAndSourceChangeDoNotDeleteUnverifiedOriginals": {
     "skipped": false,
     "failed": false
   },
