@@ -52,6 +52,23 @@ class FocusedTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             focused.select(bad, baseline, ('archive',), isolated)
 
+    def test_risk_and_split_profiles(self):
+        runner = focused.load('runner', 'scripts/run-jvm-ci.py')
+        chrome, _, isolated = focused.make_plan(('chrome',),runner)
+        self.assertFalse(isolated)
+        self.assertTrue(any('MediaNavigationDrawerTest#' in k for k in chrome))
+        self.assertFalse(any('MusicDuplicate' in k for k in chrome))
+        nav, _, nav_isolated = focused.make_plan(('navigation',),runner)
+        self.assertFalse(any('MediaOrganizationScreenTest' in c or 'LastCollectionCoverPresentationTest' in c for c,m in nav_isolated))
+        collection, _, methods = focused.make_plan(('collections',),runner)
+        self.assertTrue(any('MediaOrganizationScreenTest' in c for c,m in methods))
+        self.assertTrue(any('LastCollectionCoverPresentationTest' in c for c,m in methods))
+        library, _, _ = focused.make_plan(('library',),runner)
+        self.assertTrue(any('MusicDurationBackfillTest#' in k for k in library))
+        for name in focused.GUARDED_PROFILES:
+            required, _, _ = focused.make_plan((name,),runner)
+            self.assertTrue(all(any(k.startswith(focused.PREFIX+c+'#') for k in required) for c in focused.GUARDS))
+
     def test_worker_markers_reject_missing_duplicate_extra(self):
         methods=[('A','first'),('B','second')]
         good=['ML_CI_TEST_EXECUTED task=:app:testDebugUnitTest',

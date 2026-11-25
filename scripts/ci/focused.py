@@ -15,17 +15,21 @@ GUARDS = ('ui.components.PrivateAccessGateTest ui.components.PrivatePlaybackAlia
           'ui.LibraryValidationGateTest').split()
 PROFILES = {
     'baseline': '',
-    'archive': 'data.archive. data.catalog. data.privatevault. data.storage. data.library. data.playback. ui.screens.Archive ui.screens.Downloads ui.screens.Gallery ui.screens.gallery. ui.screens.music. ui.screens.organization. ui.components.DownloadGroupCard ui.components.Private ui.model.DownloadCatalog ui.Library ui.Collection ui.HomeOrganization ui.FolderVisibility',
-    'privacy': 'data.privatevault. data.catalog.visibility. data.storage. data.archive. data.library. data.playback. ui.components.Private ui.screens.Private ui.screens.gallery.Private ui.navigation. ui.Library ui.Collection ui.HomeOrganization ui.FolderVisibility',
-    'navigation': 'ui.navigation. ui.components.MediaNavigationDrawer ui.components.Library ui.screens.Library ui.screens.Gallery ui.screens.Music ui.screens.Private ui.screens.Archive ui.screens.organization. ui.screens.music. ui.screens.gallery. ui.GalleryNavigation ui.HomeOrganization ui.Library data.privatevault. data.catalog.visibility. data.playback.',
-    'library': 'data.library. data.playback. data.catalog. data.archive. ui.screens.Library ui.screens.Gallery ui.screens.Music ui.screens.Downloads ui.screens.Archive ui.screens.gallery. ui.screens.music. ui.screens.organization. ui.components.Library ui.components.BackgroundLibraryProjection ui.components.DownloadGroupCard ui.Library ui.HomeOrganization ui.Collection',
-    'playback': 'data.playback. data.library. ui.components.Audio ui.components.PrivatePlayback ui.components.Waveform ui.screens.Music ui.screens.Video ui.screens.music. ui.screens.gallery. ui.navigation.ViewerQueue',
+    'chrome': 'ui.components.LibraryModeHeaderTest ui.components.LibraryHeaderActionsTest ui.components.MediaNavigationDrawerTest ui.navigation.DrawerPolicyTest ui.navigation.JournalAccessTest ui.GalleryNavigationPlacementTest ui.screens.LibraryModeScreensTest ui.screens.LibraryModeShortViewportTest ui.theme.TransparentNavigationTest ui.theme.SettingsIconPaletteTest',
+    'collections': 'data.library.Collection data.library.LastCollection data.library.MediaOrganization data.library.PlaylistRepository data.catalog.visibility.VisibilityCollectionLinks data.catalog.CatalogFavoriteBatchTest ui.CollectionReadBridgeTest ui.HomeOrganizationPolicyTest ui.screens.organization. ui.screens.HomeOrganizationVisibilityTest ui.screens.Playlist ui.screens.gallery.GalleryAlbumOrganizationTest ui.screens.music.MusicFavoritesPolicyTest',
+    'archive': 'data.archive. data.catalog. data.privatevault. data.storage. data.library. data.playback. ui.screens.Archive ui.screens.Downloads ui.screens.Gallery ui.screens.gallery. ui.screens.music. ui.screens.organization. ui.components.DownloadGroupCard ui.components.Private ui.model.DownloadCatalog ui.Library ui.Collection ui.HomeOrganization ui.FolderVisibility data.MusicDurationBackfillTest',
+    'privacy': 'data.privatevault. data.catalog.visibility. data.storage. data.archive. data.library. data.playback. ui.components.Private ui.screens.Private ui.screens.gallery.Private ui.navigation. ui.Library ui.Collection ui.HomeOrganization ui.FolderVisibility data.MusicDurationBackfillTest',
+    'navigation': 'ui.navigation. ui.components.MediaNavigationDrawer ui.components.Library ui.screens.Library ui.GalleryNavigation ui.HomeOrganization ui.Library ui.RecoveryRefreshModesTest ui.screens.GalleryAlbumNavigationTest ui.screens.GalleryDateNavigationTest ui.screens.gallery.GalleryViewerOverlayPolicyTest ui.screens.gallery.GalleryVideoHeaderActionPlacementTest data.privatevault. data.catalog.visibility. data.playback. data.library.ModeShortcutsTest ui.theme.TransparentNavigationTest',
+    'library': 'data.library. data.playback. data.catalog. data.archive. ui.screens.Library ui.screens.Gallery ui.screens.Music ui.screens.Downloads ui.screens.Archive ui.screens.gallery. ui.screens.music. ui.screens.organization. ui.components.Library ui.components.BackgroundLibraryProjection ui.components.DownloadGroupCard ui.Library ui.HomeOrganization ui.Collection data.MusicDurationBackfillTest',
+    'playback': 'data.playback. data.library. ui.components.Audio ui.components.PrivatePlayback ui.components.Waveform ui.screens.Music ui.screens.Video ui.screens.music. ui.screens.gallery. ui.navigation.ViewerQueue data.MusicDurationBackfillTest',
     'editors': 'data.editor. ui.components.Editor ui.screens.Photo ui.screens.Video ui.screens.BatchPhoto ui.screens.Ai ui.screens.gallery.Cutout ui.screens.gallery.Magnetic ui.screens.gallery.U2Net ui.navigation.VideoEditorRouteAdmission data.storage. data.playback.',
-    'download': 'core.provider. data.download. data.gapi. data.youtube. data.vk. data.vkcommunity. data.instagramprofile. data.share. data.search. data.recognition. data.storage. ui.screens.Downloads ui.components.Download ui.model. ui.screens.SourceBrowser ui.RutubeAuthNavigation',
-    'storage': 'data.storage. data.privatevault. data.archive. data.catalog. data.library. data.playback. data.PermanentMediaDeletion ui.components.MediaDeletion ui.components.Private ui.components.LibraryMediaDelete ui.screens.Private ui.screens.Archive ui.FolderVisibility ui.Library ui.Collection',
+    'download': 'core.provider. data.download. data.gapi. data.youtube. data.vk. data.vkcommunity. data.instagramprofile. data.share. data.search. data.recognition. data.storage. ui.screens.Downloads ui.components.Download ui.model. ui.screens.SourceBrowser ui.RutubeAuthNavigation data.MusicDurationBackfillTest',
+    'storage': 'data.storage. data.privatevault. data.archive. data.catalog. data.library. data.playback. data.PermanentMediaDeletion ui.components.MediaDeletion ui.components.Private ui.components.LibraryMediaDelete ui.screens.Private ui.screens.Archive ui.FolderVisibility ui.Library ui.Collection data.MusicDurationBackfillTest',
     'diagnostics': 'core.diagnostics. core.logging. data.diagnostics. ui.navigation.JournalAccess ui.components.PrivateAccessGate',
 }
 RISK_LINT = {'archive', 'privacy', 'storage'}
+GUARDED_PROFILES = {'archive', 'privacy', 'storage', 'library', 'navigation', 'playback', 'collections'}
+DEVICE_COMPILE_PROFILES = {'archive', 'privacy', 'storage', 'editors'}
 CI_LABELS = {'ci:verify', 'ci:qualify'} | {'ci:quick-' + p for p in PROFILES}
 
 def load(name, path):
@@ -67,7 +71,9 @@ def request():
 
 def select(inventory, baseline, names, isolated):
     classes = {key.split('#', 1)[0] for key in inventory}
-    base = set(baseline) | {PREFIX + x for x in GUARDS}
+    base = set(baseline)
+    if set(names) & GUARDED_PROFILES:
+        base |= {PREFIX + x for x in GUARDS}
     if not base or base - classes:
         raise ValueError('Missing baseline classes: ' + str(sorted(base - classes)))
     selected = set(base)
@@ -158,6 +164,7 @@ def main():
         if os.getenv('GITHUB_OUTPUT'):
             with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                 f.write('lint=' + str(lint).lower() + '\n')
+                f.write('device_compile=' + str(bool(set(names) & DEVICE_COMPILE_PROFILES)).lower() + '\n')
         return 0
     if os.environ['ML_MODE'] != 'quick':
         raise ValueError('Focused runner is quick-only')

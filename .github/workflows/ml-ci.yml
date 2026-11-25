@@ -12,7 +12,7 @@ on:
         options: [quick, verify, qualify, perf]
         default: verify
       quick_profiles:
-        description: Quick only; comma-separated baseline/archive/privacy/navigation/library/playback/editors/download/storage/diagnostics
+        description: Quick only; comma-separated baseline/chrome/collections/archive/privacy/navigation/library/playback/editors/download/storage/diagnostics
         default: baseline
         type: string
       quick_lint:
@@ -30,7 +30,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && !contains(fromJSON('["ci:qualify","ci:verify","ci:quick-baseline","ci:quick-archive","ci:quick-privacy","ci:quick-navigation","ci:quick-library","ci:quick-playback","ci:quick-editors","ci:quick-download","ci:quick-storage","ci:quick-diagnostics"]'), github.event.label.name) && github.run_id || 'active' }}
+  group: ml-ci-${{ github.head_ref || github.ref_name }}-${{ inputs.fault || 'none' }}-${{ github.event.action == 'labeled' && !contains(fromJSON('["ci:qualify","ci:verify","ci:quick-baseline","ci:quick-chrome","ci:quick-collections","ci:quick-archive","ci:quick-privacy","ci:quick-navigation","ci:quick-library","ci:quick-playback","ci:quick-editors","ci:quick-download","ci:quick-storage","ci:quick-diagnostics"]'), github.event.label.name) && github.run_id || 'active' }}
   cancel-in-progress: true
 env:
   ML_MODE: ${{ inputs.mode || (github.event.label.name == 'ci:verify' && 'verify') || (github.event.label.name == 'ci:qualify' && 'qualify') || 'quick' }}
@@ -44,11 +44,12 @@ env:
   ML_MODE_CONFLICT: ${{ contains(github.event.pull_request.labels.*.name, 'ci:audit') || (contains(github.event.pull_request.labels.*.name, 'ci:verify') && contains(github.event.pull_request.labels.*.name, 'ci:qualify')) }}
 jobs:
   quick:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(fromJSON('["ci:qualify","ci:verify","ci:quick-baseline","ci:quick-archive","ci:quick-privacy","ci:quick-navigation","ci:quick-library","ci:quick-playback","ci:quick-editors","ci:quick-download","ci:quick-storage","ci:quick-diagnostics"]'), github.event.label.name))
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && contains(fromJSON('["ci:qualify","ci:verify","ci:quick-baseline","ci:quick-chrome","ci:quick-collections","ci:quick-archive","ci:quick-privacy","ci:quick-navigation","ci:quick-library","ci:quick-playback","ci:quick-editors","ci:quick-download","ci:quick-storage","ci:quick-diagnostics"]'), github.event.label.name))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       focused_lint: ${{ steps.profile.outputs.lint }}
+      device_compile: ${{ steps.profile.outputs.device_compile }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,8 +79,15 @@ jobs:
           lane: jvm
           epoch: ${{ inputs.cache_epoch || 'v1' }}
       - run: python3 scripts/ci/fault.py
-      - name: Compile JVM and Android device-test sources (without running device tests)
-        run: python3 scripts/ci/gate.py stage test-compile "$ML_GRADLE" :app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac :app:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestJavaWithJavac -Parm64Release=true --stacktrace --console=plain
+      - name: Compile affected test sources
+        env:
+          ML_DEVICE_COMPILE: ${{ needs.quick.outputs.device_compile }}
+        run: |
+          tasks=(:app:compileDebugUnitTestKotlin :app:compileDebugUnitTestJavaWithJavac)
+          if [[ "$ML_MODE" != quick || "$ML_DEVICE_COMPILE" == true ]]; then
+            tasks+=(:app:compileDebugAndroidTestKotlin :app:compileDebugAndroidTestJavaWithJavac)
+          fi
+          python3 scripts/ci/gate.py stage test-compile "$ML_GRADLE" "${tasks[@]}" -Parm64Release=true --stacktrace --console=plain
       - name: Focused PR feedback
         if: env.ML_MODE == 'quick'
         run: |
