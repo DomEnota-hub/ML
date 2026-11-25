@@ -6,6 +6,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsActions
+import com.domenota.medialoader.ui.screens.DrawerSettingsScreen
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.test.*
@@ -187,4 +189,23 @@ class MediaNavigationDrawerTest{
         compose.runOnIdle{unlocked=false}
         compose.onNodeWithTag("drawer-entry-DIAGNOSTICS").assertDoesNotExist()
     }
+    @Test fun configurationEditorSavesVisibilityOrderAndResetsWhileSettingsStaysEnabled(){
+        var configuration by mutableStateOf(DrawerConfiguration.DEFAULT)
+        compose.setContent { MaterialTheme {
+            DrawerSettingsScreen(configuration,true,{configuration=it},{})
+        } }
+        compose.onNodeWithTag("drawer-config-switch-HOME").assertIsOn().performClick().assertIsOff()
+        compose.runOnIdle { assertFalse(DrawerEntry.HOME in configuration.visible) }
+        val handle=compose.onNodeWithTag("drawer-config-handle-DOWNLOADS")
+        val action=handle.fetchSemanticsNode().config[SemanticsActions.CustomActions].first { it.label=="Выше" }
+        compose.runOnIdle { assertTrue(action.action()) }
+        compose.runOnIdle { assertEquals(DrawerEntry.DOWNLOADS,configuration.order.first()) }
+        compose.onNodeWithTag("drawer-config-switch-SETTINGS").assertIsOn().assertIsNotEnabled()
+        compose.onNodeWithTag("drawer-config-switch-EQUALIZER").performScrollTo().assertIsOff().performClick().assertIsOn()
+        compose.runOnIdle { assertTrue(DrawerEntry.EQUALIZER in configuration.visible) }
+        compose.onNodeWithTag("drawer-config-reset").performClick()
+        compose.runOnIdle { assertEquals(DrawerConfiguration.DEFAULT,configuration) }
+        compose.onNodeWithTag("drawer-config-switch-HOME").performScrollTo().assertIsOn()
+    }
+
 }
