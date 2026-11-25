@@ -59,6 +59,20 @@ internal object SimpleArchivePolicy {
     fun isArchived(records: List<SimpleArchiveRecord>, candidate: SimpleArchiveCandidate): Boolean =
         records.any { matches(it, candidate) }
 
+    /** Presentation only: hide a folder only when every known member has an exact archive match.
+     * An empty folder, unknown member or changed identity is never proof of full archival. */
+    fun fullyArchivedFolderIds(
+        records: List<SimpleArchiveRecord>,
+        members: Map<String, List<SimpleArchiveCandidate?>>,
+    ): Set<String> {
+        val byUri = records.groupBy { it.savedUri }
+        return members.filterValues { rows ->
+            rows.isNotEmpty() && rows.all { candidate ->
+                candidate != null && isArchived(byUri[candidate.savedUri].orEmpty(), candidate)
+            }
+        }.keys
+    }
+
     fun archive(
         existing: List<SimpleArchiveRecord>,
         selected: List<SimpleArchiveRecord>,
