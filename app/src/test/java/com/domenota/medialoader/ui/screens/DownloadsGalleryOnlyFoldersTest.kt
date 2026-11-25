@@ -42,4 +42,17 @@ class DownloadsGalleryOnlyFoldersTest {
                 rows.map { it.copy(state = DownloadUiState.DOWNLOADING) },
                 entries, setOf("from-gallery"), assigning = false).map { it.id })
     }
+    @Test fun fullyArchivedFolderIsHiddenWithoutRemovingEmptyOrAssignableFolders() {
+        val entries = mapOf("app-download" to
+            CatalogAssignmentEntity("app-download", "downloads", false))
+        assertEquals(listOf("empty"), visibleDownloadFolders(folders, emptyList(), entries,
+            setOf("from-gallery"), assigning = false, fullyArchivedFolderIds = setOf("downloads")).map { it.id })
+        // A current visible download wins over stale archive projection, and assignments
+        // remain available so adding a new member can make the folder visible again.
+        assertEquals(listOf("downloads", "empty"), visibleDownloadFolders(folders, rows, entries,
+            setOf("from-gallery"), assigning = false, fullyArchivedFolderIds = setOf("downloads")).map { it.id })
+        assertEquals(folders.map { it.id }, visibleDownloadFolders(folders, emptyList(), entries,
+            setOf("from-gallery"), assigning = true, fullyArchivedFolderIds = setOf("downloads")).map { it.id })
+    }
+
 }
