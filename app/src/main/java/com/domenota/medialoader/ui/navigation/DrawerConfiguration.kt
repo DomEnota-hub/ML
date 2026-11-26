@@ -30,7 +30,7 @@ internal data class DrawerConfiguration private constructor(
             DrawerEntry.HOME, DrawerEntry.DOWNLOADS, DrawerEntry.GALLERY, DrawerEntry.MUSIC,
             DrawerEntry.MUSIC_SEARCH, DrawerEntry.FAVORITES, DrawerEntry.PRIVATE, DrawerEntry.ARCHIVE,
             DrawerEntry.COLLECTIONS, DrawerEntry.TRASH, DrawerEntry.SETTINGS, DrawerEntry.APPEARANCE,
-            DrawerEntry.JOURNAL,
+            DrawerEntry.JOURNAL, DrawerEntry.TASK_CENTER,
         )
         val DEFAULT = DrawerConfiguration(DrawerEntry.entries.toList(), defaultVisible)
         const val PREF = "drawer_configuration_v1"

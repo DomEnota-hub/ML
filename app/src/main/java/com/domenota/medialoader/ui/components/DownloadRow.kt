@@ -28,9 +28,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -124,7 +121,6 @@ fun DownloadRow(
     var renameDialog by remember { mutableStateOf(false) }
     var videoSongSearch by remember(item.id) { mutableStateOf(false) }
     var sourceDialog by remember { mutableStateOf(false) }
-    var failureDetailsOpen by remember(item.id) { mutableStateOf(false) }
     var selectedMusicSource by remember { mutableStateOf<FullSongSource?>(null) }
     var newName by remember(item.title) { mutableStateOf(StorageNaming.editableStem(item.title)) }
 
@@ -210,20 +206,6 @@ fun DownloadRow(
         )
     }
 
-    // The stored error is complete. Never replace it with a truncated message
-    // in history: a scrollable details dialog retains the full diagnostics.
-    if (failureDetailsOpen && item.state == DownloadUiState.FAILED) AlertDialog(
-        onDismissRequest = { failureDetailsOpen = false },
-        title = { Text("Подробности ошибки загрузки") },
-        text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 380.dp)
-                .verticalScroll(rememberScrollState())) {
-                Text(item.subtitle, style = MaterialTheme.typography.bodyMedium)
-            }
-        },
-        confirmButton = { TextButton(onClick = { failureDetailsOpen = false }) { Text("Закрыть") } },
-    )
-
     val missing = item.state == DownloadUiState.COMPLETED && item.fileStatus == SavedFileStatus.MISSING
     val inaccessible = item.state == DownloadUiState.COMPLETED &&
         item.fileStatus == SavedFileStatus.INACCESSIBLE
@@ -242,7 +224,7 @@ fun DownloadRow(
 
     var menuExpanded by remember { mutableStateOf(false) }
     ReportDrawerOverlay(menuExpanded||renameDialog||videoSongSearch||
-        (sourceDialog&&sourceUrl!=null)||(failureDetailsOpen&&item.state==DownloadUiState.FAILED)||
+        (sourceDialog&&sourceUrl!=null)||
         selectedMusicSource!=null)
     val sourceLabel = if (item.kind == MediaKind.AUDIO) "Музыка" else when (item.providerId?.lowercase()) {
         "instagram" -> "Instagram"
@@ -352,11 +334,6 @@ fun DownloadRow(
                         DropdownMenuItem(leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null) },
                             text = { Text("Отмена") }, onClick = { menuExpanded = false; onCancel() })
                     } else {
-                        if (item.state == DownloadUiState.FAILED) DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Rounded.Info, contentDescription = null) },
-                            text = { Text("Подробности ошибки") },
-                            onClick = { menuExpanded = false; failureDetailsOpen = true },
-                        )
                         DropdownMenuItem(leadingIcon = { Icon(Icons.Rounded.Refresh, contentDescription = null) },
                             text = { Text("Повторить") }, onClick = { menuExpanded = false; onRetry() })
                         DropdownMenuItem(leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) },
@@ -366,7 +343,7 @@ fun DownloadRow(
                     }
                 }
     }
-    if (compact) {
+    if (compact && item.state != DownloadUiState.FAILED) {
         Box(modifier.aspectRatio(1f).clip(RoundedCornerShape(8.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .semantics { contentDescription = shownName; stateDescription = statusText }
@@ -428,13 +405,8 @@ fun DownloadRow(
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (item.state == DownloadUiState.FAILED) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (item.state == DownloadUiState.FAILED) 3 else 2,
+                    maxLines = if (item.state == DownloadUiState.FAILED) Int.MAX_VALUE else 2,
                     overflow = TextOverflow.Ellipsis)
-                if (item.state == DownloadUiState.FAILED && item.subtitle.isNotBlank()) {
-                    TextButton(onClick = { failureDetailsOpen = true }) {
-                        Text("Показать ошибку полностью")
-                    }
-                }
                 item.recognitionLabel?.let { recognition ->
                     Text(
                         recognition,

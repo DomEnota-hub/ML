@@ -7,7 +7,7 @@ internal const val MUSIC_SEARCH_ROUTE="music-search"
 internal const val FAVORITES_ROUTE="favorites"
 internal enum class DrawerEntry(val label:String){
     HOME("Главная"),DOWNLOADS("Загрузки"),GALLERY("Галерея"),MUSIC("Музыка"),
-    MUSIC_SEARCH("Поиск музыки"),
+    TASK_CENTER("Центр задач"), MUSIC_SEARCH("Поиск музыки"),
     FAVORITES("Избранное"),PRIVATE("Личное"),ARCHIVE("Архив"),
     COLLECTIONS("Коллекции"),TRASH("Корзина"),
     SETTINGS("Настройки"),APPEARANCE("Оформление"),JOURNAL("Журнал"),
@@ -17,7 +17,7 @@ internal enum class DrawerEntry(val label:String){
 }
 /** Primary modes have no alternate switcher. Keep their destinations reachable. */
 internal val mandatoryDrawerEntries: Set<DrawerEntry> = setOf(
-    DrawerEntry.HOME, DrawerEntry.GALLERY, DrawerEntry.MUSIC, DrawerEntry.SETTINGS,
+    DrawerEntry.HOME, DrawerEntry.GALLERY, DrawerEntry.MUSIC, DrawerEntry.SETTINGS, DrawerEntry.TASK_CENTER,
 )
 
 /** Diagnostics is hidden-only; Journal retains its persisted developer gate. */
@@ -26,7 +26,7 @@ internal fun drawerAvailableEntries(journalUnlocked:Boolean):Set<DrawerEntry> =
 
 internal fun drawerRouteAllowed(route:String?,mode:AppMode):Boolean =
     when(route){
-        "home","downloads","simple-archive",FAVORITES_ROUTE,"private","collections","music-duplicates"->true
+        "home","downloads","simple-archive",FAVORITES_ROUTE,"private","collections","music-duplicates","task-center"->true
         "settings"->mode==AppMode.MUSIC
         else->false
     }
@@ -38,6 +38,7 @@ internal fun drawerAllowed(route:String?,mode:AppMode,screenAdmitted:Boolean,blo
     drawerRouteAllowed(route,mode)&&screenAdmitted&&!blocked
 
 internal fun drawerActiveEntry(route:String?,mode:AppMode):DrawerEntry? = when(route){
+    "task-center"->DrawerEntry.TASK_CENTER
     "downloads"->DrawerEntry.DOWNLOADS
     "simple-archive"->DrawerEntry.ARCHIVE
     FAVORITES_ROUTE->DrawerEntry.FAVORITES

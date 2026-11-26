@@ -2218,6 +2218,7 @@ fun MediaLoaderApp(
     // the 1.7.211 DEX had invoke-direct/range constructors with 256/257 register words.
     // StableLibraryNavHost still observes the latest callbacks; only their ownership changes.
     val libraryRoutes = listOf(
+            LibraryRouteContent("task-center") { com.domenota.medialoader.ui.screens.tasks.TaskCenterScreen { navController.popBackStack() } },
             LibraryRouteContent(AppDestination.Home.route) {
                 CompositionLocalProvider(LocalDrawerAdmission provides drawerAdmission.takeIf{currentRoute==AppDestination.Home.route}){
                 modeStates.SaveableStateProvider(appMode.name) {
@@ -2225,6 +2226,7 @@ fun MediaLoaderApp(
                     title = { Row(verticalAlignment = Alignment.CenterVertically) {
                         AppModeTitle(appMode)
                         IconButton({ navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } }) { ArchiveActionIcon() }
+                        com.domenota.medialoader.ui.screens.tasks.TaskCenterAction { navController.navigate("task-center") { launchSingleTop = true } }
                     } },
                     url = pendingUrl,
                     onUrlChange = {
@@ -3648,6 +3650,7 @@ fun MediaLoaderApp(
             returnAfterPrivateSetup=false
         }
             when(entry){
+                DrawerEntry.TASK_CENTER->navController.navigate("task-center"){launchSingleTop=true}
                 DrawerEntry.HOME->openDrawerHome(AppMode.DOWNLOADER)
                 DrawerEntry.DOWNLOADS->{
                     if(appMode!=AppMode.DOWNLOADER)selectAppMode(AppMode.DOWNLOADER,true)
@@ -3791,7 +3794,7 @@ fun MediaLoaderApp(
     ) { innerPadding ->
         Box(Modifier.fillMaxSize()) {
         LibraryRefreshShield(
-            checkingPhoneAccess && currentRoute != AppDestination.Settings.route && currentRoute != "drawer-settings" &&
+            checkingPhoneAccess && currentRoute != AppDestination.Settings.route && currentRoute != "drawer-settings" && currentRoute != "task-center" &&
                 !(appMode == AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route),
             Modifier.padding(innerPadding),
             onExit = if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)

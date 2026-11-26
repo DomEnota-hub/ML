@@ -430,6 +430,34 @@ class MediaRepository private constructor(context: Context) {
         }
     }
     val downloads: Flow<List<DownloadEntity>> = history.observeAll()
+    private val taskFeedScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    init {
+        taskFeedScope.launch {
+            downloads.collect { rows ->
+                val feed = com.domenota.medialoader.data.tasks.DownloadTaskFeed
+                val cutoff = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
+                val relevant = rows.filter { it.createdAtEpochMillis >= cutoff ||
+                    it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED }
+                com.domenota.medialoader.data.tasks.TaskCenter.registry.publish(
+                    com.domenota.medialoader.data.tasks.TaskOwner.DOWNLOADS, feed.groups(relevant)
+                ) { id, action ->
+                    taskFeedScope.launch {
+                        val targets = feed.commandTargets(history.all(), id, action)
+                        targets.forEach { target ->
+                            try {
+                                when (action) {
+                                    com.domenota.medialoader.data.tasks.TaskCommand.CANCEL -> cancel(target)
+                                    com.domenota.medialoader.data.tasks.TaskCommand.RETRY -> retry(target)
+                                    else -> Unit
+                                }
+                            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                              catch (_: Exception) { }
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Buffer identities survive successful public deletion for the lifetime of this process.
     // Restrict them to rows still private so a later public restore is playable normally.
     private val movedPublicAliases = MutableStateFlow<Map<String, Set<String>>>(emptyMap())

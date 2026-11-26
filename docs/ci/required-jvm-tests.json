@@ -7334,6 +7334,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.tasks.DownloadTaskFeedTest#groupActiveCountsOnlyOneTask": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.DownloadTaskFeedTest#groupRetryTargetsOnlyFailedChildren": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.DownloadTaskFeedTest#waitingIsNotAnErrorAndNoPrivateRowsArePublished": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#commandsRequireCurrentCapability": {
     "skipped": false,
     "failed": false

@@ -7,7 +7,7 @@ import org.junit.Test
 class DrawerPolicyTest{
     @Test fun onlyMainRoutesAndActualScreenAdmissionCanOpen(){
         for(mode in AppMode.entries){
-            for(route in listOf("home","downloads","simple-archive",FAVORITES_ROUTE,"private","collections","music-duplicates") + (if(mode==AppMode.MUSIC)listOf("settings") else emptyList())){
+            for(route in listOf("home","downloads","simple-archive",FAVORITES_ROUTE,"private","collections","music-duplicates","task-center") + (if(mode==AppMode.MUSIC)listOf("settings") else emptyList())){
                 assertTrue(drawerAllowed(route,mode,true,false))
                 assertFalse(drawerAllowed(route,mode,false,false))
                 assertFalse(drawerAllowed(route,mode,true,true))
@@ -32,6 +32,7 @@ class DrawerPolicyTest{
         assertEquals(DrawerEntry.HOME,drawerActiveEntry("home",AppMode.DOWNLOADER))
         assertEquals(DrawerEntry.GALLERY,drawerActiveEntry("home",AppMode.GALLERY))
         assertEquals(DrawerEntry.MUSIC,drawerActiveEntry("home",AppMode.MUSIC))
+        assertEquals(DrawerEntry.TASK_CENTER,drawerActiveEntry("task-center",AppMode.MUSIC))
         assertEquals(DrawerEntry.DOWNLOADS,drawerActiveEntry("downloads",AppMode.MUSIC))
         assertEquals(DrawerEntry.ARCHIVE,drawerActiveEntry("simple-archive",AppMode.GALLERY))
         assertEquals(DrawerEntry.FAVORITES,drawerActiveEntry(FAVORITES_ROUTE,AppMode.MUSIC))
@@ -78,8 +79,8 @@ class DrawerPolicyTest{
         assertTrue(setOf(DrawerEntry.FAVORITES,DrawerEntry.PRIVATE,DrawerEntry.ARCHIVE,
             DrawerEntry.COLLECTIONS,DrawerEntry.TRASH).all{it in public})
         val defaults=DrawerConfiguration.DEFAULT
-        assertEquals(DrawerEntry.entries.take(13), defaults.entries(true))
-        assertEquals(DrawerEntry.entries.take(12), defaults.entries(false))
+        assertEquals(DrawerEntry.entries.take(14), defaults.entries(true))
+        assertEquals(DrawerEntry.entries.take(13), defaults.entries(false))
         val customized=defaults.setVisible(DrawerEntry.HOME,false)
             .setVisible(DrawerEntry.DIAGNOSTICS,true)
             .setVisible(DrawerEntry.MUSIC_DUPLICATES,true)

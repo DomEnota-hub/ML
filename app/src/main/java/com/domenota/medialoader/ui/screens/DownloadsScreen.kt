@@ -446,7 +446,7 @@ fun DownloadsScreen(
             else listOf("group:$id" to group.first()) + if (id in expandedGroups) {
                 group.take(groupLimits[id] ?: 24).map { "child:${it.id}" to it }
             } else emptyList()
-        } + if (gridMode) searchedHistory.flatten().chunked(4).flatMap { row ->
+        } + if (gridMode) downloadGridRows(searchedHistory.flatten()).flatMap { row ->
             row.map { "grid:${row.first().id}" to it }
         } else emptyList()
     }
@@ -773,7 +773,7 @@ private fun LazyListScope.DownloadRows(
     onArchivePublication: ((String, String, List<String>) -> Unit)? = null,
 ) {
     if (grid) {
-        val rows = items.flatten().chunked(4)
+        val rows = downloadGridRows(items.flatten())
         items(rows, key = { "grid:${it.first().id}" }, contentType = { "grid" }) { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 row.forEach { entry ->
@@ -782,7 +782,7 @@ private fun LazyListScope.DownloadRows(
                         recognitionEnabled, onRecognizeDownload, assignments, folderNames,
                         onFavorite, onChooseFolder, onMoveToPrivate, compact = true, modifier = Modifier.weight(1f),onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive) }
                 }
-                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                if (row.none { it.state == DownloadUiState.FAILED }) repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -954,4 +954,15 @@ private fun HistorySelectionCard(file: DownloadUiItem, checked: Boolean, onToggl
             }
         }
     }
+}
+
+/** Failed rows occupy the full width so the complete message is readable in grid and list. */
+internal fun downloadGridRows(items: List<DownloadUiItem>): List<List<DownloadUiItem>> = buildList {
+    val pending = mutableListOf<DownloadUiItem>()
+    fun flush() { if (pending.isNotEmpty()) { add(pending.toList()); pending.clear() } }
+    items.forEach { item ->
+        if (item.state == DownloadUiState.FAILED) { flush(); add(listOf(item)) }
+        else { pending.add(item); if (pending.size == 4) flush() }
+    }
+    flush()
 }
