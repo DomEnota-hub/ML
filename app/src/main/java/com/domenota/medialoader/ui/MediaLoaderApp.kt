@@ -756,7 +756,7 @@ fun MediaLoaderApp(
             onSearch = { setLibrarySearchVisible(!librarySearchVisible) },
             onCalendar = if (appMode == AppMode.GALLERY && galleryTab == 0) ({ galleryDateRequest++ }) else null,
             onHiddenTracks = if (appMode == AppMode.MUSIC) ({ hiddenMusicTracksOpen = true }) else null,
-            onPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
+            onPrivate = { viewModel.privateAccess.preparePrivateEntry(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
              onVault = { navController.navigate(SIMPLE_ARCHIVE_ROUTE) { launchSingleTop = true } },
              unifiedDrawerRoutes=true)
     }
@@ -838,12 +838,21 @@ fun MediaLoaderApp(
         generateSequence(context) { (it as? android.content.ContextWrapper)?.baseContext }
             .filterIsInstance<Activity>().firstOrNull()
     }
+    val privateLifecycleRoute by rememberUpdatedState(currentRoute)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) viewModel.privateAccess.lock()
+            if (event == Lifecycle.Event.ON_STOP) {
+                if (privateLifecycleRoute == VAULT_ROUTE) viewModel.privateAccess.lock()
+                else viewModel.privateAccess.suspendAccess()
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); viewModel.privateAccess.lock() }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            if (privateActivity?.isChangingConfigurations == true && privateLifecycleRoute != VAULT_ROUTE)
+                viewModel.privateAccess.suspendAccess()
+            else viewModel.privateAccess.lock()
+        }
     }
     DisposableEffect(privateNavigation, currentRoute in setOf(PRIVATE_ROUTE,VAULT_ROUTE), privateActivity) {
         val window = privateActivity?.window
@@ -854,7 +863,7 @@ fun MediaLoaderApp(
     LaunchedEffect(currentRoute) {
         if (currentRoute in setOf(PRIVATE_ROUTE,VAULT_ROUTE)) privateNavigation = true
         else if (privateNavigation && currentRoute !in setOf(MEDIA_VIEWER_ROUTE, VIDEO_EDITOR_ROUTE, AUDIO_EDITOR_ROUTE, PHOTO_EDITOR_ROUTE)) {
-            viewModel.privateAccess.lock()
+            viewModel.privateAccess.suspendAccess()
             privateNavigation = false
             pendingPrivateMoves = emptyList()
             returnAfterPrivateSetup = false
@@ -1946,7 +1955,7 @@ fun MediaLoaderApp(
                     if (com.domenota.medialoader.data.playback.FloatingVideoService.pendingHandoff(handoff.token) != handoff ||
                         !canOpenFolderMedia(item,null)) return@launch
                     if (privateNavigation) {
-                        viewModel.privateAccess.lock(); privateNavigation = false
+                        viewModel.privateAccess.suspendAccess(); privateNavigation = false
                         pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false
                     }
                     if (appMode != AppMode.GALLERY) selectAppMode(AppMode.GALLERY, true)
@@ -2262,7 +2271,7 @@ fun MediaLoaderApp(
     LaunchedEffect(shortcutMode, shortcutGeneration) {
         val mode = shortcutMode ?: return@LaunchedEffect
         if (mode != AppMode.GALLERY && mode != AppMode.MUSIC) return@LaunchedEffect
-        viewModel.privateAccess.lock()
+        viewModel.privateAccess.suspendAccess()
         privateNavigation = false
         hiddenMusicTracksOpen = false
         galleryAlbumRequest = null
@@ -2436,7 +2445,7 @@ fun MediaLoaderApp(
                     onOpen = openDownloadWithQueue,
                     albumRequest = galleryAlbumRequest, onAlbumRequestHandled = { galleryAlbumRequest = null },
                     onOpenFromAlbum = { id, queue, album -> openingAlbumKey = album; openDownloadWithQueue(id,queue) },
-                    onOpenPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
+                    onOpenPrivate = { viewModel.privateAccess.preparePrivateEntry(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onFavorite = setLibraryFavorite, onSetFolder = setLibraryFolder,
                     onCreateFolder = viewModel::createCatalogFolder,
                     onDeleteFolder = deleteVisibilityFolder, onShare = shareLibraryFile,
@@ -2484,7 +2493,7 @@ fun MediaLoaderApp(
                     header = libraryHeader, loading = !libraryIndex.ready || (librarySource == LibrarySource.PHONE && !phoneMusic.loaded),
                     message = if (librarySource == LibrarySource.PHONE) phoneMusic.message else null,
                     onOpen = openDownloadWithQueue,
-                    onOpenPrivate = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
+                    onOpenPrivate = { viewModel.privateAccess.preparePrivateEntry(); privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onCreate = libraryModel.playlistRepository::create, onRename = libraryModel.playlistRepository::rename,
                     onDeletePlaylist = libraryModel.playlistRepository::delete, onAddTracks = { id, ids ->
                         val aliases = publicLibraryRefs.flatMap { ref -> ref.aliases.map { it to ref.key } }.toMap()
@@ -2929,7 +2938,7 @@ fun MediaLoaderApp(
                     onOpenFromFolder = { id,queue,folder -> openingAlbumKey = folder?.let { "folder:$it" }; openDownloadWithQueue(id,queue) },
                     onShareFromFolder = { id,folder -> shareScopedFile(id,folder) },
                     onAddCollection=::addToCollection,onPassport=::openPassport,
-                    onOpenPrivate = { viewModel.privateAccess.lock(); pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false; privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
+                    onOpenPrivate = { viewModel.privateAccess.preparePrivateEntry(); pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false; privateNavigation = true; navController.navigate(PRIVATE_ROUTE) },
                     onMoveToPrivate = { id -> requestPrivateMove(listOf(id)) },
                     onMoveGroupToPrivate = ::requestPrivateMove,
                     onSetFavorite = viewModel::setCatalogFavorite,
@@ -2965,7 +2974,7 @@ fun MediaLoaderApp(
             },
             LibraryRouteContent(PRIVATE_ROUTE) {
                 PrivateScreen(viewModel.privateAccess, privateDownloads,
-                    onBack = { pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false; viewModel.privateAccess.lock(); navController.popBackStack() },
+                    onBack = { pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false; viewModel.privateAccess.suspendAccess(); navController.popBackStack() },
                     onOpen = openDownload,
                     onOpenVault = { viewModel.privateAccess.lock(); privateNavigation = true; navController.navigate(VAULT_ROUTE) },
                     onOpenGrid = openDownloadWithQueue,
@@ -3789,7 +3798,7 @@ fun MediaLoaderApp(
         if(entry !in DrawerConfiguration.read(uiPrefs).entries(JournalAccess.allowed(uiPrefs)))return
         if(currentRoute==PRIVATE_ROUTE){
             if(!viewModel.privateAccess.state.value.unlocked||entry==DrawerEntry.PRIVATE)return
-            viewModel.privateAccess.lock()
+            viewModel.privateAccess.suspendAccess()
             pendingPrivateMoves=emptyList()
             returnAfterPrivateSetup=false
         }
@@ -3809,7 +3818,7 @@ fun MediaLoaderApp(
                 }
                 DrawerEntry.FAVORITES->navController.navigate(FAVORITES_ROUTE){launchSingleTop=true}
                 DrawerEntry.PRIVATE->{
-                    viewModel.privateAccess.lock()
+                    viewModel.privateAccess.preparePrivateEntry()
                     pendingPrivateMoves=emptyList()
                     returnAfterPrivateSetup=false
                     privateNavigation=true
