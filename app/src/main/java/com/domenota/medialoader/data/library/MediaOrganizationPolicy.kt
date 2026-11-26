@@ -53,15 +53,17 @@ internal object MediaOrganizationPolicy {
         if (!admitted(ref)) return Passport(ref.item, null, emptyList(), false)
         // The caller supplies the live admitted catalog. Still reject ambiguous identities
         // and stale or non-public rows here; never infer lineage from names or timestamps.
-        val candidates = (listOf(ref) + public).distinct()
-        val identities = candidates.flatMap { candidate ->
+        val currentIds = ref.aliases + ref.key + listOfNotNull(ref.appDownloadId)
+        val related = public.filter { it.item.derivedFromId in currentIds }
+        val wanted = currentIds + listOfNotNull(parentId) + related.map { it.key }
+        val identities = (listOf(ref) + public).distinct().flatMap { candidate ->
             (candidate.aliases + candidate.key + listOfNotNull(candidate.appDownloadId))
-                .map { id -> id to candidate }
+                .filter { it in wanted }.map { id -> id to candidate }
         }.groupBy({ it.first }, { it.second })
         fun resolve(id: String?): LibraryMediaRef? =
             id?.takeIf { it.isNotBlank() }?.let { identities[it]?.singleOrNull() }?.takeIf(::admitted)
         val parent = resolve(parentId)?.takeIf { it.key != ref.key }
-        val children = public.filter { child ->
+        val children = related.filter { child ->
             child.key != ref.key && admitted(child) &&
                 identities[child.key]?.singleOrNull() == child &&
                 resolve(child.item.derivedFromId) == ref &&
