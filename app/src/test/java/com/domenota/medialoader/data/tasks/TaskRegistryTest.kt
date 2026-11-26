@@ -4,6 +4,27 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TaskRegistryTest {
+    @Test fun idleProcessIsVisibleAndControllableButNotAWaitingTask(){
+        val registry=TaskRegistry()
+        val idle=TaskSnapshot(taskId(TaskOwner.OCR,"idle"),TaskKind.OCR,TaskStatus.PAUSED,commands=setOf(TaskCommand.RESUME),idle=true)
+        var calls=0
+        registry.record(TaskOwner.OCR,idle){calls++}
+        assertTrue(registry.tasks.value.isEmpty())
+        assertEquals(listOf(idle),registry.liveTasks.value)
+        assertTrue(registry.dispatch(idle.id,TaskCommand.RESUME))
+        assertEquals(1,calls)
+        registry.clearHistory()
+        assertEquals(listOf(idle),registry.liveTasks.value)
+        assertTrue(registry.history.value.rows.isEmpty())
+    }
+    @Test fun taskPresentationDoesNotUseTerminalBarsOrRawBytes(){
+        val row=TaskSnapshot(taskId(TaskOwner.DOWNLOADS,"done"),TaskKind.DOWNLOAD,TaskStatus.COMPLETE,progress=TaskProgress(1024,1024))
+        assertFalse(TaskCenterPresentation.showBar(row))
+        assertEquals("1,0 КБ / 1,0 КБ",TaskCenterPresentation.progressText(row))
+        assertTrue(TaskCenterPresentation.showBar(row.copy(status=TaskStatus.RUNNING)))
+        assertEquals(TaskKind.entries.toSet(),TaskSection.entries.flatMap{it.kinds}.toSet())
+        assertEquals(TaskKind.entries.size,TaskSection.entries.sumOf{it.kinds.size})
+    }
     private fun row(key: String, status: TaskStatus = TaskStatus.RUNNING, commands: Set<TaskCommand> = emptySet()) =
         TaskSnapshot(taskId(TaskOwner.DOWNLOADS, key), TaskKind.DOWNLOAD, status, commands = commands)
     @Test fun sourceReplacementDoesNotDuplicateTasks() {

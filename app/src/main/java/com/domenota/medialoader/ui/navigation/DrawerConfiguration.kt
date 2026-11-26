@@ -17,7 +17,7 @@ internal data class DrawerConfiguration private constructor(
         val from = order.indexOf(entry)
         val to = order.indexOf(target)
         if (from < 0 || to < 0 || from == to) return this
-        return copy(order = order.toMutableList().apply { removeAt(from); add(to, entry) })
+        return copy(order = normalizeOrder(order.toMutableList().apply { removeAt(from); add(to, entry) }))
     }
 
     fun entries(developerAllowed: Boolean): List<DrawerEntry> =
@@ -32,6 +32,12 @@ internal data class DrawerConfiguration private constructor(
             DrawerEntry.COLLECTIONS, DrawerEntry.TRASH, DrawerEntry.SETTINGS, DrawerEntry.APPEARANCE,
             DrawerEntry.JOURNAL, DrawerEntry.TASK_CENTER,
         )
+        private fun normalizeOrder(order:List<DrawerEntry>):List<DrawerEntry> {
+            val task=order.indexOf(DrawerEntry.TASK_CENTER)
+            val service=order.indexOfFirst { it == DrawerEntry.SETTINGS || it == DrawerEntry.JOURNAL }
+            if(task<0 || service<0 || task<service)return order
+            return order.toMutableList().apply { removeAt(task); add(service,DrawerEntry.TASK_CENTER) }
+        }
         val DEFAULT = DrawerConfiguration(DrawerEntry.entries.toList(), defaultVisible)
         const val PREF = "drawer_configuration_v1"
 
@@ -48,7 +54,7 @@ internal data class DrawerConfiguration private constructor(
             if (stored.isEmpty()) return DEFAULT
             val missing = DrawerEntry.entries.filterNot { it in stored }
             return DrawerConfiguration(
-                stored.keys.toList() + missing,
+                normalizeOrder(stored.keys.toList() + missing),
                 (stored.filterValues { it }.keys + missing.filter { it in defaultVisible } + mandatoryDrawerEntries) - DrawerEntry.DIAGNOSTICS,
             )
         }

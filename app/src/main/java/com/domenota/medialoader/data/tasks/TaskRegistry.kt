@@ -36,6 +36,10 @@ internal data class TaskProgress(val done: Long, val total: Long?) {
     init { require(done >= 0 && (total == null || total > 0 && done <= total)) }
     val fraction: Float? get() = total?.let { (done.toDouble() / it).toFloat() }
 }
+internal enum class TaskSource(val label:String) { INSTAGRAM("Instagram"), YOUTUBE("YouTube"), VK("VK"), RUTUBE("RUTUBE");
+    companion object { fun from(raw:String) = entries.firstOrNull { it.name.equals(raw,ignoreCase=true) } }
+}
+internal enum class TaskMedia(val label:String) { PHOTO("Фото"), VIDEO("Видео"), AUDIO("Аудио") }
 internal data class TaskSnapshot(
     val id: String,
     val kind: TaskKind,
@@ -49,12 +53,16 @@ internal data class TaskSnapshot(
     val updatedAt: Long = 0L,
     val percent: Int? = null,
     val stage: TaskStage? = null,
+    val source: TaskSource? = null,
+    val media: TaskMedia? = null,
+    val idle: Boolean = false,
 ) {
     init {
         require(id.matches(Regex("[a-f0-9]{64}")))
         require(percent == null || percent in 0..100)
         require(errors >= 0 && updatedAt >= 0)
         require(wait == null || status == TaskStatus.WAITING)
+        require(!idle || status == TaskStatus.PAUSED)
         require(children.map { it.id }.distinct().size == children.size)
     }
     val active get() = status == TaskStatus.RUNNING
@@ -75,6 +83,8 @@ internal class TaskRegistry {
     private val rowHandlers=hashMapOf<String,(TaskCommand)->Unit>()
     private val mutable = MutableStateFlow<List<TaskSnapshot>>(emptyList())
     val tasks = mutable.asStateFlow()
+    private val liveMutable = MutableStateFlow<List<TaskSnapshot>>(emptyList())
+    val liveTasks = liveMutable.asStateFlow()
     private val saved = MutableStateFlow(TaskHistoryData())
     val history = saved.asStateFlow()
     private var retentionDays = 7
@@ -101,6 +111,7 @@ internal class TaskRegistry {
         val nested=live.flatMap{it.children}.mapTo(hashSetOf()){it.id}
         val archive=saved.value.rows.filter { it.updatedAt>cutoff && it.id !in nested }.associateBy { it.id }.toMutableMap()
         for(row in live) {
+            if(row.idle) { archive.remove(row.id); seen.remove(row.id); started.remove(row.id); continue }
             val before=seen.put(row.id,row.status)
             if(!row.status.terminal) {
                 archive.remove(row.id)
@@ -110,7 +121,7 @@ internal class TaskRegistry {
                 val ended=if(before!=null && !before.terminal) now else row.updatedAt
                 if(ended>cutoff && (before==null || !before.terminal || row.id in archive)) {
                     val old=archive[row.id]
-                    archive[row.id]=row.copy(updatedAt=maxOf(ended,old?.updatedAt?:0),commands=emptySet(),children=emptyList())
+                    archive[row.id]=row.copy(updatedAt=maxOf(ended,old?.updatedAt?:0),commands=emptySet(),children=emptyList(),source=null,media=null)
                     if(start!=null && now-start>=30_000 && before!=null && !before.terminal) completion?.invoke(row)
                 }
             }
@@ -118,11 +129,12 @@ internal class TaskRegistry {
         val rows=archive.values.sortedByDescending { it.updatedAt }
         saved.value=TaskHistoryData(saved.value.clearedAt,rows)
         val allowed=archive.keys
-        val shown=live.filter { !it.status.terminal || it.id in allowed }
+        val shown=live.filter { !it.idle && (!it.status.terminal || it.id in allowed) }
         val liveKeys=live.mapTo(hashSetOf()){it.id}
         seen.keys.retainAll(liveKeys); started.keys.retainAll(liveKeys); rowHandlers.keys.retainAll(liveKeys)
         val liveIds=shown.mapTo(hashSetOf()) { it.id }
         mutable.value=shown+rows.filterNot { it.id in liveIds }
+        liveMutable.value=live.filter { !it.status.terminal || it.kind == TaskKind.OCR }
     }
 
     /** Replace an executor's complete authoritative snapshot, not append per progress tick. */

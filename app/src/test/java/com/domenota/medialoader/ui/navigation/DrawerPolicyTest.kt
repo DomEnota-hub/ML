@@ -5,6 +5,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DrawerPolicyTest{
+    @Test fun taskCenterMigratesAheadOfServiceEntries(){
+        val legacy=DrawerConfiguration.decode("HOME:1,MUSIC:1,SETTINGS:1,JOURNAL:1,TASK_CENTER:1")
+        assertTrue(legacy.order.indexOf(DrawerEntry.TASK_CENTER)<legacy.order.indexOf(DrawerEntry.SETTINGS))
+        assertTrue(legacy.order.indexOf(DrawerEntry.TASK_CENTER)<legacy.order.indexOf(DrawerEntry.JOURNAL))
+        assertEquals(legacy,DrawerConfiguration.decode(legacy.encode()))
+    }
     @Test fun onlyMainRoutesAndActualScreenAdmissionCanOpen(){
         for(mode in AppMode.entries){
             for(route in listOf("home","downloads","simple-archive",FAVORITES_ROUTE,"private","collections","music-duplicates","task-center") + (if(mode==AppMode.MUSIC)listOf("settings") else emptyList())){

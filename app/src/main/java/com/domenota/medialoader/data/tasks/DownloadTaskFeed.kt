@@ -30,7 +30,8 @@ internal object DownloadTaskFeed {
         }
         return TaskSnapshot(taskId(TaskOwner.DOWNLOADS, "file:${row.id}"), TaskKind.DOWNLOAD, status,
             progress = TaskProgress(done, total), errors = if (status == TaskStatus.FAILED) 1 else 0,
-            wait = wait, commands = commands, updatedAt = row.createdAtEpochMillis.coerceAtLeast(0))
+            wait = wait, commands = commands, updatedAt = row.createdAtEpochMillis.coerceAtLeast(0),
+            source=TaskSource.from(row.providerId), media=TaskMedia.valueOf(row.mediaType.name))
     }
     fun groups(rows: List<DownloadEntity>): List<TaskSnapshot> =
         rows.filter(::eligible).groupBy { if (it.groupId != null) "group:${it.groupId}" else "file:${it.id}" }
@@ -57,7 +58,8 @@ internal object DownloadTaskFeed {
         return TaskSnapshot(taskId(TaskOwner.DOWNLOADS, key), TaskKind.DOWNLOAD, status,
             files = TaskProgress(complete.toLong(), children.size.toLong()), errors = failures,
             wait = if (status == TaskStatus.WAITING) children.filter { it.status == TaskStatus.WAITING }.mapNotNull { it.wait }.distinct().singleOrNull() else null,
-            commands = commands, children = children, updatedAt = children.maxOf { it.updatedAt })
+            commands = commands, children = children, updatedAt = children.maxOf { it.updatedAt },
+            source=children.map { it.source }.distinct().singleOrNull(), media=children.map { it.media }.distinct().singleOrNull())
     }
     fun commandTargets(rows: List<DownloadEntity>, id: String, command: TaskCommand): List<String> {
         val eligible = rows.filter(::eligible)

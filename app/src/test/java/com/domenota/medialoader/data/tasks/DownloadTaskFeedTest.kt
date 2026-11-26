@@ -6,6 +6,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class DownloadTaskFeedTest {
+    @Test fun sourceAndMediaAreBoundedPublicEnums(){
+        val public=row("a",DownloadState.RUNNING)
+        val s=DownloadTaskFeed.groups(listOf(public)).single()
+        assertEquals(TaskSource.INSTAGRAM,s.source)
+        assertEquals(TaskMedia.PHOTO,s.media)
+        assertNull(DownloadTaskFeed.groups(listOf(public.copy(providerId="secret arbitrary provider"))).single().source)
+        assertTrue(DownloadTaskFeed.groups(listOf(public.copy(isPrivate=true))).isEmpty())
+        assertFalse(s.toString().contains("secret"))
+    }
     private fun row(id: String, state: DownloadState, group: String? = null) =
         DownloadEntity(id,"instagram","secret.jpg",MediaType.PHOTO,state,null,100,1,
             sourceUrl="https://example.com/secret",groupId=group)

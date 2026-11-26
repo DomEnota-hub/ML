@@ -265,7 +265,7 @@ private fun DrawerContents(active:DrawerEntry?,available:Set<DrawerEntry>,config
 internal fun drawerEntryIcon(entry:DrawerEntry) = when(entry){
         DrawerEntry.HOME->Icons.Rounded.Home
         DrawerEntry.DOWNLOADS->Icons.Rounded.Download
-        DrawerEntry.TASK_CENTER->Icons.Rounded.List
+        DrawerEntry.TASK_CENTER->Icons.Rounded.Memory
         DrawerEntry.GALLERY->Icons.Rounded.PhotoLibrary
         DrawerEntry.MUSIC->Icons.Rounded.MusicNote
         DrawerEntry.MUSIC_SEARCH->Icons.Rounded.Search

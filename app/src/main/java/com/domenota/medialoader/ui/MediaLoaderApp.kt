@@ -3726,7 +3726,7 @@ fun MediaLoaderApp(
                 currentRoute != VIDEO_EDITOR_ROUTE && currentRoute != AUDIO_EDITOR_ROUTE &&
                 currentRoute != PHOTO_EDITOR_ROUTE && currentRoute != PLAYLIST_ADD_ROUTE && currentRoute != "equalizer" &&
                 currentRoute != "trash" && currentRoute != "trash-viewer/{downloadId}" && currentRoute != "collections" &&
-                currentRoute != FAVORITES_ROUTE && currentRoute != SIMPLE_ARCHIVE_ROUTE && currentRoute != MUSIC_SEARCH_ROUTE && currentRoute != "drawer-settings" && currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor") {
+                currentRoute != FAVORITES_ROUTE && currentRoute != SIMPLE_ARCHIVE_ROUTE && currentRoute != MUSIC_SEARCH_ROUTE && currentRoute != "drawer-settings" && currentRoute != "diagnostics" && currentRoute != "vk-community" && currentRoute != "music-duplicates" && currentRoute != "visual-duplicates" && currentRoute != "batch-photo-editor" && currentRoute != "task-center") {
                 Column(if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                     Modifier.navigationBarsPadding() else Modifier) {
                     // Gallery intentionally has no player chrome. Playback is

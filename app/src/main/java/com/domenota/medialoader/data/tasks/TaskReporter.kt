@@ -7,9 +7,9 @@ internal class TaskReporter private constructor(private val owner: TaskOwner, pr
     private var last: TaskSnapshot? = null
     @Synchronized fun report(status: TaskStatus = TaskStatus.RUNNING, files: TaskProgress? = null,
         percent: Int? = null, errors: Int = 0, wait: TaskWait? = null, stage: TaskStage? = null,
-        commands:Set<TaskCommand> = emptySet(), onCommand:((TaskCommand)->Unit)?=null) {
+        commands:Set<TaskCommand> = emptySet(), idle:Boolean=false, onCommand:((TaskCommand)->Unit)?=null) {
         val row = TaskSnapshot(id, kind, status, files = files, errors = errors, wait = wait,
-            percent = percent, stage = stage, commands=commands)
+            percent = percent, stage = stage, commands=commands, idle=idle)
         if (row == last) return
         last = row
         TaskCenter.registry.record(owner, row.copy(updatedAt = System.currentTimeMillis()),onCommand)

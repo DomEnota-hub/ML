@@ -90,9 +90,8 @@ internal fun rememberGalleryOcr(
     DisposableEffect(reporter) { onDispose { reporter.remove() } }
     LaunchedEffect(controller.enabled,controller.progress) {
         val p=controller.progress
-        if (!controller.enabled && p.done==0 && p.phase!=GalleryOcrPhase.PAUSED) { reporter.remove(); return@LaunchedEffect }
-        if (!controller.enabled && p.total==0) { reporter.remove(); return@LaunchedEffect }
-        val status=when(p.phase) {
+        val idle = !controller.enabled && p.done==0
+        val status=if (!controller.enabled) TaskStatus.PAUSED else when(p.phase) {
             GalleryOcrPhase.WAITING_ACCESS, GalleryOcrPhase.WAITING_CHARGE -> TaskStatus.WAITING
             GalleryOcrPhase.PAUSED -> TaskStatus.PAUSED
             GalleryOcrPhase.RUNNING -> TaskStatus.RUNNING
@@ -100,13 +99,13 @@ internal fun rememberGalleryOcr(
             GalleryOcrPhase.PARTIAL -> TaskStatus.PARTIAL
             GalleryOcrPhase.ERROR -> TaskStatus.FAILED
         }
-        val wait=when(p.phase) {
+        val wait=if(status!=TaskStatus.WAITING) null else when(p.phase) {
             GalleryOcrPhase.WAITING_ACCESS -> TaskWait.PERMISSION
             GalleryOcrPhase.WAITING_CHARGE -> TaskHistoryStore.waitReason(context) ?: TaskWait.CHARGING
             else -> null
         }
         val commands=when { controller.enabled && !status.terminal -> setOf(TaskCommand.PAUSE); !controller.enabled && status==TaskStatus.PAUSED -> setOf(TaskCommand.RESUME); status in setOf(TaskStatus.FAILED,TaskStatus.PARTIAL) -> setOf(TaskCommand.RETRY); else -> emptySet() }
-        reporter.report(status,files=countProgress(p.done,p.total),errors=p.failed+p.unverified,wait=wait,stage=TaskStage.SCANNING,commands=commands,onCommand={ action ->
+        reporter.report(status,files=countProgress(p.done,p.total),errors=p.failed+p.unverified,wait=wait,stage=TaskStage.SCANNING,commands=commands,idle=idle,onCommand={ action ->
             when(action) { TaskCommand.PAUSE -> if(controller.enabled)controller.toggle(); TaskCommand.RESUME -> if(!controller.enabled)controller.toggle(); TaskCommand.RETRY -> if(controller.progress.phase in setOf(GalleryOcrPhase.ERROR,GalleryOcrPhase.PARTIAL))controller.retry(); else -> Unit }
         })
     }
