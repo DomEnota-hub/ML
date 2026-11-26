@@ -8,7 +8,7 @@ import com.domenota.medialoader.data.editor.AiModelUpdateChecker.Kind
  * No unpublished remote catalog or model is represented as available.
  */
 internal object AiModelCatalog {
-    enum class Distribution { UPSTREAM_DOWNLOAD, BUNDLED_OFFLINE, VERIFIED_IMPORT }
+    enum class Distribution { UPSTREAM_DOWNLOAD, NETWORK_OR_OFFLINE, VERIFIED_IMPORT }
     data class Entry(
         val kind: Kind,
         val title: String,
@@ -23,7 +23,7 @@ internal object AiModelCatalog {
     )
 
     val entries = listOf(
-        Entry(Kind.LAMA, "LaMa", "Удаление объектов и текста", "≈208 МБ",
+        Entry(Kind.LAMA, "LaMa", "Удаление объектов и текста", null,
             "sha256-pinned", "https://huggingface.co/sapienkit/LaMa-ONNX", "Apache-2.0",
             Distribution.UPSTREAM_DOWNLOAD, listOf(ExpectedModelBlob("lama_fp32.onnx", LaMaModelStore.SHA256)),
             "sapienkit/LaMa-ONNX"),
@@ -39,7 +39,7 @@ internal object AiModelCatalog {
             "ketiswp/mediapipe-EfficientDet-Lite0-COCO2017-fp32-onnx"),
         Entry(Kind.GLARE, "SRNet", "Удаление бликов", "230 КБ",
             "6f44a130d2b20568f1a1b1159e32a4ec6b46ef19", "https://github.com/zhiyiYo/Specular-Removal", "MIT",
-            Distribution.BUNDLED_OFFLINE, listOf(ExpectedModelBlob(SpecularSrNetModelStore.MODEL_NAME, SpecularSrNetModelStore.MODEL_SHA256, SpecularSrNetModelStore.MODEL_BYTES))),
+            Distribution.NETWORK_OR_OFFLINE, listOf(ExpectedModelBlob(SpecularSrNetModelStore.MODEL_NAME, SpecularSrNetModelStore.MODEL_SHA256, SpecularSrNetModelStore.MODEL_BYTES))),
         Entry(Kind.REFLECTION, "DExNet + VGG19", "Удаление отражений", "91 МБ",
             "sha256-pinned", "https://github.com/jjhuangcs/DExNet", "Redistribution of combined weights not established",
             Distribution.VERIFIED_IMPORT, listOf(ExpectedModelBlob(ReflectionDExModelStore.MODEL_NAME, ReflectionDExModelStore.EXPECTED_SHA256, ReflectionDExModelStore.EXACT_BYTES))),
@@ -50,7 +50,7 @@ internal object AiModelCatalog {
     /** An upstream digest change is not a compatible, approved update. */
     fun installAction(entry: Entry, reflectionBundled: Boolean): String = when (entry.distribution) {
         Distribution.UPSTREAM_DOWNLOAD -> "Скачать"
-        Distribution.BUNDLED_OFFLINE -> "Установить"
+        Distribution.NETWORK_OR_OFFLINE -> "Скачать"
         Distribution.VERIFIED_IMPORT -> if (reflectionBundled) "Установить" else "Импортировать"
     }
 
@@ -58,8 +58,8 @@ internal object AiModelCatalog {
         if (checking) return "Проверка…"
         val base = if (ready) "Установлена" else "Не установлена"
         val suffix = when (entry.distribution) {
-            Distribution.BUNDLED_OFFLINE -> "офлайн"
-            Distribution.VERIFIED_IMPORT -> if (reflectionBundled) "локальная версия" else "импорт ONNX"
+            Distribution.NETWORK_OR_OFFLINE -> if (result?.state == ModelUpdateState.REVIEW_REQUIRED) "новая версия на проверке" else "доступна офлайн"
+            Distribution.VERIFIED_IMPORT -> if (result?.state == ModelUpdateState.REVIEW_REQUIRED) "новая версия на проверке" else if (reflectionBundled) "локальная версия" else "импорт ONNX"
             Distribution.UPSTREAM_DOWNLOAD -> when (result?.state) {
                 ModelUpdateState.CURRENT -> if (ready) "актуальна" else null
                 ModelUpdateState.REVIEW_REQUIRED -> "новая версия на проверке"

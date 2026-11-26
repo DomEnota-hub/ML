@@ -22,7 +22,7 @@ class AiModelCatalogTest {
         val dex = AiModelCatalog.entry(Kind.REFLECTION)
         assertNull(sr.metadataRepository)
         assertNull(dex.metadataRepository)
-        assertEquals("Установить", AiModelCatalog.installAction(sr, false))
+        assertEquals("Скачать", AiModelCatalog.installAction(sr, false))
         assertEquals("Импортировать", AiModelCatalog.installAction(dex, false))
         assertEquals("Установить", AiModelCatalog.installAction(dex, true))
         assertTrue(AiModelCatalog.status(dex, true, false, null, false).contains("импорт"))
@@ -38,5 +38,18 @@ class AiModelCatalogTest {
         assertEquals("Установлена · актуальна", AiModelCatalog.status(model, true, false,
             ModelUpdateResult(ModelUpdateState.CURRENT, ""), false))
         assertEquals("Не установлена", AiModelCatalog.status(model, false, false, null, false))
+    }
+    @Test fun ownerCatalogMatchesAllFiveAndRejectsChangedOrMissingWeights() {
+        val records = AiModelCatalog.entries.map { entry ->
+            OwnerModelCatalog.Record(entry.kind.key, entry.files.map {
+                OwnerModelCatalog.Blob(it.filename.substringAfterLast('/'), it.sha256, it.bytes)
+            })
+        }
+        val installed = records.associate { it.id to true }
+        assertTrue(OwnerModelCatalog.compare(records, installed).values.all { it.state == ModelUpdateState.CURRENT })
+        val altered = records.map { record -> if (record.id == "glare")
+            record.copy(files = record.files.map { it.copy(sha256 = "f".repeat(64)) }) else record }
+        assertEquals(ModelUpdateState.REVIEW_REQUIRED, OwnerModelCatalog.compare(altered, installed).getValue("glare").state)
+        assertTrue(OwnerModelCatalog.compare(records.dropLast(1), installed).values.all { it.state == ModelUpdateState.UNVERIFIABLE })
     }
 }

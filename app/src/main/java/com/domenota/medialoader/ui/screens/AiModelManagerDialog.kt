@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.domenota.medialoader.data.editor.AiModelCatalog
+import com.domenota.medialoader.data.editor.OwnerModelCatalog
 import com.domenota.medialoader.data.editor.AiModelUpdateChecker
 import com.domenota.medialoader.data.editor.ModelUpdateResult
 import com.domenota.medialoader.data.editor.ModelUpdateState
@@ -62,9 +63,6 @@ import com.domenota.medialoader.data.editor.ReflectionDExModelStore
 import com.domenota.medialoader.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /** Optional AI weights, never downloaded implicitly when a photo is opened. */
@@ -125,7 +123,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         }
     }
 
-    fun download(kind: String) {
+    fun download(kind: String, offline: Boolean = false) {
         if (active != null || checking) return
         cancelUpdateCheck()
         if (kind == "reflection" && !reflection.bundled()) {
@@ -148,7 +146,8 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                     people.install { progress = it }
                     peopleReady = people.verifyInstalled()
                 } else if (kind == "glare") {
-                    glare.install { progress = it }
+                    if (offline) glare.install { progress = it }
+                    else glare.download { progress = it }
                     glareReady = glare.verifyInstalled()
                 } else if (kind == "reflection" && BuildConfig.REFLECTION_MODEL_BUNDLED) {
                     reflection.install { progress = it }
@@ -214,13 +213,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                     "lama" to lamaReady, "mobile" to mobileReady, "people" to peopleReady,
                     "glare" to glareReady, "reflection" to reflectionReady,
                 )
-                val results = coroutineScope {
-                    AiModelCatalog.entries.map { entry ->
-                        async {
-                            entry.kind.key to AiModelUpdateChecker.check(entry.kind, verified[entry.kind.key] == true)
-                        }
-                    }.awaitAll().toMap()
-                }
+                val results = OwnerModelCatalog.check(verified)
                 if (generation == checkGeneration) updateResults = results
             } catch (cancel: CancellationException) {
                 throw cancel
@@ -309,7 +302,8 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                             AiModelUpdateChecker.Kind.REFLECTION -> Icons.Rounded.Photo
                         }
                         ModelRow(entry, icon, ready[key] == true, enabled, checking, updateResults[key],
-                            reflection.bundled(), onInstall = { download(key) }, onDelete = { pendingDelete = key })
+                            reflection.bundled(), onInstall = { download(key) }, onDelete = { pendingDelete = key },
+                            onOfflineInstall = if (entry.kind == AiModelUpdateChecker.Kind.GLARE) ({ download(key, offline = true) }) else null)
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Spacer(Modifier.height(4.dp))
@@ -344,6 +338,7 @@ private fun ModelRow(
     reflectionBundled: Boolean,
     onInstall: () -> Unit,
     onDelete: () -> Unit,
+    onOfflineInstall: (() -> Unit)? = null,
 ) {
     Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -370,6 +365,9 @@ private fun ModelRow(
                         tint = if (enabled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else if (!checking) {
+                if (onOfflineInstall != null) IconButton(onClick = onOfflineInstall, enabled = enabled) {
+                    Icon(Icons.Rounded.SaveAlt, "Установить SRNet офлайн")
+                }
                 val action = AiModelCatalog.installAction(entry, reflectionBundled)
                 IconButton(onClick = onInstall, enabled = enabled) {
                     Icon(if (action == "Импортировать") Icons.Rounded.FolderOpen else Icons.Rounded.Download,

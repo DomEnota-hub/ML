@@ -2546,6 +2546,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.editor.AiModelCatalogTest#ownerCatalogMatchesAllFiveAndRejectsChangedOrMissingWeights": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.AiModelUpdatePolicyTest#changedSizeRequiresReviewEvenIfDigestAppearsUnchanged": {
     "skipped": false,
     "failed": false
