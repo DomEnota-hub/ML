@@ -13,6 +13,23 @@ internal enum class MusicFolderSort(val label: String) {
 }
 
 internal object MusicFolderRules {
+    /** Preserve the chosen order through refreshes; new entries append in original order. */
+    fun visibleOrder(original: List<String>, shuffled: List<String>?): List<String> {
+        val unique = original.distinct()
+        if (shuffled == null) return unique
+        val available = unique.toHashSet()
+        val kept = shuffled.distinct().filter { it in available }
+        val seen = kept.toHashSet()
+        return kept + unique.filterNot { it in seen }
+    }
+
+    /** A repeated explicit shuffle must differ whenever two or more tracks are available. */
+    fun shuffledOrder(current: List<String>, random: kotlin.random.Random = kotlin.random.Random.Default): List<String> {
+        if (current.size < 2) return current.toList()
+        val next = current.shuffled(random)
+        return if (next == current) next.drop(1) + next.first() else next
+    }
+
     fun sortedKeys(keys: Collection<String>, counts: Map<String, Int>, sort: MusicFolderSort): List<String> {
         val collator = java.text.Collator.getInstance(java.util.Locale.forLanguageTag("ru-RU")).apply {
             strength = java.text.Collator.PRIMARY

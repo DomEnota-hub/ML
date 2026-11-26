@@ -55,6 +55,23 @@ class MusicFolderScreenTest{
         assertEquals(0,played)
     }
 
+    @Test fun restoreOrderOnlyChangesDisplayAndNeverRequestsPlayback() {
+        val rows=listOf("a","b","c").map { id -> DownloadEntity(id,"device","$id.mp3",MediaType.AUDIO,
+            DownloadState.COMPLETED,null,1024,1) }
+        var displayed by mutableStateOf(rows.reversed())
+        var shuffled by mutableStateOf(true)
+        var requests=0
+        compose.setContent { MaterialTheme {
+            MusicFolderScreen("Folder",displayed,false,"b",true,{}, {},{requests++}, {requests++},
+                onRestoreOrder=if(shuffled){{displayed=rows;shuffled=false}}else null) {}
+        } }
+        compose.onNodeWithContentDescription("Восстановить исходный порядок").performClick()
+        compose.onNodeWithContentDescription("Восстановить исходный порядок").assertDoesNotExist()
+        assertEquals(rows,displayed)
+        assertEquals(0,requests)
+        compose.onNodeWithTag("music-track-a").assertExists()
+    }
+
     @Test fun folderMenuAddsAllVisibleTracksWithoutPlayback() {
         val rows=listOf("a","b").map { id -> DownloadEntity(id,"device","$id.mp3",MediaType.AUDIO,
             DownloadState.COMPLETED,null,1024,1) }

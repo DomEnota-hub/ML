@@ -142,6 +142,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import androidx.compose.runtime.rememberCoroutineScope
 import com.domenota.medialoader.data.storage.SavedFileStatusCache
 import kotlinx.coroutines.withContext
@@ -2513,20 +2514,24 @@ fun MediaLoaderApp(
                         verified.filter { ref -> currentAudioRef(ref.key)?.item?.savedUri==ref.item.savedUri }.mapTo(mutableSetOf()) { it.key }
                     },
                     onPlayFrequent = { ids,shuffle -> playRecentMusic(ids,shuffle,analytics=true) },
-                    onFolderPlay = { ids,shuffle ->
+                    onFolderPlayExact = { ids ->
                         libraryPreviewJob?.cancel()
-                        libraryPreviewJob=fileActionScope.launch {
-                            try {
-                                val refs=ids.mapNotNull(libraryRefsByAlias::get).distinctBy{it.key}
-                                val epoch=DuplicatePrivacyGuard.generation(context)
-                                val access=libraryModel.musicAccessEpoch.value
-                                val valid=withContext(Dispatchers.IO){refs.filter{availabilityCache.get(it.item.savedUri)==SavedFileStatus.PRESENT}}
-                                val blocked=libraryModel.privateKeys.value ?: return@launch
-                                val hidden=musicVisibilityPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty()
-                                check(access==libraryModel.musicAccessEpoch.value&&epoch==DuplicatePrivacyGuard.generation(context))
-                                val safe=valid.filter{!collectionRefBlocked(it,blocked)&&!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,hidden)&&DuplicatePrivacyGuard.accepts(context,epoch,it.key,it.aliases)}
-                                check(safe.isNotEmpty());libraryModel.audioPreview.playSelection(safe,shuffle)
-                            }catch(e:CancellationException){throw e}catch(_:Exception){AppNotice.post(context,"Нет доступных треков или плеер недоступен")}
+                        libraryPreviewJob=currentCoroutineContext()[Job]
+                        try {
+                            val refs=ids.mapNotNull(libraryRefsByAlias::get).distinctBy{it.key}
+                            val epoch=DuplicatePrivacyGuard.generation(context)
+                            val access=libraryModel.musicAccessEpoch.value
+                            val valid=withContext(Dispatchers.IO){refs.filter{availabilityCache.get(it.item.savedUri)==SavedFileStatus.PRESENT}}
+                            val blocked=checkNotNull(libraryModel.privateKeys.value)
+                            val hidden=musicVisibilityPrefs.getStringSet("hidden_tracks",emptySet()).orEmpty()
+                            check(access==libraryModel.musicAccessEpoch.value&&epoch==DuplicatePrivacyGuard.generation(context))
+                            val safe=valid.filter{!collectionRefBlocked(it,blocked)&&!com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(it.item,hidden)&&DuplicatePrivacyGuard.accepts(context,epoch,it.key,it.aliases)}
+                            check(safe.isNotEmpty()&&safe.map{it.key}==ids)
+                            // The screen already shuffled the IDs; the player must not shuffle again.
+                            libraryModel.audioPreview.playSelection(safe,false,requireExactOrder=true)
+                            true
+                        }catch(e:CancellationException){throw e}catch(_:Exception){
+                            AppNotice.post(context,"Состав папки изменился или плеер недоступен");false
                         }
                     },
                     onAnalyticsPreview = { id,ids -> playRecentMusic(ids,false,id,analytics=true) },

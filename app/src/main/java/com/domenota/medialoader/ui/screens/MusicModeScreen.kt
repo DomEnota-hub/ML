@@ -94,6 +94,7 @@ internal fun MusicModeScreen(
     onAnalyticsPreview: (String,List<String>)->Unit = onPreview ?: onOpen,
     onAnalyticsOpen: (String,List<String>)->Unit = onOpen,
     onSaveFolderPlaylist: (suspend (String?,String,List<String>)->Unit)? = null,
+    onFolderPlayExact: (suspend (List<String>)->Boolean)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -165,6 +166,8 @@ internal fun MusicModeScreen(
         folderPrefs.edit().putStringSet("hidden_tracks", hiddenTrackKeys).apply()
     }
     var folderOpen by rememberSaveable { mutableStateOf<String?>(null) }
+    // Session-local ordering only; changing the library access guard discards old identities.
+    val folderShuffleOrders=remember(browseAccess){mutableStateMapOf<String,List<String>>()}
     var showExcluded by rememberSaveable { mutableStateOf(false) }
     val largeBrowse = items.size > 128 || allAudio.size > 128
     val browse = preparedBrowse ?: if(largeBrowse) addressedLibraryProjection(MusicBrowseCatalog.EMPTY,browseAccess,items,allAudio,deviceMusicFolders,serial=true) {
@@ -521,8 +524,31 @@ internal fun MusicModeScreen(
         val folderView=if(largeBrowse) addressedLibraryProjection(emptyList<DownloadEntity>(),folderGuard,browse.value,serial=true) {
             withContext(Dispatchers.Default){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,currentHidden)},sort)}
         } else BackgroundLibraryValue(remember(folders,folder,hiddenTrackKeys,sort){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,hiddenTrackKeys)},sort)},true)
-        val folderTracks=folderView.value
+        val originalFolderTracks=folderView.value
+        val shuffledFolderOrder=folderShuffleOrders[folder]
+        val folderTracks=remember(originalFolderTracks,shuffledFolderOrder){
+            val byId=originalFolderTracks.associateBy{it.id}
+            MusicFolderRules.visibleOrder(originalFolderTracks.map{it.id},shuffledFolderOrder).mapNotNull(byId::get)
+        }
         val folderIds=remember(folderTracks){folderTracks.map{it.id}}
+        val folderPlayScope=rememberCoroutineScope()
+        var folderPlayBusy by remember(folder){mutableStateOf(false)}
+        fun playFolder(shuffle:Boolean){
+            if(folderPlayBusy || folderIds.isEmpty())return
+            val order=if(shuffle)MusicFolderRules.shuffledOrder(folderIds) else folderIds.toList()
+            val exact=onFolderPlayExact
+            if(exact==null){
+                if(onFolderPlay!=null)onFolderPlay(order,false) else (onPreview?:onOpen)(order.first(),order)
+                if(shuffle)folderShuffleOrders[folder]=order
+            }else{
+                folderPlayBusy=true
+                folderPlayScope.launch {
+                    try {
+                        if(exact(order)&&shuffle)folderShuffleOrders[folder]=order
+                    }finally{folderPlayBusy=false}
+                }
+            }
+        }
         var folderPlaylistIds by remember(folder){mutableStateOf<List<String>?>(null)}
         var newFolderPlaylist by remember(folder){mutableStateOf(false)}
         var folderPlaylistError by remember(folder){mutableStateOf<String?>(null)}
@@ -535,7 +561,9 @@ internal fun MusicModeScreen(
         }
         MusicFolderScreen(MusicFolderRules.title(folder),folderTracks,folder in excludedFolders,currentPlayingId,playing,{folderOpen=null},
             onToggleVisibility={val exclude=folder !in excludedFolders;excludedFolders=if(exclude)excludedFolders+folder else excludedFolders-folder;folderPrefs.edit().putStringSet("excluded",excludedFolders).apply()},
-            onPlay={shuffle->if(folderIds.isNotEmpty()){if(onFolderPlay!=null)onFolderPlay(folderIds,shuffle) else {val order=if(shuffle)folderIds.shuffled() else folderIds;(onPreview?:onOpen)(order.first(),order)}}},
+            onPlay=::playFolder,
+            onRestoreOrder=if(shuffledFolderOrder!=null){{folderShuffleOrders.remove(folder);Unit}}else null,
+            playBusy=folderPlayBusy,
             onPreview={id->(onPreview?:onOpen)(id,folderIds)},
             onAddCollection=onAddCollection,
             onSimpleArchive=onSimpleArchive,

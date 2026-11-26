@@ -29,6 +29,29 @@ class MusicFolderRulesTest {
         assertTrue(MusicFolderRules.sortedKeys(emptyList(), emptyMap(), MusicFolderSort.COUNT_ASC).isEmpty())
     }
 
+    @Test fun shuffleOrderAlwaysChangesAndPreservesMembership() {
+        val original=listOf("a","b","c","d")
+        var current=original
+        repeat(40){
+            val next=MusicFolderRules.shuffledOrder(current,kotlin.random.Random(it))
+            assertNotEquals(current,next)
+            assertEquals(original.toSet(),next.toSet())
+            assertEquals(original.size,next.size)
+            current=next
+        }
+        assertEquals(listOf("a"),MusicFolderRules.shuffledOrder(listOf("a")))
+        assertTrue(MusicFolderRules.shuffledOrder(emptyList()).isEmpty())
+    }
+
+    @Test fun folderOrderSurvivesRefreshAndRestoresOriginal() {
+        val original=listOf("a","b","c")
+        val chosen=listOf("c","a","b")
+        assertEquals(chosen,MusicFolderRules.visibleOrder(original,chosen))
+        assertEquals(listOf("c","a","d"),MusicFolderRules.visibleOrder(listOf("a","c","d"),chosen))
+        assertEquals(original,MusicFolderRules.visibleOrder(original,null))
+        assertEquals(emptyList<String>(),MusicFolderRules.visibleOrder(emptyList(),chosen))
+    }
+
     @Test fun deviceFolderExclusionDoesNotUseAlbumTagsOrRemoveTheTrack() {
         val row = DownloadEntity("id", "youtube", "song", MediaType.AUDIO, DownloadState.COMPLETED,
             "content://media/audio/1", 100L, 0L, groupId = "unrelated-album")
