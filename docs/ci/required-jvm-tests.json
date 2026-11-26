@@ -9910,6 +9910,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.music.MusicFolderRulesTest#persistedFolderSortDefaultsAndRoundTrips": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.MusicFolderRulesTest#sortUsesDisplayedNameAndCountWithDeterministicTies": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.music.MusicFolderScreenTest#folderArtworkLongPressAddsOnlySelectedTrackToCollection": {
     "skipped": false,
     "failed": false
