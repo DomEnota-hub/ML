@@ -3,6 +3,7 @@ package com.domenota.medialoader.data.privatevault
 import android.app.KeyguardManager
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,12 +19,15 @@ import javax.crypto.spec.PBEKeySpec
 enum class PrivateAccessMode { UNCONFIGURED, NONE, PIN, BIOMETRIC }
 data class PrivateAccessState(val mode: PrivateAccessMode, val unlocked: Boolean)
 
-/** Process-local authorization; only salted PIN hashes and throttling state are persisted. */
+/** Process-local authorization; only settings, salted PIN hashes and throttling state are persisted. */
 class PrivateAccessManager private constructor(context: Context) {
     private val appContext = context.applicationContext
     private val preferences = appContext.getSharedPreferences("private_access", Context.MODE_PRIVATE)
     private val monitor = Any()
     private var revision = 0L
+    private val session = PrivateUnlockSession(SystemClock::elapsedRealtime)
+    private val mutableDuration = MutableStateFlow(readDuration())
+    val unlockDuration: StateFlow<PrivateUnlockDuration> = mutableDuration.asStateFlow()
     private val mutableState = MutableStateFlow(PrivateAccessState(readMode(), false))
     val state: StateFlow<PrivateAccessState> = mutableState.asStateFlow()
     val systemProtectionAvailable: Boolean
@@ -35,20 +39,77 @@ class PrivateAccessManager private constructor(context: Context) {
         return runCatching { PrivateAccessMode.valueOf(saved) }.getOrDefault(PrivateAccessMode.PIN)
     }
 
+    private fun readDuration(): PrivateUnlockDuration = runCatching {
+        PrivateUnlockDuration.valueOf(preferences.getString("unlock_duration", null) ?: "ON_EXIT")
+    }.getOrDefault(PrivateUnlockDuration.ON_EXIT)
+
+    fun setUnlockDuration(duration: PrivateUnlockDuration) = synchronized(monitor) {
+        check(state.value.unlocked && state.value.mode in setOf(PrivateAccessMode.PIN, PrivateAccessMode.BIOMETRIC)) {
+            "Сначала разблокируйте раздел"
+        }
+        persist(preferences.edit().putString("unlock_duration", duration.name))
+        session.clear()
+        mutableDuration.value = duration
+    }
+
     fun lock() = synchronized(monitor) {
         revision++
+        session.clear()
         mutableState.value = mutableState.value.copy(unlocked = false)
+    }
+
+    /** Public-to-private navigation must not mint a permit from stale live authorization. */
+    fun preparePrivateEntry() = synchronized(monitor) {
+        revision++
+        if (state.value.unlocked) {
+            session.clear()
+            mutableState.value = state.value.copy(unlocked = false)
+        }
+    }
+
+    /** Revoke file access immediately; only retain a re-entry permit if currently authenticated. */
+    fun suspendAccess() = synchronized(monitor) {
+        revision++
+        val current = state.value
+        if (current.mode == PrivateAccessMode.PIN || current.mode == PrivateAccessMode.BIOMETRIC)
+            session.suspend(mutableDuration.value, current.unlocked)
+        else session.clear()
+        mutableState.value = current.copy(unlocked = false)
+    }
+
+    /** Call only from the resumed ordinary Private screen, never from settings or public routes. */
+    fun resumeRememberedAccess(): Boolean = synchronized(monitor) {
+        val current = state.value
+        if (current.unlocked) return@synchronized true
+        if (current.mode != PrivateAccessMode.PIN && current.mode != PrivateAccessMode.BIOMETRIC) {
+            session.clear()
+            return@synchronized false
+        }
+        if (current.mode == PrivateAccessMode.BIOMETRIC && !systemProtectionAvailable) {
+            session.clear()
+            return@synchronized false
+        }
+        if (!session.consume()) return@synchronized false
+        revision++
+        mutableState.value = current.copy(unlocked = true)
+        true
     }
 
     fun requireUnlocked() { check(state.value.unlocked) { "Приватный раздел заблокирован" } }
 
     fun unlockWithoutProtection() = synchronized(monitor) {
-        if (state.value.mode == PrivateAccessMode.NONE) mutableState.value = state.value.copy(unlocked = true)
+        if (state.value.mode == PrivateAccessMode.NONE) {
+            session.clear()
+            mutableState.value = state.value.copy(unlocked = true)
+        }
     }
 
     /** Call exclusively from a successful platform authentication callback. */
     fun onSystemAuthenticationSucceeded() = synchronized(monitor) {
-        if (state.value.mode == PrivateAccessMode.BIOMETRIC) mutableState.value = state.value.copy(unlocked = true)
+        if (state.value.mode == PrivateAccessMode.BIOMETRIC) {
+            session.clear()
+            mutableState.value = state.value.copy(unlocked = true)
+        }
     }
 
     suspend fun unlockWithPin(pin: String): Boolean = withContext(Dispatchers.Default) {
@@ -69,6 +130,7 @@ class PrivateAccessManager private constructor(context: Context) {
         synchronized(monitor) {
             if (!matches || revision != snapshot.first || state.value.mode != PrivateAccessMode.PIN) return@synchronized false
             persist(preferences.edit().remove("attempts").remove("blocked_until"))
+            session.clear()
             mutableState.value = state.value.copy(unlocked = true)
             true
         }
@@ -88,12 +150,14 @@ class PrivateAccessManager private constructor(context: Context) {
             check(revision == startRevision) { "Раздел заблокирован; повторите вход" }
             check(state.value.mode == PrivateAccessMode.UNCONFIGURED || state.value.unlocked)
             val edit = preferences.edit().clear().putString("mode", mode.name)
+                .putString("unlock_duration", mutableDuration.value.name)
             if (salt != null && hash != null) {
                 edit.putString("salt", Base64.getEncoder().encodeToString(salt))
                 edit.putString("hash", Base64.getEncoder().encodeToString(hash))
             }
             persist(edit)
             revision++
+            session.clear()
             mutableState.value = PrivateAccessState(mode, true)
         }
     }
