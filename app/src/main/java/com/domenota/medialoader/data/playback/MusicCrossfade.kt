@@ -25,6 +25,7 @@ internal class MusicCrossfade(
     private val preferences: CrossfadePreferences,
     private val equalizer: EqualizerSettingsRepository,
     private val allowPublic: (MediaItem) -> Boolean,
+    private val normalizationGain: (MediaItem) -> Double,
     private val timerAllows: (MediaItem, Long) -> Boolean,
 ) : Player.Listener {
     private data class Deck(
@@ -80,6 +81,7 @@ internal class MusicCrossfade(
                 return
             }
             active.eq.updateSettings(equalizer.state.value.effective(EqualizerTrack.fromMediaItem(active.to)))
+            active.eq.updateNormalizationGain(normalizationGain(active.to))
             if (!active.started && remaining <= active.duration &&
                 active.player.playbackState == Player.STATE_READY) {
                 // If preparation was late, shorten the overlap; don't truncate the next song.
@@ -115,6 +117,7 @@ internal class MusicCrossfade(
         if (!localPublic(item) || !timerAllows(item, (remaining / speed).toLong())) return
         val processor = EqualizerAudioProcessor(publishFormat = false)
         processor.updateSettings(equalizer.state.value.effective(EqualizerTrack.fromMediaItem(item)))
+        processor.updateNormalizationGain(normalizationGain(item))
         var temporary: ExoPlayer? = null
         try {
             val p = ExoPlayer.Builder(context, EqualizerRenderersFactory(context, processor))

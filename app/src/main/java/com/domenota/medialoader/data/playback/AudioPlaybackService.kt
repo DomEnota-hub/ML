@@ -148,6 +148,7 @@ class AudioPlaybackService : MediaSessionService() {
     private var listeningRecorder: ListeningRecorder? = null
     private var resumeRecorder: ResumeQueueRecorder? = null
     private var crossfade: MusicCrossfade? = null
+    private var loudness: MusicLoudness? = null
     private val privateScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
     override fun onCreate() {
@@ -228,7 +229,7 @@ class AudioPlaybackService : MediaSessionService() {
         resumeRecorder=resume;resume.attach()
         privateScope.launch {
             combine(access.state, MediaRepository.get(this@AudioPlaybackService).privateMediaIds) { state, ids -> state to ids }
-                .collect { (_, ids) -> privateIds = ids; folderVisibilityPrivateIds = ids; privateReady = true; crossfade?.recheckAccess(); guardPrivate(force=true); listening.refresh(); resume.refresh() }
+                .collect { (_, ids) -> privateIds = ids; folderVisibilityPrivateIds = ids; privateReady = true; crossfade?.recheckAccess(); guardPrivate(force=true); loudness?.invalidateAccess(); listening.refresh(); resume.refresh() }
         }
         player.addListener(object : Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
@@ -244,14 +245,17 @@ class AudioPlaybackService : MediaSessionService() {
                 BackgroundMediaWork.setBusy("audio-playback", isPlaying)
             }
         })
+        loudness = MusicLoudness(this, player, equalizer, privateScope, MusicLoudnessPreferences.get(this),
+            allowPublic).also { it.attach() }
         crossfade = MusicCrossfade(this, player, privateScope, CrossfadePreferences.get(this), equalizerSettings,
-            allowPublic) { item, remaining -> liveTimer?.allowsOverlap(item, remaining) == true }.also { it.attach() }
+            allowPublic, { item -> loudness?.gainFor(item) ?: 1.0 }) { item, remaining -> liveTimer?.allowsOverlap(item, remaining) == true }.also { it.attach() }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
         crossfade?.release(); crossfade = null
+        loudness?.release(); loudness = null
         liveTimer?.release(); liveTimer = null
         resumeRecorder?.release(); resumeRecorder=null
         listeningRecorder?.release(); listeningRecorder = null

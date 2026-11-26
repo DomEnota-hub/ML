@@ -6094,6 +6094,30 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.MusicLoudnessTest#absoluteAndRelativeGatesExcludeSilentTail": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.MusicLoudnessTest#gainTargetsPerceivedLevelWithSamplePeakAndBoostLimit": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.MusicLoudnessTest#gatedStereoLoudnessTracksLevelWithoutPhaseCancellation": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.MusicLoudnessTest#independentDeckGainsAndEqStayBounded": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.MusicLoudnessTest#normalizationChangesPcmEvenWithEqOff": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.MusicLoudnessTest#silenceAndShortAudioRemainUnmeasured": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.MusicStopTimerPolicyTest#invalidRequestsDoNotArm": {
     "skipped": false,
     "failed": false

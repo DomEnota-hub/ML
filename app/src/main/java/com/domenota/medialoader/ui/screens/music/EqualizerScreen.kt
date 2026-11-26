@@ -73,6 +73,7 @@ internal fun EqualizerScreen(
             }
             Spacer(Modifier.height(16.dp))
             CrossfadeControls()
+            MusicLoudnessControls()
             Spacer(Modifier.height(8.dp))
             TextButton({ onSettings(settings.withPreset("Ровный")) }, Modifier.align(Alignment.CenterHorizontally)) { Text("Сбросить настройки") }
         }
