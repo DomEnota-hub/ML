@@ -5206,6 +5206,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.MediaPassportNoteStoreTest#appIdentitySurvivesRenameAndPhoneIdentityRejectsRecycledLocator": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MediaPassportNoteStoreTest#corruptDocumentAndOversizedInputNeverOverwriteExistingNote": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MediaPassportNoteStoreTest#notesPersistEditAndDeleteWithoutChangingOriginalOrCopy": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MediaPassportNoteStoreTest#searchReturnsOnlyUnambiguousAdmittedVisualRows": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MediaPassportNoteStoreTest#staleEpochAndUnconfirmedRowsCannotReadOrWriteNotes": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.MediaWriteAccessTest#readinessRequiresAllGrantsAndSupportedSdk": {
     "skipped": false,
     "failed": false
@@ -8867,6 +8887,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.GalleryLibraryStateTest#infoLinksResolveRealMembershipAndPreferredOrigin": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.GalleryLibraryStateTest#noteSearchUnionsNameMatchesWithoutBypassingMediaOrFolderScope": {
     "skipped": false,
     "failed": false
   },
