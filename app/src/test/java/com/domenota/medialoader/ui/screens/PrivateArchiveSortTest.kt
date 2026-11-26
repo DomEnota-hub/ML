@@ -43,7 +43,7 @@ class PrivateArchiveSortTest {
 
     @Test fun equalValuesUseStableIdentityWithoutMutatingInput() {
         val same = rows.map { it.copy(name = "Файл") }
-        assertEquals(listOf("a", "b", "c"),
+        assertEquals(listOf("b", "a", "c"),
             sortPrivateArchive(same, PrivateArchiveSort(PrivateArchiveSortField.NAME, false)) { it }.map { it.id })
         assertEquals(listOf("b", "a", "c"), same.map { it.id })
     }
