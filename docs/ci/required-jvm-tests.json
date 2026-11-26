@@ -6286,6 +6286,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.privatevault.PrivateAccessManagerTest#corruptDurationDefaultsToExitAndUnprotectedModeHasNoPermit": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.privatevault.PrivateAccessManagerTest#durationPersistsButAuthorizationNeverSurvivesProcessRecreation": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.privatevault.PrivateAccessManagerTest#explicitUnprotectedChoiceStillRequiresAnUnlockOnRelaunch": {
     "skipped": false,
     "failed": false
@@ -6302,7 +6310,15 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.privatevault.PrivateAccessManagerTest#publicEntryCannotMintPermitFromUnexpectedLiveAuthorization": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.privatevault.PrivateAccessManagerTest#relaunchLocksAndCannotSwitchModeToBypassPin": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.privatevault.PrivateAccessManagerTest#retainedPermitRevokesFileAccessUntilPrivateReentry": {
     "skipped": false,
     "failed": false
   },
@@ -6407,6 +6423,22 @@
     "failed": false
   },
   "com.domenota.medialoader.data.privatevault.PrivateMoveSessionTest#transferSurvivesUiObserverRecreationAndIsNotStartedTwice": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.privatevault.PrivateUnlockSessionTest#defaultAndNewProcessNeverRetainAccess": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.privatevault.PrivateUnlockSessionTest#duplicateExitAndBackgroundEventsNeverExtendPermit": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.privatevault.PrivateUnlockSessionTest#everyTimedOptionUsesExactMonotonicBoundaryAndOneShotPermit": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.privatevault.PrivateUnlockSessionTest#processLifetimeStillRevokesOnManualLockOrClockRegression": {
     "skipped": false,
     "failed": false
   },
@@ -8194,6 +8226,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.PrivateAccessGateTest#rememberedEntryCannotBypassGateWithoutExplicitScreenPermission": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.PrivateAccessGateTest#rememberedEntryWaitsForResumedPrivateScreenWithoutSystemPrompt": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.PrivatePlaybackAliasTest#fileIdentityNeverReadsAudioBytes": {
     "skipped": false,
     "failed": false
@@ -9183,6 +9223,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.PrivateGroupsUiTest#transferAfterFirstSetupDoesNotAskForReadAccessWhenLocked": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.PrivateScreenUiTest#durationSettingRequiresFreshPinAndManualLockClearsRememberedEntry": {
     "skipped": false,
     "failed": false
   },
