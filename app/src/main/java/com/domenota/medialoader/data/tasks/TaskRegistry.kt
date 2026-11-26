@@ -21,6 +21,10 @@ internal enum class TaskWait(val label: String) {
     NETWORK("Сеть"), WIFI("Wi-Fi"), CHARGING("Зарядка"), PERMISSION("Разрешение"),
     STORAGE("Свободное место"), RESOURCE("Освобождение ресурсов")
 }
+internal enum class TaskStage(val label: String) {
+    SCANNING("Проверка"), ENQUEUE("Подготовка очереди"), TRANSFER("Передача"),
+    PROCESSING("Обработка"), SAVING("Сохранение"), VERIFYING("Проверка результата")
+}
 internal enum class TaskCommand(val label: String) {
     PAUSE("Пауза"), RESUME("Продолжить"), CANCEL("Отмена"), RETRY("Повторить неудачные"), OPEN("К результатам")
 }
@@ -43,9 +47,12 @@ internal data class TaskSnapshot(
     val commands: Set<TaskCommand> = emptySet(),
     val children: List<TaskSnapshot> = emptyList(),
     val updatedAt: Long = 0L,
+    val percent: Int? = null,
+    val stage: TaskStage? = null,
 ) {
     init {
         require(id.matches(Regex("[a-f0-9]{64}")))
+        require(percent == null || percent in 0..100)
         require(errors >= 0 && updatedAt >= 0)
         require(wait == null || status == TaskStatus.WAITING)
         require(children.map { it.id }.distinct().size == children.size)
@@ -76,6 +83,15 @@ internal class TaskRegistry {
         mutable.value = sources.values.flatMap { it.rows }
     }
 
+    @Synchronized fun record(owner: TaskOwner, row: TaskSnapshot) {
+        val old = sources[owner]
+        publish(owner, old?.rows.orEmpty().filterNot { it.id == row.id } + row,
+            old?.command ?: { _, _ -> })
+    }
+    @Synchronized fun remove(owner: TaskOwner, id: String) {
+        val old = sources[owner] ?: return
+        publish(owner, old.rows.filterNot { it.id == id }, old.command)
+    }
     @Synchronized fun clear(owner: TaskOwner) {
         sources.remove(owner)
         mutable.value = sources.values.flatMap { it.rows }

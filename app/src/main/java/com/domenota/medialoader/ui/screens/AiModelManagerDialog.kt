@@ -63,6 +63,7 @@ import com.domenota.medialoader.data.editor.ReflectionDExModelStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import com.domenota.medialoader.data.tasks.*
 
 /** Optional AI weights, never downloaded implicitly when a photo is opened. */
 @Composable
@@ -107,12 +108,18 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
             progress = 0
             active = "reflection"
             job = scope.launch {
+                val report = TaskReporter.create(TaskOwner.MODEL, TaskKind.MODEL)
+                report.report()
                 try {
-                    reflection.installFromUri(uri) { progress = it }
+                    reflection.installFromUri(uri) { progress = it; report.report(percent=it.coerceIn(0,100)) }
                     reflectionReady = reflection.verifyInstalled()
+                    report.report(if (reflectionReady) TaskStatus.COMPLETE else TaskStatus.FAILED)
+
                 } catch (cancel: CancellationException) {
+                    report.report(TaskStatus.CANCELLED)
                     error = "Импорт модели отменён."
                 } catch (failure: Exception) {
+                    report.report(TaskStatus.FAILED,errors=1)
                     error = failure.message ?: "Не удалось проверить файл DExNet."
                 } finally {
                     active = null
@@ -130,28 +137,34 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         progress = 0
         active = kind
         job = scope.launch {
+                val report = TaskReporter.create(TaskOwner.MODEL, TaskKind.MODEL)
+                report.report()
             try {
                 if (kind == "lama") {
-                    lama.install { progress = it }
+                    lama.install { progress = it; report.report(percent=it.coerceIn(0,100)) }
                     lamaReady = lama.verifyInstalled()
                 } else if (kind == "mobile") {
-                    mobile.install { progress = it }
+                    mobile.install { progress = it; report.report(percent=it.coerceIn(0,100)) }
                     mobileReady = mobile.verifyInstalled()
                 } else if (kind == "people") {
-                    people.install { progress = it }
+                    people.install { progress = it; report.report(percent=it.coerceIn(0,100)) }
                     peopleReady = people.verifyInstalled()
                 } else if (kind == "glare") {
-                    if (offline) glare.install { progress = it }
-                    else glare.download { progress = it }
+                    if (offline) glare.install { progress = it; report.report(percent=it.coerceIn(0,100)) }
+                    else glare.download { progress = it; report.report(percent=it.coerceIn(0,100)) }
                     glareReady = glare.verifyInstalled()
                 } else if (kind == "reflection") {
-                    if (reflection.bundled()) reflection.install { progress = it }
-                    else reflection.downloadAndAssemble { progress = it }
+                    if (reflection.bundled()) reflection.install { progress = it; report.report(percent=it.coerceIn(0,100)) }
+                    else reflection.downloadAndAssemble { progress = it; report.report(percent=it.coerceIn(0,100)) }
                     reflectionReady = reflection.verifyInstalled()
                 }
+                report.report(if (when(kind) { "lama" -> lamaReady; "mobile" -> mobileReady; "people" -> peopleReady; "glare" -> glareReady; "reflection" -> reflectionReady; else -> false }) TaskStatus.COMPLETE else TaskStatus.FAILED)
+
             } catch (cancel: CancellationException) {
+                    report.report(TaskStatus.CANCELLED)
                 error = "Установка отменена."
             } catch (failure: Exception) {
+                    report.report(TaskStatus.FAILED,errors=1)
                 error = failure.message ?: "Не удалось установить AI-модель."
             } finally {
                 active = null

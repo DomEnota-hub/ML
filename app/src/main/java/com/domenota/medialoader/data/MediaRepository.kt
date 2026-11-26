@@ -432,6 +432,7 @@ class MediaRepository private constructor(context: Context) {
     val downloads: Flow<List<DownloadEntity>> = history.observeAll()
     private val taskFeedScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     init {
+        com.domenota.medialoader.data.tasks.observeDuplicateTasks(appContext, taskFeedScope)
         taskFeedScope.launch {
             downloads.collect { rows ->
                 val feed = com.domenota.medialoader.data.tasks.DownloadTaskFeed

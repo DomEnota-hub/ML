@@ -1,5 +1,6 @@
 package com.domenota.medialoader.data.playback
 
+import com.domenota.medialoader.data.tasks.*
 import android.Manifest
 import android.content.ContentUris
 import android.content.Context
@@ -94,8 +95,13 @@ class AudioWaveformPrecomputeWorker(
             prefs.getInt("cursor", 0).coerceIn(0, entries.size) else 0
         // WorkManager runs are time-limited: make progress even for large music libraries.
         val stop = (start + 20).coerceAtMost(entries.size)
+        val report = TaskReporter.create(TaskOwner.WAVEFORM, TaskKind.WAVEFORM, id.toString())
+        var checked = 0
+        var failures = 0
+        report.report(files=countProgress(0,stop-start),stage=TaskStage.SCANNING)
+        try {
         for (index in start until stop) {
-            if (isStopped) return@withContext Result.retry()
+            if (isStopped) { report.report(TaskStatus.CANCELLED,files=countProgress(checked,stop-start),errors=failures); return@withContext Result.retry() }
             val (source, knownDuration) = entries[index]
             runCatching {
                 val uri = Uri.parse(source)
@@ -103,11 +109,15 @@ class AudioWaveformPrecomputeWorker(
                 val duration = readDurationMs(app, uri).takeIf { it > 0L } ?: knownDuration
                 if (duration > 0L && !hasCachedAudioWaveform(app, uri, duration)) {
                     // Give priority to playback and visible editing before PCM decoding.
+                    report.report(TaskStatus.WAITING,files=countProgress(checked,stop-start),errors=failures,wait=TaskWait.RESOURCE)
                     BackgroundMediaWork.awaitIdle()
+                    report.report(files=countProgress(checked,stop-start),errors=failures,stage=TaskStage.SCANNING)
                     if (isStopped) throw java.util.concurrent.CancellationException("Stopped before waveform")
                     loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
                 }
-            }.onFailure { if (it is java.util.concurrent.CancellationException) throw it }
+            }.onFailure { if (it is java.util.concurrent.CancellationException) throw it else failures++ }
+            checked++
+            report.report(files=countProgress(checked,stop-start),errors=failures,stage=TaskStage.SCANNING)
         }
         prefs.edit().putInt("inventory", inventory).putInt("cursor", if (stop < entries.size) stop else 0).apply()
         if (stop < entries.size) {
@@ -115,7 +125,13 @@ class AudioWaveformPrecomputeWorker(
             // Every completed batch persists its cursor; WorkManager survives process death.
             AudioWaveformPrecompute.continueRemaining(app)
         }
+        report.report(if(failures>0) TaskStatus.PARTIAL else TaskStatus.COMPLETE,files=countProgress(checked,stop-start),errors=failures,stage=TaskStage.SCANNING)
         Result.success()
+        } catch (e: java.util.concurrent.CancellationException) {
+            report.report(TaskStatus.CANCELLED,files=countProgress(checked,stop-start),errors=failures); throw e
+        } catch (e: Exception) {
+            report.report(TaskStatus.FAILED,files=countProgress(checked,stop-start),errors=failures+1); throw e
+        }
     }
 
     private fun readDurationMs(context: Context, uri: Uri): Long = runCatching {

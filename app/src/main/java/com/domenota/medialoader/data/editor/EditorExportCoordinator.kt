@@ -1,5 +1,6 @@
 package com.domenota.medialoader.data.editor
 
+import com.domenota.medialoader.data.tasks.*
 import android.content.Context
 import android.net.Uri
 import com.domenota.medialoader.core.database.DownloadEntity
@@ -69,6 +70,8 @@ class EditorExportCoordinator private constructor(context: Context) {
         MediaProcessingService.start(appContext)
 
         job = scope.launch {
+            val report = if (!source.isPrivate && !source.hidden) TaskReporter.create(TaskOwner.EXPORT, TaskKind.EXPORT) else null
+            report?.report()
             var temp: java.io.File? = null
             try {
                 temp = videoEditor.export(Uri.parse(savedUri), spec) { progress ->
@@ -96,10 +99,13 @@ class EditorExportCoordinator private constructor(context: Context) {
                     completedItemId = published.id,
                     outputDetails = inspection.summary,
                 )
+                report?.report(TaskStatus.COMPLETE)
             } catch (cancelled: CancellationException) {
+                report?.report(TaskStatus.CANCELLED)
                 _state.value = EditorExportState()
                 throw cancelled
             } catch (error: Exception) {
+                report?.report(TaskStatus.FAILED, errors = 1)
                 AppLog.e("Editor", "Video export failed · source=${source.id}", error)
                 _state.value = EditorExportState(
                     operation = "Экспорт видео",
@@ -131,6 +137,8 @@ class EditorExportCoordinator private constructor(context: Context) {
         )
         MediaProcessingService.start(appContext)
         job = scope.launch {
+            val report = if (!source.isPrivate && !source.hidden) TaskReporter.create(TaskOwner.EXPORT, TaskKind.EXPORT) else null
+            report?.report()
             var temp: java.io.File? = null
             try {
                 temp = videoFrameExporter.export(Uri.parse(savedUri), positionMs, spec)
@@ -151,10 +159,13 @@ class EditorExportCoordinator private constructor(context: Context) {
                     sourceId = source.id,
                     completedItemId = published.id,
                 )
+                report?.report(TaskStatus.COMPLETE)
             } catch (cancelled: CancellationException) {
+                report?.report(TaskStatus.CANCELLED)
                 _state.value = EditorExportState()
                 throw cancelled
             } catch (error: Exception) {
+                report?.report(TaskStatus.FAILED, errors = 1)
                 AppLog.e("Editor", "Video frame export failed · source=${source.id}", error)
                 _state.value = EditorExportState(
                     operation = "Сохранение кадра",
@@ -188,6 +199,8 @@ class EditorExportCoordinator private constructor(context: Context) {
         MediaProcessingService.start(appContext)
 
         job = scope.launch {
+            val report = if (!source.isPrivate && !source.hidden) TaskReporter.create(TaskOwner.EXPORT, TaskKind.EXPORT) else null
+            report?.report()
             var extracted: java.io.File? = null
             var temp: java.io.File? = null
             try {
@@ -219,10 +232,13 @@ class EditorExportCoordinator private constructor(context: Context) {
                     sourceId = source.id,
                     completedItemId = published.id,
                 )
+                report?.report(TaskStatus.COMPLETE)
             } catch (cancelled: CancellationException) {
+                report?.report(TaskStatus.CANCELLED)
                 _state.value = EditorExportState()
                 throw cancelled
             } catch (error: Exception) {
+                report?.report(TaskStatus.FAILED, errors = 1)
                 AppLog.e("Editor", "Audio extraction failed · source=${source.id}", error)
                 _state.value = EditorExportState(
                     operation = "Извлечение аудио",
@@ -257,6 +273,8 @@ class EditorExportCoordinator private constructor(context: Context) {
         MediaProcessingService.start(appContext)
 
         job = scope.launch {
+            val report = if (!source.isPrivate && !source.hidden) TaskReporter.create(TaskOwner.EXPORT, TaskKind.EXPORT) else null
+            report?.report()
             var temp: java.io.File? = null
             try {
                 temp = audioEditor.export(Uri.parse(savedUri), spec) { progress ->
@@ -291,10 +309,13 @@ class EditorExportCoordinator private constructor(context: Context) {
                     sourceId = source.id,
                     completedItemId = published.id,
                 )
+                report?.report(TaskStatus.COMPLETE)
             } catch (cancelled: CancellationException) {
+                report?.report(TaskStatus.CANCELLED)
                 _state.value = EditorExportState()
                 throw cancelled
             } catch (error: Exception) {
+                report?.report(TaskStatus.FAILED, errors = 1)
                 AppLog.e("Editor", "Audio edit failed · source=${source.id}", error)
                 _state.value = EditorExportState(
                     operation = "Экспорт аудио",
@@ -328,6 +349,8 @@ class EditorExportCoordinator private constructor(context: Context) {
         MediaProcessingService.start(appContext)
 
         job = scope.launch {
+            val report = if (!source.isPrivate && !source.hidden) TaskReporter.create(TaskOwner.EXPORT, TaskKind.EXPORT) else null
+            report?.report()
             var result: PhotoExportResult? = null
             try {
                 result = photoEditor.export(Uri.parse(savedUri), spec) { progress ->
@@ -350,10 +373,13 @@ class EditorExportCoordinator private constructor(context: Context) {
                     sourceId = source.id,
                     completedItemId = published.id,
                 )
+                report?.report(TaskStatus.COMPLETE)
             } catch (cancelled: CancellationException) {
+                report?.report(TaskStatus.CANCELLED)
                 _state.value = EditorExportState()
                 throw cancelled
             } catch (error: Exception) {
+                report?.report(TaskStatus.FAILED, errors = 1)
                 AppLog.e("Editor", "Photo edit failed · source=${source.id}", error)
                 _state.value = EditorExportState(
                     operation = "Экспорт фото",
@@ -382,6 +408,8 @@ class EditorExportCoordinator private constructor(context: Context) {
             return
         }
         job=scope.launch {
+            val report = if (rows.all { !it.isPrivate && !it.hidden }) TaskReporter.create(TaskOwner.BATCH, TaskKind.BATCH_EDIT) else null
+            report?.report(files=countProgress(0,rows.size))
             val editor=BatchPhotoEditor(appContext)
             val epoch=com.domenota.medialoader.data.library.DuplicatePrivacyGuard.generation(appContext)
             val outcomes=mutableListOf<BatchPhotoOutcome>()
@@ -405,11 +433,14 @@ class EditorExportCoordinator private constructor(context: Context) {
                         "Недостаточно памяти для исходного разрешения"))}
                     finally{result?.file?.delete()}
                     _batch.value=BatchPhotoState(true,rows.size,outcomes.toList(),spec=spec)
+                    report?.report(files=countProgress(outcomes.count{it.error==null},rows.size),errors=outcomes.count{it.error!=null})
                     _state.update{it.copy(progress=outcomes.size*100/rows.size)}
                 }
             }catch(e:CancellationException){cancelled=true;throw e}
             finally{
                 _batch.value=BatchPhotoState(false,rows.size,outcomes.toList(),cancelled,spec)
+                val failures=outcomes.count{it.error!=null}
+                report?.report(when { cancelled -> TaskStatus.CANCELLED; failures==rows.size -> TaskStatus.FAILED; failures>0 || outcomes.size<rows.size -> TaskStatus.PARTIAL; else -> TaskStatus.COMPLETE },files=countProgress(outcomes.size-failures,rows.size),errors=failures)
                 _state.value=EditorExportState(operation="Пакетная обработка фото",progress=outcomes.size*100/rows.size,
                     message="Сохранено: ${outcomes.count{it.error==null}} из ${rows.size}")
                 job=null

@@ -68,14 +68,17 @@ private fun TaskCard(row: TaskSnapshot) {
             verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(row.kind.label, style = MaterialTheme.typography.titleMedium)
             Text(row.status.label + (row.wait?.let { " · ${it.label}" } ?: ""), style = MaterialTheme.typography.bodyMedium)
+            row.stage?.let { Text(it.label, style = MaterialTheme.typography.bodySmall) }
+            row.percent?.let { LinearProgressIndicator(progress = { it / 100f }, modifier = Modifier.fillMaxWidth()); Text("$it%") }
             val progress = row.files ?: row.progress
             progress?.let {
                 val fraction = it.fraction
                 if (fraction != null) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
                 else if (row.active) LinearProgressIndicator(Modifier.fillMaxWidth())
-                if (row.files != null) Text("Готово ${it.done} из ${it.total}", style = MaterialTheme.typography.bodySmall)
+                if (row.files != null) Text("${it.done} из ${it.total ?: "?"}", style = MaterialTheme.typography.bodySmall)
                 else if (it.done > 0 || it.total != null) Text("${it.done} / ${it.total ?: "?"} байт", style = MaterialTheme.typography.bodySmall)
             }
+            if (row.active && progress == null && row.percent == null) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (row.errors > 0) Text("Ошибки: ${row.errors}", color = MaterialTheme.colorScheme.error)
             Text(if (expanded) "Свернуть" else "Подробнее", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
         }
