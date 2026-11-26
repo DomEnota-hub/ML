@@ -1,5 +1,6 @@
 package com.domenota.medialoader.data.instagramprofile
 
+import com.domenota.medialoader.data.tasks.*
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -29,13 +30,19 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
     private val store = InstagramProfileStore(context)
     private val repository = MediaRepository.get(context)
     private var stage = "initial"
+    private var task:TaskReporter?=null
+    private var failedPosts=0
 
     override suspend fun doWork(): Result {
         AppLog.init(applicationContext)
         val id = inputData.getString(KEY_JOB) ?: return Result.failure()
         val mode = inputData.getString(KEY_MODE) ?: return Result.failure()
-        setForeground(notification(id, mode))
+        if(mode !in setOf(MODE_SCAN,MODE_DOWNLOAD))return Result.failure()
+        val report=TaskReporter.create(TaskOwner.PROFILE,TaskKind.PROFILE,"$id:$mode")
+        task=report
+        report.report(stage=if(mode==MODE_SCAN)TaskStage.SCANNING else TaskStage.ENQUEUE)
         return try {
+            setForeground(notification(id, mode))
             when (mode) {
                 MODE_SCAN -> scan(id)
                 MODE_DOWNLOAD -> download(id)
@@ -43,9 +50,18 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
             }
             if (mode == MODE_SCAN && store.job(id)?.favoriteCheck == true)
                 InstagramProfileController(applicationContext).scheduleNextFavoriteCheck(id)
+            val saved=store.job(id)
+            val status=when(saved?.phase) {
+                InstagramProfilePhase.READY -> if(saved.scanComplete)TaskStatus.COMPLETE else TaskStatus.PARTIAL
+                InstagramProfilePhase.FINISHED -> if(failedPosts>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE
+                InstagramProfilePhase.CANCELLED -> TaskStatus.CANCELLED
+                else -> TaskStatus.FAILED
+            }
+            report.report(status,files=if(mode==MODE_SCAN)countProgress(saved?.scanned?:0,0)else null,errors=failedPosts,stage=if(mode==MODE_SCAN)TaskStage.SCANNING else TaskStage.ENQUEUE)
             Result.success()
         } catch (cancelled: CancellationException) {
             store.phase(id, InstagramProfilePhase.CANCELLED)
+            report.report(TaskStatus.CANCELLED)
             throw cancelled
         } catch (error: Exception) {
             val message = when (error) {
@@ -58,8 +74,9 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
             AppLog.w("InstagramProfile", "Task stopped · id=$id · mode=$mode · stage=$stage · reason=$reason")
             if (mode == MODE_SCAN && store.job(id)?.favoriteCheck == true)
                 InstagramProfileController(applicationContext).scheduleNextFavoriteCheck(id)
+            report.report(TaskStatus.FAILED,errors=failedPosts+1)
             Result.failure()
-        }
+        } finally { task=null }
     }
 
     private suspend fun scan(id: String) {
@@ -99,6 +116,7 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
                 job.periodEnd, ZoneId.systemDefault())
             store.addPage(id, job.username, decision.posts, reels, page.cursor,
                 page.cursor == null || decision.reachedStart, job.scanned + page.posts.size)
+            task?.report(files=countProgress(job.scanned+page.posts.size,0),stage=TaskStage.SCANNING)
             AppLog.i("InstagramProfile", "Page saved · id=$id · tab=${if (reels) "reels" else "feed"} · posts=${page.posts.size} · total=${job.scanned + page.posts.size}")
             delay(800)
         }
@@ -142,10 +160,10 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
             catch (error: ProviderException) {
                 if (error.reason == ProviderException.Reason.RATE_LIMITED ||
                     error.reason == ProviderException.Reason.ACCESS_REQUIRED) throw error
-                failures++
+                failures++; failedPosts++
                 AppLog.w("InstagramProfile", "Post not queued · id=$id · kind=${error.reason}")
             } catch (error: Exception) {
-                failures++
+                failures++; failedPosts++
                 AppLog.w("InstagramProfile", "Post not queued · id=$id · kind=${error.javaClass.simpleName}")
             }
             if (failures >= 5) throw InstagramProfileFormatException("Пять публикаций подряд не удалось обработать")

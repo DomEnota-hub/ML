@@ -10,6 +10,8 @@ import androidx.compose.material.icons.rounded.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -21,8 +23,8 @@ internal const val TASK_CENTER_ROUTE = "task-center"
 
 @Composable
 internal fun TaskCenterAction(onOpen: () -> Unit) {
-    val tasks by TaskCenter.registry.tasks.collectAsStateWithLifecycle()
-    val count = tasks.count { it.active }
+    val counts=remember { TaskCenter.registry.tasks.map { rows -> rows.count { it.active } }.distinctUntilChanged() }
+    val count by counts.collectAsStateWithLifecycle(initialValue=0)
     IconButton(onOpen) {
         BadgedBox(badge = { if (count > 0) Badge { Text(count.toString()) } }) {
             Icon(Icons.Rounded.List, "Центр задач")
@@ -66,6 +68,7 @@ internal fun TaskCenterScreen(onBack: () -> Unit) {
 @Composable
 private fun TaskCard(row: TaskSnapshot) {
     var expanded by rememberSaveable(row.id) { mutableStateOf(false) }
+    var childLimit by rememberSaveable(row.id) { mutableIntStateOf(20) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -87,13 +90,14 @@ private fun TaskCard(row: TaskSnapshot) {
         }
         if (expanded) Column(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
             TaskCommands(row)
-            row.children.forEach { child ->
+            row.children.take(childLimit).forEach { child ->
                 HorizontalDivider()
                 Text(child.kind.label + " · " + child.status.label, style = MaterialTheme.typography.bodyMedium)
                 child.wait?.let { Text(it.label, style = MaterialTheme.typography.bodySmall) }
                 child.progress?.let { Text("${it.done} / ${it.total ?: "?"} байт", style = MaterialTheme.typography.bodySmall) }
                 TaskCommands(child)
             }
+            if(row.children.size>childLimit) TextButton({childLimit+=20}) { Text("Ещё (${row.children.size-childLimit})") }
         }
     }
 }

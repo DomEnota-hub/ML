@@ -19,7 +19,7 @@ internal enum class TaskStatus(val label: String) {
 }
 internal enum class TaskWait(val label: String) {
     NETWORK("Сеть"), WIFI("Wi-Fi"), CHARGING("Зарядка"), PERMISSION("Разрешение"),
-    STORAGE("Свободное место"), RESOURCE("Освобождение ресурсов")
+    STORAGE("Свободное место"), RESOURCE("Освобождение ресурсов"), USER_ACTION("Действие пользователя")
 }
 internal enum class TaskStage(val label: String) {
     SCANNING("Проверка"), ENQUEUE("Подготовка очереди"), TRANSFER("Передача"),
@@ -64,7 +64,10 @@ internal data class TaskSnapshot(
  * raw provider errors, media titles or thumbnails. Executors retain sole ownership of work. */
 internal fun taskId(owner: TaskOwner, key: String): String =
     MessageDigest.getInstance("SHA-256").digest((owner.name + ":" + key).toByteArray(Charsets.UTF_8))
-        .joinToString("") { "%02x".format(it.toInt() and 255) }
+        .let { bytes -> buildString(64) {
+        val digits="0123456789abcdef"
+        for(byte in bytes) { val n=byte.toInt() and 255; append(digits[n ushr 4]); append(digits[n and 15]) }
+    } }
 
 internal class TaskRegistry {
     private data class Feed(val rows: List<TaskSnapshot>, val command: (String, TaskCommand) -> Unit)
@@ -114,6 +117,8 @@ internal class TaskRegistry {
         saved.value=TaskHistoryData(saved.value.clearedAt,rows)
         val allowed=archive.keys
         val shown=live.filter { !it.status.terminal || it.id in allowed }
+        val liveKeys=live.mapTo(hashSetOf()){it.id}
+        seen.keys.retainAll(liveKeys); started.keys.retainAll(liveKeys)
         val liveIds=shown.mapTo(hashSetOf()) { it.id }
         mutable.value=shown+rows.filterNot { it.id in liveIds }
     }
@@ -131,7 +136,7 @@ internal class TaskRegistry {
 
     @Synchronized fun record(owner: TaskOwner, row: TaskSnapshot) {
         val old = sources[owner]
-        publish(owner, old?.rows.orEmpty().filterNot { it.id == row.id } + row,
+        publish(owner, old?.rows.orEmpty().filterNot { it.id == row.id || it.status.terminal } + row,
             old?.command ?: { _, _ -> })
     }
     @Synchronized fun remove(owner: TaskOwner, id: String) {
