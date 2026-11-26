@@ -9,6 +9,8 @@ import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.model.MediaItem
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
@@ -59,7 +61,9 @@ internal class DownloadNetworkPreferences(context: Context) {
         prefs.edit().putString("mode", policy.mode.name).putInt("threshold_mb", policy.thresholdMb).apply()
     }
     fun waitFor(item: MediaItem, force: Boolean): DownloadNetworkWait? {
-        val capabilities = runCatching { connectivity?.activeNetwork?.let { connectivity.getNetworkCapabilities(it) } }.getOrNull()
+        val capabilities = runCatching {
+            connectivity?.let { manager -> manager.activeNetwork?.let(manager::getNetworkCapabilities) }
+        }.getOrNull()
         val internet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
         val wifi = capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
         return read().waiting(item.sizeBytes, internet, wifi, force)
@@ -78,8 +82,14 @@ internal class DownloadNetworkPreferences(context: Context) {
             connectivity?.registerDefaultNetworkCallback(callback)
             connectivity != null
         }.getOrDefault(false)
+        // Registration can fail on an OEM build; a single slow fallback observer
+        // still rechecks waiting rows, never one timer per transfer.
+        val fallback = if (!registered) launch {
+            while (true) { delay(5000); trySend(Unit) }
+        } else null
         trySend(Unit)
         awaitClose {
+            fallback?.cancel()
             prefs.unregisterOnSharedPreferenceChangeListener(listener)
             if (registered) runCatching { connectivity?.unregisterNetworkCallback(callback) }
         }

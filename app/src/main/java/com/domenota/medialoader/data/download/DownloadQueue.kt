@@ -59,7 +59,9 @@ class DownloadQueue(
     init {
         scope.launch {
             networkUpdates.collect {
-                enqueueLock.withLock { resumeWaitingLocked() }
+                try { enqueueLock.withLock { resumeWaitingLocked() } }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) { AppLog.w("Download", "Could not recheck network wait", error) }
             }
         }
         scope.launch {
@@ -405,7 +407,7 @@ class DownloadQueue(
     suspend fun downloadNow(id: String): Boolean = enqueueLock.withLock {
         recoverInterruptedLocked()
         val row = history.byId(id)
-        if (row?.networkWait != DownloadNetworkWait.WIFI || row.hidden || row.isPrivate || id !in queuedTasks)
+        if (row == null || row.networkWait != DownloadNetworkWait.WIFI || row.hidden || row.isPrivate || id !in queuedTasks)
             return@withLock false
         forceNetwork.add(id)
         resumeWaitingLocked()

@@ -2298,6 +2298,22 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.download.DownloadNetworkPolicyTest#manualOverrideCannotInventInternet": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.DownloadNetworkPolicyTest#markerOnlyMeansWaitForQueuedRows": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.DownloadNetworkPolicyTest#preferencesRoundTripWithoutChangingDefaults": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.DownloadNetworkPolicyTest#threeModesAndBoundaryTreatUnknownAsLarge": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.download.DownloadQueueTest#automaticShareRestartUsesTheSameQueueEntry": {
     "skipped": false,
     "failed": false
@@ -2311,6 +2327,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.download.DownloadQueueTest#cancellingOneRutubeTransferReleasesTheOther": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.DownloadQueueTest#downloadNowOverridesOneFileButCancellationNeverRestarts": {
     "skipped": false,
     "failed": false
   },
@@ -2335,6 +2355,18 @@
     "failed": false
   },
   "com.domenota.medialoader.data.download.DownloadQueueTest#manyTasksNeverOverlap": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.DownloadQueueTest#networkIsRecheckedAfterEarlierTransferCompletes": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.DownloadQueueTest#networkWaitDoesNotBlockAllowedFileInSamePublication": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.DownloadQueueTest#onlyExplicitDeferredRowRestartsAfterProcessDeath": {
     "skipped": false,
     "failed": false
   },

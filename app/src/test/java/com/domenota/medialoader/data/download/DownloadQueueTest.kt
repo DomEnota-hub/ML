@@ -16,6 +16,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.runBlocking
@@ -201,12 +202,16 @@ class DownloadQueueTest {
         existing: Set<String> = emptySet(),
         clock: () -> Long = System::currentTimeMillis,
         destinationFor: (MediaItem) -> String? = { null },
+        networkWait: (MediaItem, Boolean) -> DownloadNetworkWait? = { _, _ -> null },
+        networkUpdates: Flow<Unit> = kotlinx.coroutines.flow.emptyFlow(),
+        initialRows: List<DownloadEntity> = emptyList(),
         block: suspend (FakeDao, DownloadQueue) -> Unit,
     ) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             runBlocking {
                 val dao = FakeDao()
+                initialRows.forEach { dao.upsert(it) }
                 val queue = DownloadQueue(
                     HistoryRepository(dao),
                     engine,
@@ -214,11 +219,103 @@ class DownloadQueueTest {
                     scope,
                     clock = clock,
                     destinationFor = destinationFor,
+                    networkWait = networkWait,
+                    networkUpdates = networkUpdates,
                 )
                 block(dao, queue)
             }
         } finally {
             scope.cancel()
+        }
+    }
+
+    @Test fun networkWaitDoesNotBlockAllowedFileInSamePublication() {
+        val wifi = MutableStateFlow(false)
+        val policy = DownloadNetworkPolicy(DownloadNetworkMode.LARGE_WIFI, 50)
+        val started = CopyOnWriteArrayList<String>()
+        val engine = object : DownloadEngine {
+            override suspend fun download(task: DownloadTask, onProgress: suspend (Long, Long?) -> Unit): DownloadResult {
+                task.publishAfter?.await()
+                started.add(task.item.id)
+                return DownloadResult("content://saved/" + task.fileName, 10)
+            }
+        }
+        withQueue(engine, networkWait = { media, force -> policy.waiting(media.sizeBytes, true, wifi.value, force) },
+            networkUpdates = wifi.map { Unit }) { dao, queue ->
+            val rows = queue.enqueue(listOf(item("large.mp4", MediaType.VIDEO, 60L*1024*1024), item("small.jpg", size=100)))
+            dao.waitUntil { list -> list.first { it.id==rows[0].id }.networkWait==DownloadNetworkWait.WIFI &&
+                list.first { it.id==rows[1].id }.state==DownloadState.COMPLETED }
+            assertEquals(listOf("small.jpg"), started.toList())
+            wifi.value=true
+            dao.waitUntil { list -> list.all { it.state==DownloadState.COMPLETED } }
+            assertEquals(listOf("small.jpg","large.mp4"), started.toList())
+            assertTrue(dao.all().all { it.errorMessage==null })
+        }
+    }
+
+    @Test fun downloadNowOverridesOneFileButCancellationNeverRestarts() {
+        val wifi = MutableStateFlow(false)
+        val policy = DownloadNetworkPolicy(DownloadNetworkMode.WIFI)
+        val engine = FakeEngine()
+        withQueue(engine, networkWait={ media, force -> policy.waiting(media.sizeBytes, true, wifi.value, force) },
+            networkUpdates=wifi.map { Unit }) { dao, queue ->
+            val rows=queue.enqueue(listOf(item("one.jpg"),item("two.jpg"),item("three.jpg")))
+            dao.waitUntil { list -> list.size==3 && list.all { it.networkWait==DownloadNetworkWait.WIFI } }
+            assertTrue(queue.downloadNow(rows[1].id))
+            dao.waitUntil { list -> list.first { it.id==rows[1].id }.state==DownloadState.COMPLETED }
+            assertEquals(listOf("two.jpg"),engine.started.toList())
+            queue.cancel(rows[0].id)
+            assertTrue(!queue.downloadNow(rows[0].id))
+            wifi.value=true
+            dao.waitUntil { list -> list.first { it.id==rows[2].id }.state==DownloadState.COMPLETED }
+            assertEquals(DownloadState.CANCELLED,dao.byId(rows[0].id)?.state)
+            assertEquals(listOf("two.jpg","three.jpg"),engine.started.toList())
+        }
+    }
+
+    @Test fun networkIsRecheckedAfterEarlierTransferCompletes() {
+        val wifi = MutableStateFlow(true)
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val started=CopyOnWriteArrayList<String>()
+        val engine=object:DownloadEngine {
+            override suspend fun download(task:DownloadTask,onProgress:suspend(Long,Long?)->Unit):DownloadResult {
+                started.add(task.item.id)
+                if (task.item.id=="first.mp4") { entered.complete(Unit); gate.await() }
+                return DownloadResult("content://saved/"+task.fileName,10)
+            }
+        }
+        val policy=DownloadNetworkPolicy(DownloadNetworkMode.WIFI)
+        withQueue(engine,networkWait={ media,force -> policy.waiting(media.sizeBytes,true,wifi.value,force) },
+            networkUpdates=wifi.map { Unit }) { dao,queue ->
+            val rows=queue.enqueue(listOf(item("first.mp4",MediaType.VIDEO),item("second.mp4",MediaType.VIDEO)))
+            withTimeout(5000){entered.await()}
+            wifi.value=false
+            gate.complete(Unit)
+            dao.waitUntil { list -> list.first { it.id==rows[0].id }.state==DownloadState.COMPLETED &&
+                list.first { it.id==rows[1].id }.networkWait==DownloadNetworkWait.WIFI }
+            assertEquals(listOf("first.mp4"),started.toList())
+            wifi.value=true
+            dao.waitUntil { list -> list.all { it.state==DownloadState.COMPLETED } }
+            assertEquals(listOf("first.mp4","second.mp4"),started.toList())
+        }
+    }
+
+    @Test fun onlyExplicitDeferredRowRestartsAfterProcessDeath() {
+        val wifi=MutableStateFlow(false)
+        val policy=DownloadNetworkPolicy(DownloadNetworkMode.WIFI)
+        val deferred=DownloadEntity("wait","instagram","wait.jpg",MediaType.PHOTO,DownloadState.QUEUED,
+            null,100,1,errorMessage=DownloadNetworkWait.WIFI.marker,sourceUrl="https://scontent.fbcdn.net/wait.jpg")
+        val interrupted=deferred.copy(id="interrupted",originalName="interrupted.jpg",errorMessage=null)
+        val private=deferred.copy(id="private",originalName="private.jpg",isPrivate=true)
+        val engine=FakeEngine()
+        withQueue(engine,networkWait={ media,force -> policy.waiting(media.sizeBytes,true,wifi.value,force) },
+            networkUpdates=wifi.map{Unit},initialRows=listOf(deferred,interrupted,private)){dao,_->
+            dao.waitUntil { rows -> rows.filter { it.id!="wait" }.all { it.state==DownloadState.FAILED } }
+            assertTrue(engine.started.isEmpty())
+            wifi.value=true
+            dao.waitUntil { rows -> rows.first { it.id=="wait" }.state==DownloadState.COMPLETED }
+            assertEquals(listOf("wait.jpg"),engine.started.toList())
         }
     }
 
