@@ -2,7 +2,33 @@ package com.domenota.medialoader.ui.screens.music
 
 import com.domenota.medialoader.core.database.DownloadEntity
 
+internal enum class MusicFolderSort(val label: String) {
+    NAME_ASC("По названию · А–Я"),
+    NAME_DESC("По названию · Я–А"),
+    COUNT_ASC("По количеству · меньше"),
+    COUNT_DESC("По количеству · больше");
+    companion object {
+        fun fromPreference(value: String?) = entries.firstOrNull { it.name == value } ?: NAME_ASC
+    }
+}
+
 internal object MusicFolderRules {
+    fun sortedKeys(keys: Collection<String>, counts: Map<String, Int>, sort: MusicFolderSort): List<String> {
+        val collator = java.text.Collator.getInstance(java.util.Locale.forLanguageTag("ru-RU")).apply {
+            strength = java.text.Collator.PRIMARY
+        }
+        val byName = Comparator<String> { a, b ->
+            collator.compare(title(a), title(b)).takeIf { it != 0 } ?: a.compareTo(b)
+        }
+        val comparator = when (sort) {
+            MusicFolderSort.NAME_ASC -> byName
+            MusicFolderSort.NAME_DESC -> byName.reversed()
+            MusicFolderSort.COUNT_ASC -> compareBy<String> { counts[it] ?: 0 }.then(byName)
+            MusicFolderSort.COUNT_DESC -> compareByDescending<String> { counts[it] ?: 0 }.then(byName)
+        }
+        return keys.sortedWith(comparator)
+    }
+
     fun title(key: String) = key.substringAfter(':').trimEnd('/').substringAfterLast('/').ifBlank { "Корень хранилища" }
     fun key(row: DownloadEntity, deviceFolders: Map<String, String>): String? =
         row.savedUri?.let(deviceFolders::get)?.takeIf { it.isNotBlank() }
