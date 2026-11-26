@@ -145,6 +145,14 @@ internal fun MusicModeScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val folderPrefs = remember(context) { context.getSharedPreferences("music_folder_visibility", 0) }
     var foldersGrid by remember { mutableStateOf(folderPrefs.getBoolean("folders_grid", false)) }
+    var folderSort by remember(folderPrefs) {
+        mutableStateOf(MusicFolderSort.fromPreference(folderPrefs.getString("folder_sort", null)))
+    }
+    var folderSortMenu by remember { mutableStateOf(false) }
+    fun setFolderSort(value: MusicFolderSort) {
+        folderSort = value
+        folderPrefs.edit().putString("folder_sort", value.name).apply()
+    }
     fun setFoldersGrid(grid: Boolean) {
         foldersGrid = grid
         folderPrefs.edit().putBoolean("folders_grid", grid).apply()
@@ -427,12 +435,16 @@ internal fun MusicModeScreen(
             }
         } }, confirmButton = { TextButton(onClick = onDismissHiddenTracks) { Text("Готово") } })
     val folders = browse.value.folders
+    val folderCounts = remember(folders) { folders.entries.mapNotNull { (key, rows) -> key?.let { it to rows.size } }.toMap() }
+    val sortedFolderKeys = remember(folderCounts, folderSort) {
+        MusicFolderRules.sortedKeys(folderCounts.keys, folderCounts, folderSort)
+    }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
     com.domenota.medialoader.ui.components.ReportDrawerScreen(
         playlist==null && addingPlaylist==null && !frequentOpen && smartPage==null &&
             !resumeOpen && folderOpen==null && !recentOpen && selectedTrackIds.isEmpty() &&
             !duplicatesOpen && !creating && renameTarget==null && deleteTarget==null &&
-            addTrack==null && !busy && !sortMenu && !hiddenTracksOpen)
+            addTrack==null && !busy && !sortMenu && !folderSortMenu && !hiddenTracksOpen)
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen,recentOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null || recentOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
@@ -641,6 +653,21 @@ internal fun MusicModeScreen(
                     Row(Modifier.fillMaxWidth().padding(start = 17.dp, end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text("Папки с музыкой", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                        Box {
+                            IconButton(onClick = { folderSortMenu = true }) {
+                                Icon(Icons.Rounded.Sort, "Сортировка папок",
+                                    tint = com.domenota.medialoader.ui.theme.musicPlaybackAccent)
+                            }
+                            DropdownMenu(expanded = folderSortMenu, onDismissRequest = { folderSortMenu = false }) {
+                                MusicFolderSort.entries.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option.label) },
+                                        leadingIcon = { if (folderSort == option) Icon(Icons.Rounded.Check, null,
+                                            tint = com.domenota.medialoader.ui.theme.musicPlaybackAccent) },
+                                        onClick = { setFolderSort(option); folderSortMenu = false })
+                                }
+                            }
+                        }
                         IconButton(onClick = { setFoldersGrid(false) }) {
                             Icon(Icons.Rounded.List, "Список папок", tint = if (!foldersGrid)
                                 MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -651,7 +678,7 @@ internal fun MusicModeScreen(
                         }
                     }
                 }
-                val visibleFolders = folders.keys.filterNotNull().filter { it !in excludedFolders }.sorted()
+                val visibleFolders = sortedFolderKeys.filter { it !in excludedFolders }
                 if (foldersGrid) {
                     items(visibleFolders.chunked(2), key = { "folder-grid:${it.first()}" }) { pair ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 5.dp),
@@ -684,7 +711,7 @@ internal fun MusicModeScreen(
                     item(key = "excluded-folders") {
                         TextButton(onClick = { showExcluded = !showExcluded }) { Text("Исключённые папки") }
                     }
-                    if (showExcluded) items(folders.keys.filterNotNull().filter { it in excludedFolders }.sorted(),
+                    if (showExcluded) items(sortedFolderKeys.filter { it in excludedFolders },
                         key = { "excluded:$it" }) { folder ->
                         TextButton(onClick = { folderOpen = folder }) { Text(MusicFolderRules.title(folder), color = MaterialTheme.colorScheme.onSurface) }
                     }
