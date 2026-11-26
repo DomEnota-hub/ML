@@ -44,6 +44,13 @@ class FloatingVideoSeekBarTest {
         }
         try {
             base.playWhenReady = true
+            bar.visibility = View.GONE
+            touch(MotionEvent.ACTION_DOWN, 30f); touch(MotionEvent.ACTION_UP, 240f)
+            assertEquals(0, writes); assertTrue(parentTouches > 0)
+            parentTouches = 0
+            bar.visibility = View.VISIBLE
+            parent.measure(View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY))
+            parent.layout(0, 0, 300, 200)
             touch(MotionEvent.ACTION_DOWN, 30f)
             touch(MotionEvent.ACTION_MOVE, 240f)
             shadowOf(android.os.Looper.getMainLooper()).idleFor(Duration.ofMillis(600))

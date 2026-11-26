@@ -76,6 +76,8 @@ internal fun GalleryMediaViewer(
     onPassport: ((DownloadEntity)->Unit)? = null,
     onAddCollection: ((DownloadEntity)->Unit)? = null,
     allowNeighborOnQueueRemoval: Boolean = true,
+    floatingHandoffToken: String? = null,
+    onFloatingHandoffConsumed: (String) -> Unit = {},
 ) {
     val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
     DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
@@ -297,6 +299,14 @@ internal fun GalleryMediaViewer(
                             if (page == pager.currentPage) chrome = shown
                         },
                         floatingWindowRequest = if (page == pager.currentPage) floatingRequest else 0,
+                        floatingHandoffToken = floatingHandoffToken.takeIf { !privateMode && !row.isPrivate && row.id == item.id && row.savedUri == item.savedUri },
+                        onFloatingHandoffFinished = { token, state ->
+                            if (state != null) {
+                                loopVideo = state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE
+                                videoSpeed = state.speed
+                            }
+                            onFloatingHandoffConsumed(token)
+                        },
                         galleryCommand = if (page == pager.currentPage) playerCommand else null,
                         onAudioTrackCountChanged = { count -> if (row.id == current.id) audioTrackCount = count },
                         onPlaybackGestureOwnershipChanged = { owns ->

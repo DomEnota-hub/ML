@@ -5746,6 +5746,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.FloatingVideoHandoffTest#endedSourceDoesNotAutoPlayEvenWithPlayIntent": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.FloatingVideoHandoffTest#exactIdentityRejectsDifferentFilesEvenWhenIdOrUriMatches": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.FloatingVideoHandoffTest#pausedSourceTransfersPositionRepeatSpeedAndVolumeWithoutAutoplay": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.FloatingVideoSeekBarTest#scrubbingNeverDragsWindowOrChangesPlayIntentAndDetachingStopsUpdates": {
     "skipped": false,
     "failed": false

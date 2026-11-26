@@ -376,6 +376,8 @@ internal fun LocalVideoPlayer(
     galleryCommand: Pair<Int, String>? = null,
     onAudioTrackCountChanged: (Int) -> Unit = {},
     onPlaybackGestureOwnershipChanged: (Boolean) -> Unit = {},
+    floatingHandoffToken: String? = null,
+    onFloatingHandoffFinished: (String, com.domenota.medialoader.data.playback.FloatingPlaybackState?) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val gestureThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
@@ -436,7 +438,7 @@ internal fun LocalVideoPlayer(
     var posterView by remember(uri, retryGeneration, galleryPagingEnabled) { mutableStateOf<ImageView?>(null) }
     val poster = initialPoster ?: rememberVideoViewerPoster(itemId, uri)
     val initialPositionMs = remember(itemId, uri, retryGeneration, startAtBeginning) {
-        if (startAtBeginning) 0L else poster.positionMs
+        if (startAtBeginning || floatingHandoffToken?.let { FloatingVideoService.pendingHandoff(it)?.matches(itemId, uri.toString()) } == true) 0L else poster.positionMs
     }
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) {
@@ -538,11 +540,28 @@ internal fun LocalVideoPlayer(
             player.setPlaybackSpeed(it)
         }
     }
+    val notifyFloatingHandoff by rememberUpdatedState(onFloatingHandoffFinished)
+    LaunchedEffect(player, floatingHandoffToken) {
+        val token = floatingHandoffToken ?: return@LaunchedEffect
+        while (FloatingVideoService.pendingHandoff(token)?.matches(itemId, uri.toString()) == true) {
+            if (player.playerError != null) break
+            if (player.playbackState == Player.STATE_READY) {
+                val state = FloatingVideoService.completeHandoff(token, itemId, uri.toString(), player)
+                if (state != null) { notifyFloatingHandoff(token, state); return@LaunchedEffect }
+                break
+            }
+            delay(50L)
+        }
+        FloatingVideoService.cancelHandoff(token)
+        notifyFloatingHandoff(token, null)
+    }
     fun launchFloatingVideo() {
         if (!allowExternal) return
         try {
             endHoldSpeed()
-            FloatingVideoService.start(context, itemId, uri, player.currentPosition, true)
+            val state = com.domenota.medialoader.data.playback.FloatingPlaybackState.capture(player)
+            FloatingVideoService.start(context, itemId, uri, state.positionMs, state.play,
+                state.repeatMode, state.speed, state.volume)
             player.pause()
             activity?.moveTaskToBack(true)
         } catch (error: Exception) {
@@ -677,12 +696,9 @@ internal fun LocalVideoPlayer(
                     player.pause()
                 }
                 Lifecycle.Event.ON_RESUME -> {
+                    // Legacy preference must never resume a player on ordinary app navigation.
                     val key = "floating_resume_play_$itemId"
-                    if (prefs.contains(key)) {
-                        player.seekTo(com.domenota.medialoader.data.playback.VideoWatchProgress.resumePosition(prefs, itemId, player.currentPosition))
-                        if (prefs.getBoolean(key, false)) player.play() else player.pause()
-                        prefs.edit().remove(key).apply()
-                    }
+                    if (prefs.contains(key)) prefs.edit().remove(key).apply()
                 }
                 Lifecycle.Event.ON_DESTROY -> { endHoldSpeed(); savePosition() }
                 else -> Unit

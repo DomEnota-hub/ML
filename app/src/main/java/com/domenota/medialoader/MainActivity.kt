@@ -31,6 +31,15 @@ class MainActivity : ComponentActivity() {
             setIntent(Intent(this,MainActivity::class.java).setAction(Intent.ACTION_MAIN))
         }
     }
+    private var floatingVideoRequest by mutableStateOf<String?>(null)
+    private fun acceptFloatingVideo(incoming: Intent?): Boolean {
+        val service = com.domenota.medialoader.data.playback.FloatingVideoService
+        if (incoming?.action != service.ACTION_EXPAND) return false
+        floatingVideoRequest = incoming.getStringExtra(service.EXTRA_HANDOFF_TOKEN)
+            ?.takeIf { service.pendingHandoff(it) != null }
+        setIntent(Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN))
+        return true
+    }
     private var sharedText by mutableStateOf<String?>(null)
     private var sharedTextGeneration by mutableIntStateOf(0)
     private var wasForeground = false
@@ -51,6 +60,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         currentPlayerRequests=com.domenota.medialoader.data.playback.CurrentPlayerRequestState.restore(savedInstanceState)
         acceptCurrentPlayer(intent)
+        floatingVideoRequest = savedInstanceState?.getString("floating_video_handoff")
+            ?.takeIf { com.domenota.medialoader.data.playback.FloatingVideoService.pendingHandoff(it) != null }
+        acceptFloatingVideo(intent)
         lifecycleScope.launch(Dispatchers.IO) { ProcessExitDiagnostics.recordPreviousExits(applicationContext) }
         lifecycleScope.launch(Dispatchers.IO) {
             // Remove only the retired 1.7.182 derived index, never original media.
@@ -80,6 +92,8 @@ class MainActivity : ComponentActivity() {
             com.domenota.medialoader.ui.model.FileNameDisplayProvider {
                 MediaLoaderTheme {
                     MediaLoaderApp(
+                        floatingVideoRequest = floatingVideoRequest,
+                        onFloatingVideoRequestConsumed = { token -> if (floatingVideoRequest == token) floatingVideoRequest = null },
                         currentPlayerRequest = currentPlayerRequests.pending,
                         onCurrentPlayerRequestConsumed = { request -> currentPlayerRequests=currentPlayerRequests.consume(request) },
                         shortcutMode = shortcutMode,
@@ -105,6 +119,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        if (acceptFloatingVideo(intent)) return
         acceptCurrentPlayer(intent)
         if (forwardAutomaticShare(intent, !wasForeground)) return
         acceptModeShortcut(intent)
@@ -117,6 +132,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState:Bundle) {
         currentPlayerRequests.save(outState)
+        outState.putString("floating_video_handoff", floatingVideoRequest)
         super.onSaveInstanceState(outState)
     }
 

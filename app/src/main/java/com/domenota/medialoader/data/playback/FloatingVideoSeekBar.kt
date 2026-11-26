@@ -37,7 +37,7 @@ internal class FloatingVideoSeekBar(context: Context, private val player: Player
     private val tick = object : Runnable {
         override fun run() {
             if (!attached) return
-            if (!scrubbing) {
+            if (visibility == VISIBLE && !scrubbing) {
                 observedDuration = player.duration
                 observedPosition = player.currentPosition
                 invalidate()
@@ -50,21 +50,31 @@ internal class FloatingVideoSeekBar(context: Context, private val player: Player
     override fun onDetachedFromWindow() {
         attached = false; handler.removeCallbacks(tick); finishScrub(); super.onDetachedFromWindow()
     }
+    override fun onVisibilityChanged(changedView: View, visibility: Int) {
+        super.onVisibilityChanged(changedView, visibility)
+        if (visibility != VISIBLE) finishScrub()
+        else invalidate()
+    }
     override fun onDraw(canvas: Canvas) {
+        if (visibility != VISIBLE) return
         val duration = if (scrubbing) scrubDuration else observedDuration
         val position = target ?: observedPosition
         val fraction = if (duration > 0) (position.toDouble() / duration).coerceIn(0.0, 1.0).toFloat() else 0f
         val thickness = resources.displayMetrics.density * 3
-        val y = height - thickness / 2
+        val y = height / 2f
+        val radius = resources.displayMetrics.density * 5f
+        val right = (width - radius).coerceAtLeast(radius)
+        val thumb = (width * fraction).coerceIn(radius, right)
+        paint.strokeCap = Paint.Cap.ROUND
         paint.strokeWidth = thickness; paint.color = 0x77FFFFFF
-        canvas.drawLine(0f, y, width.toFloat(), y, paint)
+        canvas.drawLine(radius, y, right, y, paint)
         paint.color = Color.WHITE
-        canvas.drawLine(0f, y, width * fraction, y, paint)
-        if (scrubbing) canvas.drawCircle((width * fraction).coerceIn(thickness, (width - thickness).coerceAtLeast(thickness)), y,
-            resources.displayMetrics.density * 5, paint)
+        canvas.drawLine(radius, y, thumb, y, paint)
+        if (duration > 0) canvas.drawCircle(thumb, y, radius, paint)
     }
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (visibility != VISIBLE) return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (!player.isCurrentMediaItemSeekable) return false
@@ -95,7 +105,7 @@ internal class FloatingVideoSeekBar(context: Context, private val player: Player
         super.onInitializeAccessibilityNodeInfo(info)
         info.className = "android.widget.SeekBar"
         val duration = player.duration
-        info.isEnabled = duration > 0 && player.isCurrentMediaItemSeekable
+        info.isEnabled = visibility == VISIBLE && duration > 0 && player.isCurrentMediaItemSeekable
         if (info.isEnabled) {
             info.rangeInfo = AccessibilityNodeInfo.RangeInfo.obtain(AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_FLOAT,
                 0f, duration.toFloat(), player.currentPosition.coerceIn(0L, duration).toFloat())
@@ -104,6 +114,7 @@ internal class FloatingVideoSeekBar(context: Context, private val player: Player
     }
     override fun performAccessibilityAction(action: Int, arguments: Bundle?): Boolean {
         if (action == AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id) {
+            if (visibility != VISIBLE) return false
             val position = arguments?.getFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE) ?: return false
             if (!position.isFinite() || player.duration <= 0 || !player.isCurrentMediaItemSeekable) return false
             player.seekTo(position.toLong().coerceIn(0L, player.duration)); invalidate(); return true

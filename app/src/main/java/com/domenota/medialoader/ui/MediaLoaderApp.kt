@@ -220,6 +220,8 @@ fun MediaLoaderApp(
     sharedText: String? = null,
     sharedTextGeneration: Int = 0,
     onSharedTextConsumed: () -> Unit = {},
+    floatingVideoRequest: String? = null,
+    onFloatingVideoRequestConsumed: (String) -> Unit = {},
     currentPlayerRequest: Int = 0,
     onCurrentPlayerRequestConsumed: (Int) -> Unit = {},
     viewModel: MediaLoaderViewModel = viewModel(),
@@ -1855,11 +1857,11 @@ fun MediaLoaderApp(
         dismissButton = { TextButton(onClick = { showNameDialog = false }) { Text("Отмена") } },
     )
     var openVisualRequest by remember { mutableStateOf(0L) }
-    val openDownloadWithQueue: (String, List<String>) -> Unit = { id, queueIds ->
+    val openDownloadWithQueueInternal: (String, List<String>, com.domenota.medialoader.data.playback.FloatingVideoHandoffRequest?) -> Unit = { id, queueIds, handoff ->
         val request = ++openVisualRequest
-        val originAlbumKey = openingAlbumKey
+        val originAlbumKey = openingAlbumKey.takeIf { handoff == null }
         val explicitFolder = originAlbumKey?.takeIf { it.startsWith("folder:") }?.removePrefix("folder:")
-        val originPlaylistId = openingPlaylistId
+        val originPlaylistId = openingPlaylistId.takeIf { handoff == null }
         openingAlbumKey = null
         openingPlaylistId = null
         // Downloads renders the current Room history, while the derived public
@@ -1867,10 +1869,18 @@ fun MediaLoaderApp(
         val directVisual = downloads.firstOrNull { it.id == id && it.mediaType != MediaType.AUDIO && canOpenFolderMedia(it,explicitFolder) }
         val explicitRef = folderRefsById[id]?.takeIf { explicitFolder != null && canOpenFolderMedia(it.item,explicitFolder) }
         (explicitRef?.item ?: directVisual ?: accessibleDownloads.firstOrNull { it.id == id } ?: libraryRefsByAlias[id]?.item
-            ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let { libraryRefsByAlias[it]?.item })?.takeIf { canOpenFolderMedia(it,explicitFolder) }?.let { item ->
+            ?: currentLibraryAudioId?.takeIf { id == libraryAudioState.currentId }?.let { libraryRefsByAlias[it]?.item })?.takeIf { canOpenFolderMedia(it,explicitFolder) &&
+                (handoff == null || (!it.isPrivate && !it.hidden && it.mediaType == MediaType.VIDEO &&
+                    handoff.matches(it.id, it.savedUri))) }?.let { item ->
           fileActionScope.launch {
             val status = withContext(Dispatchers.IO) { availabilityCache.get(item.savedUri, fresh = true) }
             if (request != openVisualRequest || !canOpenFolderMedia(item,explicitFolder)) return@launch
+            if (handoff != null && (status != SavedFileStatus.PRESENT ||
+                com.domenota.medialoader.data.playback.FloatingVideoService.pendingHandoff(handoff.token) != handoff)) {
+                com.domenota.medialoader.data.playback.FloatingVideoService.cancelHandoff(handoff.token)
+                AppNotice.post(context, "Не удалось открыть всплывающее видео")
+                return@launch
+            }
             if(!item.isPrivate && status==SavedFileStatus.PRESENT && !libraryModel.verifyVisibilityOpen(item,explicitFolder)) {
                 AppNotice.post(context,"Идентичность файла изменилась или видимость не подтверждена")
                 return@launch
@@ -1926,11 +1936,21 @@ fun MediaLoaderApp(
                     }
                 }
                 if (request != openVisualRequest) return@launch
+                if (handoff != null) {
+                    if (com.domenota.medialoader.data.playback.FloatingVideoService.pendingHandoff(handoff.token) != handoff ||
+                        !canOpenFolderMedia(item,null)) return@launch
+                    if (privateNavigation) {
+                        viewModel.privateAccess.lock(); privateNavigation = false
+                        pendingPrivateMoves = emptyList(); returnAfterPrivateSetup = false
+                    }
+                    if (appMode != AppMode.GALLERY) selectAppMode(AppMode.GALLERY, true)
+                }
                 navController.navigate("viewer/${android.net.Uri.encode(item.id)}")
                 // A phone library may have 10k+ items. Never persist those IDs
                 // in Navigation SavedStateHandle: it can crash onStop with
                 // TransactionTooLargeException when Android saves the Activity.
                 val viewerEntry = navController.currentBackStackEntry
+                if (handoff != null) viewerEntry?.savedStateHandle?.set("floating_handoff_token", handoff.token)
                 val token = ViewerQueueCache.store(queueIds)
                 viewerEntry?.savedStateHandle?.set("grid_viewer_token", token)
                 viewerEntry?.savedStateHandle?.set("gallery_origin_album", originAlbumKey)
@@ -1952,6 +1972,19 @@ fun MediaLoaderApp(
           }
         }
     }
+    val openDownloadWithQueue: (String, List<String>) -> Unit = { id, queue -> openDownloadWithQueueInternal(id, queue, null) }
+    com.domenota.medialoader.ui.navigation.FloatingVideoNavigationEffect(
+        token = floatingVideoRequest,
+        candidateReady = { handoff ->
+            val row = downloads.firstOrNull { it.id == handoff.itemId } ?: libraryRefsByAlias[handoff.itemId]?.item
+            row != null && !row.isPrivate && !row.hidden && row.mediaType == MediaType.VIDEO &&
+                handoff.matches(row.id,row.savedUri) && canOpenFolderMedia(row,null)
+        },
+        refresh = { libraryModel.refreshOnNavigation(AppMode.GALLERY) },
+        open = { handoff -> openDownloadWithQueueInternal(handoff.itemId, listOf(handoff.itemId), handoff) },
+        consumed = onFloatingVideoRequestConsumed,
+        unavailable = { AppNotice.post(context,"Не удалось открыть всплывающее видео") },
+    )
     val openDownload: (String) -> Unit = { openDownloadWithQueue(it, emptyList()) }
     fun shareScopedFile(id:String,folder:String?=null) {
         val explicit=folder?.let { scope -> folderRefsById[id]?.takeIf { libraryModel.visibilityGuard.value?.explicitFolder(it)==scope } }
@@ -3418,6 +3451,11 @@ fun MediaLoaderApp(
                             else entry.savedStateHandle["gallery_current_id"] = selected.id
                         },
                         privateMode = item.isPrivate,
+                        floatingHandoffToken = entry.savedStateHandle.get<String>("floating_handoff_token"),
+                        onFloatingHandoffConsumed = { token ->
+                            if (entry.savedStateHandle.get<String>("floating_handoff_token") == token)
+                                entry.savedStateHandle.remove<String>("floating_handoff_token")
+                        },
                         allowNeighborOnQueueRemoval = !visualRoute && !privateViewer,
                         onPassport=if(item.isPrivate)null else { selected->openPassport(selected.id) },
                         onAddCollection=if(item.isPrivate)null else { selected->addToCollection(listOf(selected.id)) },
