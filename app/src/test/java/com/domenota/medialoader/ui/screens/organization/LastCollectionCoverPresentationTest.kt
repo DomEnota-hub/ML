@@ -136,7 +136,12 @@ class LastCollectionCoverPresentationTest {
         compose.setContent{MaterialTheme{
             CollectionCoverImage(collection,ref,coverAccess=CollectionCoverAccess(true,emptySet(),emptySet()),decoder=decoder)
         }}
-        compose.waitUntil(12_000){LastCollectionCoverStore(context).peek(id)?.metadata?.slotToken?.startsWith("automatic:")==true}
+        // Persistence completes on IO before Compose accepts and renders the frame.
+        // Establish the actual initial frame before testing a blocked replacement.
+        compose.waitUntil(12_000){
+            LastCollectionCoverStore(context).peek(id)?.metadata?.slotToken?.startsWith("automatic:")==true &&
+                compose.onAllNodesWithTag("collection-last-cover-image").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("collection-last-cover-image").assertIsDisplayed()
         val field=LastCollectionCoverStore::class.java.getDeclaredField("ioLock").apply{isAccessible=true}
         val lock=field.get(null)
