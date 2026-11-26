@@ -1319,125 +1319,23 @@ fun MediaLoaderApp(
             collectionBlocked.takeIf { libraryPrivateKeys != null && historySnapshot != null && visibilityReady },
             fileScanEpoch.toLong())
     }
-    val scopeGuard = scopedAccess.takeIf { collectionRouteActive }?.let { guard -> scopedCollection?.record?.id?.let { CollectionDetailGuard(guard, it) } }
-    val scopeMembers = scopedCollection?.members.orEmpty()
-    val relevantHistory = remember(scopeMembers, historySnapshot) { historySnapshot?.forMembers(scopeMembers).orEmpty() }
-    val scopeHistory = remember(relevantHistory) { relevantHistory }
-    val mediaAddressSignal by libraryModel.collectionAddressRevision.collectAsStateWithLifecycle()
-    var scopedMediaRevision by remember { mutableStateOf(mediaAddressSignal.revision) }
-    LaunchedEffect(mediaAddressSignal.revision) {
-        if(mediaAddressSignal.affects(scopeMembers,scopeHistory)) scopedMediaRevision=mediaAddressSignal.revision
-    }
-    // Do not restart the addressed pass for every incremental MediaStore batch.
-    // A completed revision or actual history/access change is a meaningful trigger.
-    val collectionDiskCache = remember(context) { CollectionProjectionCache(context) }
-    val overviewDiskCache = remember(context) { CollectionProjectionCache(context, "collection-overviews") }
-    var collectionCacheRevision by remember { mutableIntStateOf(0) }
-    val scopedProjection = addressedLibraryProjection<AddressedCollection?>(null, scopeGuard,
-        scopeMembers, scopeHistory, collectionCatalog, fullCurrent, fileScanEpoch, collectionRefreshEpoch, scopedMediaRevision,
-        retain = { previous, next -> next?.let { retainAddressedCollection(previous,it) } }, serial = true,
-        seed = { scopeGuard?.let { guard -> CollectionLookupBudget.run(2_000) {
-            collectionDiskCache.read(guard.id, scopeMembers, scopeHistory, collectionBlocked)
-        } } }) {
-        val started = android.os.SystemClock.elapsedRealtime()
-        val cacheGuard = collectionDiskCache.guard(collectionBlocked)
-        val stamp = CollectionLookupBudget.run(2_000) { collectionDiskCache.stamp() } ?: PhoneStoreStamp(null,null)
-        val deadline = CollectionLookupDeadline()
-        val result = CollectionAddressResolver.resolve(scopeMembers, if(collectionCatalog==null) scopeHistory else collectionHistory, collectionCatalog,
-            fullCurrent && collectionCatalogRequest == CollectionCatalogRequest.ALL, collectionBlocked,
-            { row -> deadline.lookup { libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } } },
-            { uri -> deadline.lookup { libraryModel.addressCollectionPhone(uri) } }) { ref ->
-            ref.item.mediaType == MediaType.AUDIO && com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(ref.item, hiddenSnapshot)
-        }.copy(verifiedStoreStamp = stamp, verifiedCacheGuard = cacheGuard)
-        result.also { AppLog.i("Library", "Collection addresses · members=${scopeMembers.size} · resolved=${it.resolved.size} · pending=${it.pending.size} · full=$fullCurrent · ms=${android.os.SystemClock.elapsedRealtime()-started}") }
-    }
-    // Overview has its own cheap first-member projections, not a full media catalog.
-    val coverGuard = scopedAccess.takeIf { collectionsLoaded && ((currentRoute == "collections" && collectionDetailId == null) ||
-        (currentRoute == "home" && appMode == AppMode.GALLERY)) }
-    val overviewCollections = collections
-    val overviewHistory = historySnapshot
-    val overviewMembers = remember(overviewCollections) { overviewCollections.flatMap { it.members } }
-    val overviewRelevantHistory = remember(overviewMembers, historySnapshot) { historySnapshot?.forMembers(overviewMembers).orEmpty() }
-    val overviewRows = remember(overviewRelevantHistory) { overviewRelevantHistory }
-    var overviewMediaRevision by remember { mutableStateOf(mediaAddressSignal.revision) }
-    LaunchedEffect(mediaAddressSignal.revision) {
-        if (coverGuard != null && mediaAddressSignal.affects(overviewMembers, overviewRows)) overviewMediaRevision = mediaAddressSignal.revision
-    }
-    suspend fun readOverviewCovers(): Map<String, LibraryMediaRef> {
-        val stamp = collectionDiskCache.stamp()
-        return buildMap {
-            for (collection in overviewCollections) {
-                val detail = collectionDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)
-                val cover = com.domenota.medialoader.data.library.collectionAutomaticCover(collection.members,detail?.resolved.orEmpty(),collectionBlocked)
-                    ?: com.domenota.medialoader.data.library.collectionAutomaticCover(collection.members,
-                        overviewDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)?.resolved.orEmpty(),collectionBlocked)
-                cover?.let { put(collection.record.id,it) }
-            }
-        }
-    }
-    val overviewProjection = addressedLibraryProjection<Map<String,LibraryMediaRef>?>(null,coverGuard,
-        collections,overviewRows,collectionCacheRevision,fileScanEpoch,overviewMediaRevision,
-        retain = { previous, next -> next ?: previous }, serial = true,
-        seed = { CollectionLookupBudget.run(3_000) { readOverviewCovers() } }) {
-        CollectionLookupBudget.run(12_000) {
-            val stamp = overviewDiskCache.stamp()
-            val cacheGuard = overviewDiskCache.guard(collectionBlocked)
-            val cached = readOverviewCovers()
-            buildMap {
-                for (collection in overviewCollections) {
-                    val candidates = listOfNotNull(com.domenota.medialoader.data.library.collectionAutomaticCoverMember(collection.members,collectionBlocked))
-                    if (candidates.isEmpty()) continue
-                    val value = CollectionAddressResolver.resolve(candidates, overviewHistory?.forMembers(candidates).orEmpty(), null, false, collectionBlocked,
-                        { row -> libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } }, libraryModel::addressCollectionPhone)
-                    val cover = com.domenota.medialoader.data.library.collectionAutomaticCover(collection.members,value.resolved,collectionBlocked)
-                    if (cover != null) {
-                        put(collection.record.id,cover)
-                        overviewDiskCache.write(collection.record.id,candidates,value,collectionBlocked,stamp,cacheGuard)
-                    } else {
-                        val old = cached[collection.record.id]
-                        val stillPending = candidates.any { it.id in value.pending && it.id !in value.invalidated &&
-                            it.id !in value.suppressed && old != null && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(it.identityJson),old) }
-                        if(stillPending && old != null) put(collection.record.id,old)
-                        else overviewDiskCache.write(collection.record.id,candidates,value,collectionBlocked,stamp,cacheGuard)
-                    }
-                }
-            }
-        }
-    }
-    val cachedCollectionCovers = remember(overviewProjection.value, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot) {
-        overviewProjection.value.orEmpty().filterValues { ref -> filterRouteCatalog(listOf(ref),collectionBlocked,collectionHistory,statusSnapshot,statusUriSnapshot).isNotEmpty() }
-    }
     val readRefsByKey = remember(publicLibraryRefs) { publicLibraryRefs.associateBy { it.key } }
-    val detailReadGuard = collectionReadAccess.takeIf { collectionRouteActive }
-        ?.let { access -> scopedCollection?.record?.id?.let { CollectionDetailGuard(access, it) } }
-    val materializedDetail = com.domenota.medialoader.ui.components.backgroundLibraryProjection<AddressedCollection?>(
-        null, libraryPrivateKeys, scopeMembers, publicLibraryRefs, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot,
-        accessGuard=detailReadGuard,
-        retentionGuard=detailReadGuard?.copy(access=detailReadGuard.access.copy(blocked=emptySet())),
-        revalidateRetained={ previous -> retainMaterializedCollectionRead(previous, scopeMembers, readRefsByKey,
-            collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot) }) {
-        materializedCollectionRead(scopeMembers, publicLibraryRefs, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot)
-    }
-    val transferDetailRead = collectionReadAccess != null && (recoveryRunning || !scopedProjection.usable)
-    val scopedCatalog = remember(scopedProjection.value, materializedDetail.value, transferDetailRead,
-        scopeMembers, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot) {
-        (if (transferDetailRead) materializedDetail.value else scopedProjection.value)?.let {
-            filterAddressedDisplay(it, scopeMembers, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot)
-        }
-    }
-    LaunchedEffect(scopedCatalog, scopeGuard, scopedProjection.ready) {
-        val result = scopedCatalog ?: return@LaunchedEffect
-        val guard = scopeGuard ?: return@LaunchedEffect
-        val stamp = result.verifiedStoreStamp ?: return@LaunchedEffect
-        val cacheGuard = result.verifiedCacheGuard ?: return@LaunchedEffect
-        if (!scopedProjection.ready) return@LaunchedEffect
-        try {
-            val wrote = CollectionLookupBudget.run(3_000) { collectionDiskCache.write(guard.id, scopeMembers, result, collectionBlocked, stamp, cacheGuard); true }
-            if(wrote==true) collectionCacheRevision++
-        }
-        catch (e: CancellationException) { throw e }
-        catch (_: Exception) { AppLog.w("Library", "Collection projection cache write deferred") }
-    }
+    val scopedReads = rememberScopedCollectionReads(
+        libraryModel, organization, availabilityCache,
+        collectionRouteActive, scopedAccess, scopedCollection, collectionsLoaded,
+        currentRoute, collectionDetailId, appMode, collections, historySnapshot,
+        collectionCatalog, fullCurrent, collectionCatalogRequest, collectionHistory,
+        collectionBlocked, hiddenSnapshot, fileScanEpoch, collectionRefreshEpoch,
+        publicLibraryRefs, readRefsByKey, libraryPrivateKeys, collectionReadAccess,
+        recoveryRunning, statusSnapshot, statusUriSnapshot,
+    )
+    val scopeGuard = scopedReads.scopeGuard
+    val scopeMembers = scopedReads.scopeMembers
+    val scopedProjection = scopedReads.scopedProjection
+    val cachedCollectionCovers = scopedReads.cachedCollectionCovers
+    val materializedDetail = scopedReads.materializedDetail
+    val transferDetailRead = scopedReads.transferDetailRead
+    val scopedCatalog = scopedReads.scopedCatalog
     LaunchedEffect(scopedCatalog) {
         val changes = scopedCatalog?.statuses.orEmpty().filter { (id, result) ->
             collectionHistory[id]?.savedUri == result.first && result.second != SavedFileStatus.UNCHECKED &&
@@ -1447,16 +1345,6 @@ fun MediaLoaderApp(
             if (statusScanActive) statusOverrides.putAll(changes)
             fileStatusUris = fileStatusUris + changes.mapValues { it.value.first }
             fileStatuses = fileStatuses + changes.mapValues { it.value.second }
-        }
-    }
-    LaunchedEffect(scopedCatalog, scopeGuard, scopedProjection.ready) {
-        if (!scopedProjection.ready) return@LaunchedEffect
-        val scope = scopedCatalog ?: return@LaunchedEffect
-        val guard = scopeGuard ?: return@LaunchedEffect
-        if (scopeMembers.any { it.metadataJson == null && it.id in scope.resolved && it.id !in scope.pending }) {
-            try { organization.rememberMemberMetadata(guard.id,scopeMembers,scope.resolved,guard.access.blocked) }
-            catch (e: CancellationException) { throw e }
-            catch (_: Exception) { AppLog.w("Library", "Collection metadata persistence deferred") }
         }
     }
     val missingExternalRefs = remember(externalCatalog, collectionBlocked, collectionRouteActive) {
@@ -4119,4 +4007,180 @@ private fun MusicLibraryReadTrace(
         com.domenota.medialoader.core.logging.MusicRefreshBlock.BROWSE,
         browse.ready, browse.usable, !browse.usable, browse.hasMessage,
         browse.count, browse.guarded, accessEpoch, privacyGeneration)
+}
+
+
+/** Independent collection read composition. Keep the root method below the JVM code limit.
+ * All guards, projection inputs, lookup budgets and cache writes are unchanged. */
+private data class ScopedCollectionReads(
+    val scopeGuard: CollectionDetailGuard?,
+    val scopeMembers: List<com.domenota.medialoader.core.database.MediaCollectionMemberEntity>,
+    val scopedProjection: com.domenota.medialoader.ui.components.BackgroundLibraryValue<AddressedCollection?>,
+    val cachedCollectionCovers: Map<String, LibraryMediaRef>,
+    val materializedDetail: com.domenota.medialoader.ui.components.BackgroundLibraryValue<AddressedCollection?>,
+    val transferDetailRead: Boolean,
+    val scopedCatalog: AddressedCollection?,
+)
+
+@Composable
+private fun rememberScopedCollectionReads(
+    libraryModel: LibraryViewModel,
+    organization: MediaOrganizationRepository,
+    availabilityCache: SavedFileStatusCache,
+    collectionRouteActive: Boolean,
+    scopedAccess: CollectionAccessGuard?,
+    scopedCollection: MediaCollection?,
+    collectionsLoaded: Boolean,
+    currentRoute: String?,
+    collectionDetailId: String?,
+    appMode: AppMode,
+    collections: List<MediaCollection>,
+    historySnapshot: CollectionHistorySnapshot?,
+    collectionCatalog: CollectionCatalogSnapshot?,
+    fullCurrent: Boolean,
+    collectionCatalogRequest: CollectionCatalogRequest,
+    collectionHistory: Map<String, com.domenota.medialoader.core.database.DownloadEntity>,
+    collectionBlocked: Set<String>,
+    hiddenSnapshot: Set<String>,
+    fileScanEpoch: Int,
+    collectionRefreshEpoch: Int,
+    publicLibraryRefs: List<LibraryMediaRef>,
+    readRefsByKey: Map<String, LibraryMediaRef>,
+    libraryPrivateKeys: Set<String>?,
+    collectionReadAccess: CollectionAccessGuard?,
+    recoveryRunning: Boolean,
+    statusSnapshot: Map<String, SavedFileStatus>,
+    statusUriSnapshot: Map<String, String?>,
+): ScopedCollectionReads {
+    val context = LocalContext.current
+    val scopeGuard = scopedAccess.takeIf { collectionRouteActive }?.let { guard -> scopedCollection?.record?.id?.let { CollectionDetailGuard(guard, it) } }
+    val scopeMembers = scopedCollection?.members.orEmpty()
+    val relevantHistory = remember(scopeMembers, historySnapshot) { historySnapshot?.forMembers(scopeMembers).orEmpty() }
+    val scopeHistory = remember(relevantHistory) { relevantHistory }
+    val mediaAddressSignal by libraryModel.collectionAddressRevision.collectAsStateWithLifecycle()
+    var scopedMediaRevision by remember { mutableStateOf(mediaAddressSignal.revision) }
+    LaunchedEffect(mediaAddressSignal.revision) {
+        if(mediaAddressSignal.affects(scopeMembers,scopeHistory)) scopedMediaRevision=mediaAddressSignal.revision
+    }
+    // Do not restart the addressed pass for every incremental MediaStore batch.
+    // A completed revision or actual history/access change is a meaningful trigger.
+    val collectionDiskCache = remember(context) { CollectionProjectionCache(context) }
+    val overviewDiskCache = remember(context) { CollectionProjectionCache(context, "collection-overviews") }
+    var collectionCacheRevision by remember { mutableIntStateOf(0) }
+    val scopedProjection = addressedLibraryProjection<AddressedCollection?>(null, scopeGuard,
+        scopeMembers, scopeHistory, collectionCatalog, fullCurrent, fileScanEpoch, collectionRefreshEpoch, scopedMediaRevision,
+        retain = { previous, next -> next?.let { retainAddressedCollection(previous,it) } }, serial = true,
+        seed = { scopeGuard?.let { guard -> CollectionLookupBudget.run(2_000) {
+            collectionDiskCache.read(guard.id, scopeMembers, scopeHistory, collectionBlocked)
+        } } }) {
+        val started = android.os.SystemClock.elapsedRealtime()
+        val cacheGuard = collectionDiskCache.guard(collectionBlocked)
+        val stamp = CollectionLookupBudget.run(2_000) { collectionDiskCache.stamp() } ?: PhoneStoreStamp(null,null)
+        val deadline = CollectionLookupDeadline()
+        val result = CollectionAddressResolver.resolve(scopeMembers, if(collectionCatalog==null) scopeHistory else collectionHistory, collectionCatalog,
+            fullCurrent && collectionCatalogRequest == CollectionCatalogRequest.ALL, collectionBlocked,
+            { row -> deadline.lookup { libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } } },
+            { uri -> deadline.lookup { libraryModel.addressCollectionPhone(uri) } }) { ref ->
+            ref.item.mediaType == MediaType.AUDIO && com.domenota.medialoader.ui.screens.music.MusicTrackVisibility.hidden(ref.item, hiddenSnapshot)
+        }.copy(verifiedStoreStamp = stamp, verifiedCacheGuard = cacheGuard)
+        result.also { AppLog.i("Library", "Collection addresses · members=${scopeMembers.size} · resolved=${it.resolved.size} · pending=${it.pending.size} · full=$fullCurrent · ms=${android.os.SystemClock.elapsedRealtime()-started}") }
+    }
+    // Overview has its own cheap first-member projections, not a full media catalog.
+    val coverGuard = scopedAccess.takeIf { collectionsLoaded && ((currentRoute == "collections" && collectionDetailId == null) ||
+        (currentRoute == "home" && appMode == AppMode.GALLERY)) }
+    val overviewCollections = collections
+    val overviewHistory = historySnapshot
+    val overviewMembers = remember(overviewCollections) { overviewCollections.flatMap { it.members } }
+    val overviewRelevantHistory = remember(overviewMembers, historySnapshot) { historySnapshot?.forMembers(overviewMembers).orEmpty() }
+    val overviewRows = remember(overviewRelevantHistory) { overviewRelevantHistory }
+    var overviewMediaRevision by remember { mutableStateOf(mediaAddressSignal.revision) }
+    LaunchedEffect(mediaAddressSignal.revision) {
+        if (coverGuard != null && mediaAddressSignal.affects(overviewMembers, overviewRows)) overviewMediaRevision = mediaAddressSignal.revision
+    }
+    suspend fun readOverviewCovers(): Map<String, LibraryMediaRef> {
+        val stamp = collectionDiskCache.stamp()
+        return buildMap {
+            for (collection in overviewCollections) {
+                val detail = collectionDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)
+                val cover = com.domenota.medialoader.data.library.collectionAutomaticCover(collection.members,detail?.resolved.orEmpty(),collectionBlocked)
+                    ?: com.domenota.medialoader.data.library.collectionAutomaticCover(collection.members,
+                        overviewDiskCache.read(collection.record.id,collection.members,overviewRows,collectionBlocked,stamp)?.resolved.orEmpty(),collectionBlocked)
+                cover?.let { put(collection.record.id,it) }
+            }
+        }
+    }
+    val overviewProjection = addressedLibraryProjection<Map<String,LibraryMediaRef>?>(null,coverGuard,
+        collections,overviewRows,collectionCacheRevision,fileScanEpoch,overviewMediaRevision,
+        retain = { previous, next -> next ?: previous }, serial = true,
+        seed = { CollectionLookupBudget.run(3_000) { readOverviewCovers() } }) {
+        CollectionLookupBudget.run(12_000) {
+            val stamp = overviewDiskCache.stamp()
+            val cacheGuard = overviewDiskCache.guard(collectionBlocked)
+            val cached = readOverviewCovers()
+            buildMap {
+                for (collection in overviewCollections) {
+                    val candidates = listOfNotNull(com.domenota.medialoader.data.library.collectionAutomaticCoverMember(collection.members,collectionBlocked))
+                    if (candidates.isEmpty()) continue
+                    val value = CollectionAddressResolver.resolve(candidates, overviewHistory?.forMembers(candidates).orEmpty(), null, false, collectionBlocked,
+                        { row -> libraryModel.addressCollectionApp(row) { uri -> availabilityCache.get(uri, fresh = true) } }, libraryModel::addressCollectionPhone)
+                    val cover = com.domenota.medialoader.data.library.collectionAutomaticCover(collection.members,value.resolved,collectionBlocked)
+                    if (cover != null) {
+                        put(collection.record.id,cover)
+                        overviewDiskCache.write(collection.record.id,candidates,value,collectionBlocked,stamp,cacheGuard)
+                    } else {
+                        val old = cached[collection.record.id]
+                        val stillPending = candidates.any { it.id in value.pending && it.id !in value.invalidated &&
+                            it.id !in value.suppressed && old != null && CollectionAddressResolver.matches(MediaOrganizationPolicy.decode(it.identityJson),old) }
+                        if(stillPending && old != null) put(collection.record.id,old)
+                        else overviewDiskCache.write(collection.record.id,candidates,value,collectionBlocked,stamp,cacheGuard)
+                    }
+                }
+            }
+        }
+    }
+    val cachedCollectionCovers = remember(overviewProjection.value, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot) {
+        overviewProjection.value.orEmpty().filterValues { ref -> filterRouteCatalog(listOf(ref),collectionBlocked,collectionHistory,statusSnapshot,statusUriSnapshot).isNotEmpty() }
+    }
+    val detailReadGuard = collectionReadAccess.takeIf { collectionRouteActive }
+        ?.let { access -> scopedCollection?.record?.id?.let { CollectionDetailGuard(access, it) } }
+    val materializedDetail = com.domenota.medialoader.ui.components.backgroundLibraryProjection<AddressedCollection?>(
+        null, libraryPrivateKeys, scopeMembers, publicLibraryRefs, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot,
+        accessGuard=detailReadGuard,
+        retentionGuard=detailReadGuard?.copy(access=detailReadGuard.access.copy(blocked=emptySet())),
+        revalidateRetained={ previous -> retainMaterializedCollectionRead(previous, scopeMembers, readRefsByKey,
+            collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot) }) {
+        materializedCollectionRead(scopeMembers, publicLibraryRefs, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot)
+    }
+    val transferDetailRead = collectionReadAccess != null && (recoveryRunning || !scopedProjection.usable)
+    val scopedCatalog = remember(scopedProjection.value, materializedDetail.value, transferDetailRead,
+        scopeMembers, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot) {
+        (if (transferDetailRead) materializedDetail.value else scopedProjection.value)?.let {
+            filterAddressedDisplay(it, scopeMembers, collectionHistory, collectionBlocked, statusSnapshot, statusUriSnapshot)
+        }
+    }
+    LaunchedEffect(scopedCatalog, scopeGuard, scopedProjection.ready) {
+        val result = scopedCatalog ?: return@LaunchedEffect
+        val guard = scopeGuard ?: return@LaunchedEffect
+        val stamp = result.verifiedStoreStamp ?: return@LaunchedEffect
+        val cacheGuard = result.verifiedCacheGuard ?: return@LaunchedEffect
+        if (!scopedProjection.ready) return@LaunchedEffect
+        try {
+            val wrote = CollectionLookupBudget.run(3_000) { collectionDiskCache.write(guard.id, scopeMembers, result, collectionBlocked, stamp, cacheGuard); true }
+            if(wrote==true) collectionCacheRevision++
+        }
+        catch (e: CancellationException) { throw e }
+        catch (_: Exception) { AppLog.w("Library", "Collection projection cache write deferred") }
+    }
+    LaunchedEffect(scopedCatalog, scopeGuard, scopedProjection.ready) {
+        if (!scopedProjection.ready) return@LaunchedEffect
+        val scope = scopedCatalog ?: return@LaunchedEffect
+        val guard = scopeGuard ?: return@LaunchedEffect
+        if (scopeMembers.any { it.metadataJson == null && it.id in scope.resolved && it.id !in scope.pending }) {
+            try { organization.rememberMemberMetadata(guard.id,scopeMembers,scope.resolved,guard.access.blocked) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { AppLog.w("Library", "Collection metadata persistence deferred") }
+        }
+    }
+    return ScopedCollectionReads(scopeGuard,scopeMembers,scopedProjection,cachedCollectionCovers,
+        materializedDetail,transferDetailRead,scopedCatalog)
 }
