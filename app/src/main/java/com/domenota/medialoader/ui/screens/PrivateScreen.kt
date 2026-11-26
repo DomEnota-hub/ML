@@ -160,7 +160,7 @@ fun PrivateScreen(
     com.domenota.medialoader.ui.components.ReportDrawerScreen(
         state.unlocked&&!settings&&!busy&&!externalBusy&&!selecting&&
             deleteTarget==null&&folderTarget==null&&restoreTarget==null)
-    BackHandler {
+    BackHandler(enabled = lifecycleState == Lifecycle.State.RESUMED) {
         if (!busy && !externalBusy) {
             if (selecting) { selecting = false; selectedIds = emptySet() }
             else if (settings) settings = false
