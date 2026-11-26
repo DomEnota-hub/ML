@@ -432,11 +432,12 @@ class MediaRepository private constructor(context: Context) {
     val downloads: Flow<List<DownloadEntity>> = history.observeAll()
     private val taskFeedScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     init {
+        com.domenota.medialoader.data.tasks.TaskCenter.initialize(appContext)
         com.domenota.medialoader.data.tasks.observeDuplicateTasks(appContext, taskFeedScope)
         taskFeedScope.launch {
-            downloads.collect { rows ->
+            combine(downloads, com.domenota.medialoader.data.tasks.TaskHistoryStore.settings) { rows, settings -> rows to settings }.collect { (rows, settings) ->
                 val feed = com.domenota.medialoader.data.tasks.DownloadTaskFeed
-                val cutoff = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
+                val cutoff = if(settings.retention==0) 0L else System.currentTimeMillis() - settings.retention * 86_400_000L
                 val relevant = rows.filter { it.createdAtEpochMillis >= cutoff ||
                     it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED }
                 com.domenota.medialoader.data.tasks.TaskCenter.registry.publish(

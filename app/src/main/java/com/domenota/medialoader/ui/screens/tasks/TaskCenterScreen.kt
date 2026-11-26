@@ -34,6 +34,8 @@ internal fun TaskCenterScreen(onBack: () -> Unit) {
     ReportDrawerScreen(true)
     val tasks by TaskCenter.registry.tasks.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(0) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    if(settingsOpen) TaskSettingsDialog { settingsOpen=false }
     val active = tasks.filter { it.active }
     val waiting = tasks.filter { !it.active && !it.status.terminal }
     val history = tasks.filter { it.status.terminal }
@@ -41,7 +43,8 @@ internal fun TaskCenterScreen(onBack: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
-            Text("Центр задач", style = MaterialTheme.typography.headlineSmall)
+            Text("Центр задач", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall)
+            TextButton({ settingsOpen=true }) { Text("Настройки") }
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Активные: ${active.size}", style = MaterialTheme.typography.labelMedium)
@@ -99,4 +102,30 @@ private fun TaskCommands(row: TaskSnapshot) {
     row.commands.forEach { action ->
         TextButton({ TaskCenter.registry.dispatch(row.id, action) }) { Text(action.label) }
     }
+}
+
+@Composable
+private fun TaskSettingsDialog(onClose:()->Unit) {
+    val value by TaskHistoryStore.settings.collectAsStateWithLifecycle()
+    var confirm by remember { mutableStateOf(false) }
+    if(confirm) AlertDialog(onDismissRequest={confirm=false},title={Text("Очистить историю задач?")},
+        text={Text("Файлы, результаты и история загрузок сохранятся.")},
+        confirmButton={TextButton({TaskCenter.registry.clearHistory();confirm=false}){Text("Очистить")}},
+        dismissButton={TextButton({confirm=false}){Text("Отмена")}})
+    else AlertDialog(onDismissRequest=onClose,title={Text("Настройки Центра задач")},
+        text={
+            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Text("Хранение истории")
+                TaskSettings.RETENTION.forEach { days ->
+                    Row(Modifier.fillMaxWidth().clickable { TaskHistoryStore.update(value.copy(retention=days)) },verticalAlignment=Alignment.CenterVertically) {
+                        RadioButton(selected=value.retention==days,onClick={TaskHistoryStore.update(value.copy(retention=days))})
+                        Text(if(days==0) "Без ограничений" else "$days дн.")
+                    }
+                }
+                Row(verticalAlignment=Alignment.CenterVertically) { Text("Тяжёлая индексация при зарядке",Modifier.weight(1f)); Switch(value.charging,{TaskHistoryStore.update(value.copy(charging=it))}) }
+                Row(verticalAlignment=Alignment.CenterVertically) { Text("Учитывать энергосбережение",Modifier.weight(1f)); Switch(value.batterySaver,{TaskHistoryStore.update(value.copy(batterySaver=it))}) }
+                Row(verticalAlignment=Alignment.CenterVertically) { Text("Уведомления о завершении",Modifier.weight(1f)); Switch(value.notifications,{TaskHistoryStore.update(value.copy(notifications=it))}) }
+                TextButton({confirm=true}){Text("Очистить историю задач")}
+            }
+        },confirmButton={TextButton(onClose){Text("Готово")}})
 }

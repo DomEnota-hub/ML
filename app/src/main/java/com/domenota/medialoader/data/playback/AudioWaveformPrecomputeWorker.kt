@@ -102,6 +102,8 @@ class AudioWaveformPrecomputeWorker(
         try {
         for (index in start until stop) {
             if (isStopped) { report.report(TaskStatus.CANCELLED,files=countProgress(checked,stop-start),errors=failures); return@withContext Result.retry() }
+            val wait=TaskHistoryStore.waitReason(app)
+            if(wait!=null) { report.report(TaskStatus.WAITING,files=countProgress(checked,stop-start),errors=failures,wait=wait); return@withContext Result.retry() }
             val (source, knownDuration) = entries[index]
             runCatching {
                 val uri = Uri.parse(source)

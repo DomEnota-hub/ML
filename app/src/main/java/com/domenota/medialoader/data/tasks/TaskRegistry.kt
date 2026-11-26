@@ -71,6 +71,52 @@ internal class TaskRegistry {
     private val sources = linkedMapOf<TaskOwner, Feed>()
     private val mutable = MutableStateFlow<List<TaskSnapshot>>(emptyList())
     val tasks = mutable.asStateFlow()
+    private val saved = MutableStateFlow(TaskHistoryData())
+    val history = saved.asStateFlow()
+    private var retentionDays = 7
+    private val seen = hashMapOf<String,TaskStatus>()
+    private val started = hashMapOf<String,Long>()
+    private var completion: ((TaskSnapshot)->Unit)? = null
+
+    @Synchronized fun configure(days: Int, onCompletion: ((TaskSnapshot)->Unit)? = completion) {
+        require(days in TaskSettings.RETENTION)
+        retentionDays=days; completion=onCompletion; rebuild()
+    }
+    @Synchronized fun restore(data: TaskHistoryData) {
+        val cutoff=maxOf(data.clearedAt,saved.value.clearedAt)
+        val merged=(data.rows+saved.value.rows).filter { it.updatedAt>cutoff }.associateBy { it.id }.values.toList()
+        saved.value=TaskHistoryData(cutoff,merged); rebuild()
+    }
+    @Synchronized fun clearHistory() {
+        saved.value=TaskHistoryData(System.currentTimeMillis(),emptyList()); rebuild()
+    }
+    private fun rebuild() {
+        val now=System.currentTimeMillis()
+        val cutoff=if(retentionDays==0) saved.value.clearedAt else maxOf(saved.value.clearedAt,now-retentionDays*86_400_000L)
+        val live=sources.values.flatMap { it.rows }
+        val archive=saved.value.rows.filter { it.updatedAt>cutoff }.associateBy { it.id }.toMutableMap()
+        for(row in live) {
+            val before=seen.put(row.id,row.status)
+            if(!row.status.terminal) {
+                archive.remove(row.id)
+                started.putIfAbsent(row.id,now)
+            } else {
+                val start=started.remove(row.id)
+                val ended=if(before!=null && !before.terminal) now else row.updatedAt
+                if(ended>cutoff && (before==null || !before.terminal || row.id in archive)) {
+                    val old=archive[row.id]
+                    archive[row.id]=row.copy(updatedAt=maxOf(ended,old?.updatedAt?:0),commands=emptySet(),children=emptyList())
+                    if(start!=null && now-start>=30_000 && before!=null && !before.terminal) completion?.invoke(row)
+                }
+            }
+        }
+        val rows=archive.values.sortedByDescending { it.updatedAt }
+        saved.value=TaskHistoryData(saved.value.clearedAt,rows)
+        val allowed=archive.keys
+        val shown=live.filter { !it.status.terminal || it.id in allowed }
+        val liveIds=shown.mapTo(hashSetOf()) { it.id }
+        mutable.value=shown+rows.filterNot { it.id in liveIds }
+    }
 
     /** Replace an executor's complete authoritative snapshot, not append per progress tick. */
     @Synchronized fun publish(owner: TaskOwner, rows: List<TaskSnapshot>,
@@ -80,7 +126,7 @@ internal class TaskRegistry {
         require(ids.distinct().size == ids.size)
         require(next.none { row -> row.children.any { it.children.isNotEmpty() } })
         sources[owner] = Feed(next, command)
-        mutable.value = sources.values.flatMap { it.rows }
+        rebuild()
     }
 
     @Synchronized fun record(owner: TaskOwner, row: TaskSnapshot) {
@@ -94,7 +140,7 @@ internal class TaskRegistry {
     }
     @Synchronized fun clear(owner: TaskOwner) {
         sources.remove(owner)
-        mutable.value = sources.values.flatMap { it.rows }
+        rebuild()
     }
 
     /** Check fresh capability at dispatch. Adapter must also verify the executor's live state. */
@@ -114,4 +160,5 @@ internal class TaskRegistry {
 
 internal object TaskCenter {
     val registry = TaskRegistry()
+    fun initialize(context: android.content.Context) = TaskHistoryStore.start(context.applicationContext,registry)
 }

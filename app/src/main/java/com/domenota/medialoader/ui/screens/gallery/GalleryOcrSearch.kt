@@ -102,7 +102,7 @@ internal fun rememberGalleryOcr(
         }
         val wait=when(p.phase) {
             GalleryOcrPhase.WAITING_ACCESS -> TaskWait.PERMISSION
-            GalleryOcrPhase.WAITING_CHARGE -> TaskWait.CHARGING
+            GalleryOcrPhase.WAITING_CHARGE -> TaskHistoryStore.waitReason(context) ?: TaskWait.CHARGING
             else -> null
         }
         reporter.report(status,files=countProgress(p.done,p.total),errors=p.failed+p.unverified,wait=wait,stage=TaskStage.SCANNING)
@@ -129,7 +129,7 @@ internal fun rememberGalleryOcr(
             for (batch in current.candidates.filterNot { it.key in ready }.chunked(GalleryOcrPolicy.BATCH)) {
                 currentCoroutineContext().ensureActive()
                 if (!active()) return@LaunchedEffect
-                while (controller.chargeOnly && !GalleryOcrReader.charging(context)) {
+                while ((controller.chargeOnly && !GalleryOcrReader.charging(context)) || TaskHistoryStore.waitReason(context)!=null) {
                     publish(GalleryOcrPhase.WAITING_CHARGE); delay(2000)
                 }
                 publish(GalleryOcrPhase.RUNNING)
@@ -138,7 +138,7 @@ internal fun rememberGalleryOcr(
                 for (candidate in batch) {
                     currentCoroutineContext().ensureActive()
                     if (!active()) return@LaunchedEffect
-                    while (controller.chargeOnly && !GalleryOcrReader.charging(context)) {
+                    while ((controller.chargeOnly && !GalleryOcrReader.charging(context)) || TaskHistoryStore.waitReason(context)!=null) {
                         publish(GalleryOcrPhase.WAITING_CHARGE); delay(2000)
                     }
                     publish(GalleryOcrPhase.RUNNING)
