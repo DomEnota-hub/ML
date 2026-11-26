@@ -86,4 +86,63 @@ class PrivateAccessManagerTest {
         assertFalse(manager.unlockWithPin("123456"))
         assertTrue(manager.unlockWithPin("987654"))
     }
+
+    @Test fun retainedPermitRevokesFileAccessUntilPrivateReentry() = runBlocking {
+        val manager = fresh()
+        manager.configure(PrivateAccessMode.PIN, "123456")
+        manager.setUnlockDuration(PrivateUnlockDuration.FIVE_MINUTES)
+        manager.suspendAccess()
+        assertFalse(manager.state.value.unlocked)
+        assertTrue(runCatching { manager.requireUnlocked() }.isFailure)
+        assertTrue(runCatching { manager.setUnlockDuration(PrivateUnlockDuration.SIXTY_MINUTES) }.isFailure)
+        manager.preparePrivateEntry()
+        assertFalse(manager.state.value.unlocked)
+        assertTrue(manager.resumeRememberedAccess())
+        manager.requireUnlocked()
+        manager.suspendAccess()
+        manager.lock()
+        assertFalse(manager.resumeRememberedAccess())
+    }
+
+    @Test fun durationPersistsButAuthorizationNeverSurvivesProcessRecreation() = runBlocking {
+        val manager = fresh()
+        manager.configure(PrivateAccessMode.PIN, "123456")
+        assertEquals(PrivateUnlockDuration.ON_EXIT, manager.unlockDuration.value)
+        manager.suspendAccess()
+        assertFalse(manager.resumeRememberedAccess())
+        assertTrue(manager.unlockWithPin("123456"))
+        manager.setUnlockDuration(PrivateUnlockDuration.UNTIL_PROCESS_END)
+        manager.suspendAccess()
+        val restarted = fresh()
+        assertEquals(PrivateUnlockDuration.UNTIL_PROCESS_END, restarted.unlockDuration.value)
+        assertFalse(restarted.state.value.unlocked)
+        assertFalse(restarted.resumeRememberedAccess())
+        assertTrue(manager.resumeRememberedAccess())
+        manager.configure(PrivateAccessMode.PIN, "654321")
+        assertEquals(PrivateUnlockDuration.UNTIL_PROCESS_END, fresh().unlockDuration.value)
+    }
+
+    @Test fun publicEntryCannotMintPermitFromUnexpectedLiveAuthorization() = runBlocking {
+        val manager = fresh()
+        manager.configure(PrivateAccessMode.PIN, "123456")
+        manager.setUnlockDuration(PrivateUnlockDuration.SIXTY_MINUTES)
+        manager.preparePrivateEntry()
+        assertFalse(manager.state.value.unlocked)
+        assertFalse(manager.resumeRememberedAccess())
+    }
+
+    @Test fun corruptDurationDefaultsToExitAndUnprotectedModeHasNoPermit() = runBlocking {
+        context.getSharedPreferences("private_access", Context.MODE_PRIVATE).edit()
+            .putString("unlock_duration", "unknown").commit()
+        val manager = fresh()
+        assertEquals(PrivateUnlockDuration.ON_EXIT, manager.unlockDuration.value)
+        manager.configure(PrivateAccessMode.PIN, "123456")
+        manager.setUnlockDuration(PrivateUnlockDuration.UNTIL_PROCESS_END)
+        manager.configure(PrivateAccessMode.NONE)
+        manager.suspendAccess()
+        assertFalse(manager.resumeRememberedAccess())
+        manager.unlockWithoutProtection()
+        assertTrue(manager.state.value.unlocked)
+    }
+
 }
