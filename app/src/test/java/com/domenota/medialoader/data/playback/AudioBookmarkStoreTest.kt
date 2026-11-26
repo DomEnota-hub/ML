@@ -55,6 +55,7 @@ class AudioBookmarkStoreTest {
         val media = AudioPlaybackMetadata.item(a.item, a.aliases)
         assertEquals(a, AudioBookmarkIdentity.resolve(media, mapOf("a" to a)))
         assertNull(AudioBookmarkIdentity.resolve(media, mapOf("a" to ref("a", "file:///replaced.mp3"))))
+        assertNull(AudioBookmarkIdentity.resolve(media, mapOf("a" to ref("a", aliases = setOf("file-stat:9:8:7:6")))))
         assertNull(AudioBookmarkIdentity.resolve(media, mapOf("a" to a, "file-stat:1:2:3:4" to ref("b"))))
         val secret = media.buildUpon().setMediaMetadata(MediaMetadata.Builder()
             .setExtras(Bundle().apply { putBoolean("private_media", true) }).build()).build()

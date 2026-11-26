@@ -34,7 +34,7 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun AudioBookmarksPanel(
     player: Player, identity: PlaybackDurationIdentity, positionMs: Long, durationMs: Long,
-    seekAvailable: Boolean, blocked: Set<String>,
+    seekAvailable: Boolean, blocked: Set<String>, permissionEpoch: Long,
     resolve: suspend (MediaItem) -> LibraryMediaRef?,
 ) {
     val context = LocalContext.current
@@ -44,7 +44,7 @@ internal fun AudioBookmarksPanel(
     val latestBlocked by rememberUpdatedState(blocked)
     val privacyEpoch by DuplicatePrivacyGuard.changes.collectAsState()
     val recovery by com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.collectAsState()
-    val accessKey = remember(identity, blocked, privacyEpoch, recovery) { Any() }
+    val accessKey = remember(identity, blocked, privacyEpoch, permissionEpoch, recovery) { Any() }
     var access by remember(accessKey) { mutableStateOf<AudioBookmarkAdmission?>(null) }
     var marks by remember(accessKey) { mutableStateOf<List<AudioBookmark>>(emptyList()) }
     var open by remember(accessKey) { mutableStateOf(false) }
@@ -53,6 +53,7 @@ internal fun AudioBookmarksPanel(
     var busy by remember(accessKey) { mutableStateOf(false) }
     var message by remember(accessKey) { mutableStateOf<String?>(null) }
     var retry by remember(accessKey) { mutableIntStateOf(0) }
+    var loadingAccess by remember(accessKey) { mutableStateOf(true) }
     val latestKey by rememberUpdatedState(accessKey)
     fun currentMedia(): MediaItem? = player.currentMediaItem?.takeIf {
         AudioPlaybackMetadata.durationIdentity(it) == identity &&
@@ -67,7 +68,8 @@ internal fun AudioBookmarksPanel(
         return AudioBookmarkAdmission(ref, epoch).also { it.requireCurrent(context) }
     }
     LaunchedEffect(accessKey, retry) {
-        if (recovery) return@LaunchedEffect
+        if (recovery) { loadingAccess = false; return@LaunchedEffect }
+        loadingAccess = true
         try {
             val verified = authorize()
             val loaded = store.list(verified)
@@ -80,7 +82,7 @@ internal fun AudioBookmarksPanel(
         } catch (_: Exception) {
             access = null
             marks = emptyList()
-        }
+        } finally { loadingAccess = false }
     }
     val ready = access != null && !recovery && currentMedia() != null
     fun perform(operation: suspend (AudioBookmarkAdmission) -> List<AudioBookmark>) {
@@ -95,6 +97,7 @@ internal fun AudioBookmarksPanel(
                 if (currentMedia() != null && accessKey === latestKey) {
                     marks = changed
                     access = fresh
+                    if (pending != null) open = true
                     pending = null
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -105,6 +108,8 @@ internal fun AudioBookmarksPanel(
     }
     fun seek(target: Long) {
         if (!ready || !seekAvailable || currentMedia() == null || busy) return
+        busy = true
+        message = null
         scope.launch {
             try {
                 val fresh = authorize()
@@ -115,6 +120,7 @@ internal fun AudioBookmarksPanel(
                     ?: error("Позиция недоступна")
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { if (accessKey === latestKey) message = "Позиция недоступна" }
+            finally { if (accessKey === latestKey) busy = false }
         }
     }
 
@@ -134,8 +140,9 @@ internal fun AudioBookmarksPanel(
     }
     if (open) {
         if (!ready) {
-            Text("Закладки недоступны", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { retry++ }) { Text("Повторить") }
+            Text(if (loadingAccess) "Проверка доступа…" else "Закладки недоступны",
+                style = MaterialTheme.typography.bodySmall)
+            if (!loadingAccess) TextButton(onClick = { retry++ }) { Text("Повторить") }
         } else {
             val uri = access?.ref?.item?.savedUri
             var peaks by remember(accessKey, uri, durationMs) { mutableStateOf<FloatArray?>(null) }
@@ -166,7 +173,7 @@ internal fun AudioBookmarksPanel(
                         val position = (fraction.toDouble() * durationMs).toLong().coerceIn(0, durationMs - 1)
                         val nearest = valid.minByOrNull { kotlin.math.abs(it.positionMs - position) }
                         seek(nearest?.positionMs?.takeIf { kotlin.math.abs(it - position) <= durationMs * 0.025 } ?: position)
-                    }, accentColor = musicPlaybackAccent, markers = fractions)
+                    }, accentColor = musicPlaybackAccent, markers = fractions, dragSeek = false)
             } else Text(if (loading) "Загрузка звуковой волны…" else "Звуковая волна недоступна",
                 style = MaterialTheme.typography.bodySmall)
             if (marks.isEmpty()) Text("Нет закладок", style = MaterialTheme.typography.bodySmall)

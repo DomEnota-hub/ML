@@ -25,8 +25,13 @@ internal object AudioBookmarkIdentity {
         val uri = extra?.getString(AudioPlaybackMetadata.PUBLIC_URI) ?: media.localConfiguration?.uri?.toString()
         if (uri.isNullOrBlank()) return null
         val captured = extra?.getStringArrayList(PublicMediaIdentity.EXTRA_KEYS).orEmpty()
+        val capturedStat = captured.filter { it.startsWith("file-stat:") }.toSet()
         return (listOf(media.mediaId) + captured).mapNotNull(aliases::get)
-            .filter { it.item.savedUri == uri && eligible(it) }.distinctBy { it.key }.singleOrNull()
+            .filter { ref ->
+                val liveStat = ref.aliases.filter { it.startsWith("file-stat:") }
+                ref.item.savedUri == uri && eligible(ref) &&
+                    (capturedStat.isEmpty() || liveStat.any(capturedStat::contains))
+            }.distinctBy { it.key }.singleOrNull()
     }
 
     private fun eligible(ref: LibraryMediaRef): Boolean = !ref.item.isPrivate && !ref.item.hidden &&

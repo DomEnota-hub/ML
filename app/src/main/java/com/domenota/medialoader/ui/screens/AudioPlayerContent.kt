@@ -90,6 +90,7 @@ fun BackgroundAudioPlayer(
     onRecognize:((DownloadEntity,Long)->Unit)?=null, onToggle:(()->Unit)?=null,
     onSaveQueue: (suspend (String, List<MediaItem>) -> Unit)? = null,
     onBookmarkRef: (suspend (MediaItem) -> com.domenota.medialoader.data.library.LibraryMediaRef?)? = null,
+    bookmarkPermissionEpoch: Long = 0L,
 ) {
     val context = LocalContext.current
     val playableQueue = remember(item.id, queue) {
@@ -309,7 +310,7 @@ fun BackgroundAudioPlayer(
                 bookmarks = if (onBookmarkRef != null && controller != null && durationState.identity != null) ({
                     com.domenota.medialoader.ui.screens.music.AudioBookmarksPanel(
                         controller, durationState.identity!!, positionMs, durationMs, seekAvailable,
-                        blockedIdentities, onBookmarkRef)
+                        blockedIdentities, bookmarkPermissionEpoch, onBookmarkRef)
                 }) else null)
         }
         if (queueOpen && !blocked) ModalBottomSheet(onDismissRequest = { queueOpen = false }) {

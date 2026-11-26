@@ -3523,6 +3523,7 @@ fun MediaLoaderApp(
                         } },
                         onAudioCurrentItemChanged = { entry.savedStateHandle["audio_current_id"] = it.id },
                         onPublicAudioToggle=::toggleLibraryPlayback,
+                        audioBookmarkPermissionEpoch = musicAccessEpoch,
                         onAudioBookmarkRef = if (visibilityScope == null && !item.isPrivate) ({ media ->
                             val resolved = com.domenota.medialoader.data.playback.AudioBookmarkIdentity.resolve(media, liveLibraryRefsByAlias)
                             resolved?.let { candidate -> validCollectionRefs(listOf(candidate.key), queueSave = true).singleOrNull()

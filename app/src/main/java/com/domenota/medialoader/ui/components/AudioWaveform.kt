@@ -173,6 +173,7 @@ internal fun AudioWaveform(
     onSeekFraction: (Float) -> Unit,
     accentColor: Color = MaterialTheme.colorScheme.primary,
     markers: List<Float> = emptyList(),
+    dragSeek: Boolean = true,
 ) {
     val active = accentColor
     val inactive = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
@@ -180,12 +181,12 @@ internal fun AudioWaveform(
         .pointerInput(onSeekFraction) {
             detectTapGestures { onSeekFraction((it.x / size.width).coerceIn(0f, 1f)) }
         }
-        .pointerInput(onSeekFraction) {
+        .then(if (dragSeek) Modifier.pointerInput(onSeekFraction) {
             detectDragGestures { change, _ ->
                 onSeekFraction((change.position.x / size.width).coerceIn(0f, 1f))
                 change.consume()
             }
-        }) {
+        } else Modifier)) {
         val columns = peaks.size.coerceAtLeast(1)
         val cellWidth = size.width / columns
         val gap = (cellWidth * 0.28f).coerceAtMost(2.dp.toPx())
