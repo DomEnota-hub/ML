@@ -2,6 +2,9 @@ package com.domenota.medialoader.ui.screens
 
 import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -65,6 +68,9 @@ fun PrivateScreen(
 ) {
     val state by access.state.collectAsState()
     var settings by remember { mutableStateOf(false) }
+    var manualLock by rememberSaveable { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     var busy by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<List<String>?>(null) }
     var folderTarget by remember { mutableStateOf<List<String>?>(null) }
@@ -145,16 +151,20 @@ fun PrivateScreen(
             selectedIds = selectedIds.intersect(visibleIds)
         }
     }
-    LaunchedEffect(state.mode, state.unlocked) {
-        if (state.mode == PrivateAccessMode.NONE && !state.unlocked) access.unlockWithoutProtection()
+    LaunchedEffect(state.mode, state.unlocked, lifecycleState) {
+        if (state.unlocked) manualLock = false
+        if (state.mode == PrivateAccessMode.NONE && !state.unlocked &&
+            lifecycleState == Lifecycle.State.RESUMED &&
+            lifecycleOwner.lifecycle.currentState == Lifecycle.State.RESUMED) access.unlockWithoutProtection()
     }
     com.domenota.medialoader.ui.components.ReportDrawerScreen(
         state.unlocked&&!settings&&!busy&&!externalBusy&&!selecting&&
             deleteTarget==null&&folderTarget==null&&restoreTarget==null)
-    BackHandler(busy || externalBusy || settings || selecting) {
+    BackHandler {
         if (!busy && !externalBusy) {
             if (selecting) { selecting = false; selectedIds = emptySet() }
-            else settings = false
+            else if (settings) settings = false
+            else onBack()
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -201,8 +211,10 @@ fun PrivateScreen(
                 CircularProgressIndicator()
                 Text("Перемещаем файлы…", Modifier.padding(16.dp))
             }
-            !state.unlocked -> PrivateAccessGate(access, Modifier.weight(1f))
-            settings -> PrivateProtectionSettings(access, onDone = { settings = false })
+            !state.unlocked -> PrivateAccessGate(access, Modifier.weight(1f),
+                autoAuthenticate = !manualLock, allowRememberedSession = !settings && !manualLock)
+            settings -> PrivateProtectionSettings(access, onDone = { settings = false },
+                onManualLock = { manualLock = true; settings = false; access.lock() })
             else -> Box(Modifier.weight(1f).fillMaxWidth()) {
                 @Composable fun fileRow(row: DownloadUiItem, modifier: Modifier = Modifier) {
                     val favorite = assignments[row.id]?.isFavorite == true
