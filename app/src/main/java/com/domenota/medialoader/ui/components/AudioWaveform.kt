@@ -172,6 +172,7 @@ internal fun AudioWaveform(
     progress: Float,
     onSeekFraction: (Float) -> Unit,
     accentColor: Color = MaterialTheme.colorScheme.primary,
+    markers: List<Float> = emptyList(),
 ) {
     val active = accentColor
     val inactive = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
@@ -197,6 +198,12 @@ internal fun AudioWaveform(
                 topLeft = androidx.compose.ui.geometry.Offset(x, (size.height - height) / 2f),
                 size = androidx.compose.ui.geometry.Size(barWidth, height),
             )
+        }
+        // Compact position dots; never a full-height cursor or video timeline stripe.
+        markers.filter { it.isFinite() && it in 0f..1f }.forEach { fraction ->
+            val radius = 3.dp.toPx()
+            val x = (size.width * fraction).coerceIn(radius, (size.width - radius).coerceAtLeast(radius))
+            drawCircle(color = active, radius = radius, center = androidx.compose.ui.geometry.Offset(x, radius + 1.dp.toPx()))
         }
     }
 }

@@ -176,6 +176,7 @@ fun MediaViewerScreen(
     onAudioCurrentItemChanged: (DownloadEntity) -> Unit = {},
     onAudioRecognize:((DownloadEntity,Long)->Unit)?=null, onPublicAudioToggle:(()->Unit)?=null,
     onSaveAudioQueue: (suspend (String, List<MediaItem>) -> Unit)? = null,
+    onAudioBookmarkRef: (suspend (MediaItem) -> com.domenota.medialoader.data.library.LibraryMediaRef?)? = null,
 ) {
     var selectedId by rememberSaveable(item.id) { mutableStateOf(item.id) }
     val selectedItem = mediaQueue.firstOrNull { it.id == selectedId } ?: item
@@ -345,6 +346,7 @@ fun MediaViewerScreen(
                 libraryLayout = modernAudioLayout, metadataLookup = audioMetadataRows, blockedIdentities = audioBlockedIdentities,
                 onBack = onBack, onEqualizer = onEqualizer, favoriteIds = audioFavoriteIds, onFavorite = onAudioFavorite, onEdit = onEdit, onToggle=onPublicAudioToggle.takeUnless{selectedItem.isPrivate}, onRecognize=onAudioRecognize?.takeUnless{trashReadOnly||selectedItem.isPrivate},
                 onSaveQueue=onSaveAudioQueue?.takeUnless{trashReadOnly||selectedItem.isPrivate},
+                onBookmarkRef=onAudioBookmarkRef?.takeUnless{trashReadOnly||selectedItem.isPrivate},
             )
         }
     }

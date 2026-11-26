@@ -3523,6 +3523,11 @@ fun MediaLoaderApp(
                         } },
                         onAudioCurrentItemChanged = { entry.savedStateHandle["audio_current_id"] = it.id },
                         onPublicAudioToggle=::toggleLibraryPlayback,
+                        onAudioBookmarkRef = if (visibilityScope == null && !item.isPrivate) ({ media ->
+                            val resolved = com.domenota.medialoader.data.playback.AudioBookmarkIdentity.resolve(media, liveLibraryRefsByAlias)
+                            resolved?.let { candidate -> validCollectionRefs(listOf(candidate.key), queueSave = true).singleOrNull()
+                                ?.takeIf { it.key == candidate.key && it.item.savedUri == candidate.item.savedUri } }
+                        }) else null,
                         onSaveAudioQueue = if (visibilityScope == null && !item.isPrivate) ({ name, items ->
                             com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
                             val epoch = DuplicatePrivacyGuard.generation(context)

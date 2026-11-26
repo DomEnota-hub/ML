@@ -5554,6 +5554,30 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.AudioBookmarkStoreTest#corruptStoreIsNotSilentlyOverwritten": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.AudioBookmarkStoreTest#namedPositionsPersistAndDeleteOnlyWithinTheirTrack": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.AudioBookmarkStoreTest#privateOrUnidentifiedTrackCannotWriteOrRead": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.AudioBookmarkStoreTest#resolutionRejectsPrivateAmbiguousOrChangedUri": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.AudioBookmarkStoreTest#stableAppAndPhysicalAliasesSurviveDisplayNameAndIdChanges": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.AudioBookmarkStoreTest#unknownDurationAndOutOfRangePositionsAreRejected": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.AudioControllerConnectionTest#miniAndFullPlayerSharePendingConnectionAndLastLeaseOwnsRelease": {
     "skipped": false,
     "failed": false

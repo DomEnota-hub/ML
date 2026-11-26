@@ -35,6 +35,7 @@ internal fun MusicPlayerControls(
     shuffle: Boolean, repeatMode: Int, speed: Float,
     onBack: () -> Unit, onEqualizer: (() -> Unit)?, onQueue: () -> Unit, onFavorite: (() -> Unit)?,
     seekAvailable: Boolean = true, favorite: Boolean = false, onEdit: (() -> Unit)? = null, onRecognize:(()->Unit)?=null, onToggle:(()->Unit)?=null,
+    bookmarks: (@Composable () -> Unit)? = null,
 ) {
     var scrub by remember(item.id,item.savedUri,durationMs) { mutableStateOf<Float?>(null) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -66,6 +67,7 @@ internal fun MusicPlayerControls(
                 Text(time(scrub?.toLong() ?: positionMs), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(if(durationMs>0L)time(durationMs) else "--:--", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            bookmarks?.invoke()
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 15.dp), horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically) {
