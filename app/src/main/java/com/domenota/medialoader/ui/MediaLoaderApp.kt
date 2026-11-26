@@ -1796,7 +1796,12 @@ fun MediaLoaderApp(
             pendingNames = BatchFileNames.defaults(preview.items.filter { it.id in preview.selectedIds }
                 .map { it.id to it.originalName })
             batchName = ""
-            if (pendingNames.isNotEmpty()) showNameDialog = true
+            if (pendingNames.isNotEmpty()) {
+                val selected = preview.items.filter { it.id in preview.selectedIds }
+                if (com.domenota.medialoader.data.download.SourceDownloadProfiles(context).skipNameConfirmation(selected))
+                    confirmDownload()
+                else showNameDialog = true
+            }
         }
     }
     val selectedNameItems = preview.items.filter { it.id in preview.selectedIds }

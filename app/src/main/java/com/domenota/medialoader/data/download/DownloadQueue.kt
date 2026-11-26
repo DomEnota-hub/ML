@@ -37,6 +37,7 @@ class DownloadQueue(
     private val newId: () -> String = { UUID.randomUUID().toString() },
     private val onBatchChanged: suspend (String, List<DownloadEntity>) -> Unit = { _, _ -> },
     private val onCompleted: (DownloadTask, DownloadResult) -> Unit = { _, _ -> },
+    private val destinationFor: (MediaItem) -> String? = { null },
 ) {
     private val pending = Channel<DownloadTask>(Channel.UNLIMITED)
     private val enqueueLock = Mutex()
@@ -119,7 +120,8 @@ class DownloadQueue(
                 val existing = history.byId(stableId)
                 if (existing != null) return@mapIndexed existing
             }
-            val taken = existingNames() + history.reservedNames()
+            val destination = destinationFor(item)
+            val taken = withDestination(destination) { existingNames() } + history.reservedNames()
             val preferredName = if (item.customName) item.originalName
                 else StorageNaming.normalizedMediaName(item.originalName, item.position)
             val fileName = StorageNaming.availableName(preferredName, taken)
@@ -152,6 +154,7 @@ class DownloadQueue(
                     fileName = fileName,
                     publishAfter = previousPublication,
                     publishDone = publicationDone,
+                    destination = destination,
                 ),
             )
             previousPublication = publicationDone
@@ -227,18 +230,19 @@ class DownloadQueue(
         val current = history.byId(previous.id) ?: return@withLock
         if (current.state != DownloadState.FAILED && current.state != DownloadState.CANCELLED) return@withLock
         val url = current.sourceUrl ?: return@withLock
+        val item = MediaItem(current.id, current.providerId, current.mediaType, current.originalName, url,
+            previewUrl = current.previewUrl, sizeBytes = if (current.mediaType == MediaType.AUDIO) null else current.sizeBytes,
+            formatSelector = current.formatSelector, audioArtist = current.sourceAudioArtist,
+            audioTitle = current.sourceAudioTitle, audioArtworkUrl = current.sourceAudioArtworkUrl,
+            sourcePageUrl = current.sourcePageUrl)
+        val destination = destinationFor(item)
         val name = StorageNaming.availableName(current.originalName,
-            existingNames() + history.reservedNames())
+            withDestination(destination) { existingNames() } + history.reservedNames())
         val queued = current.copy(originalName = name, state = DownloadState.QUEUED,
             sizeBytes = if (current.mediaType == MediaType.AUDIO) null else current.sizeBytes,
             bytesDownloaded = 0, errorMessage = null, savedUri = null, hidden = false)
         history.save(queued)
-        pending.send(DownloadTask(queued.id, MediaItem(queued.id, queued.providerId,
-            queued.mediaType, queued.originalName, url, previewUrl = queued.previewUrl,
-            sizeBytes = queued.sizeBytes, formatSelector = queued.formatSelector,
-            audioArtist = queued.sourceAudioArtist, audioTitle = queued.sourceAudioTitle,
-            audioArtworkUrl = queued.sourceAudioArtworkUrl,
-            sourcePageUrl = queued.sourcePageUrl), name))
+        pending.send(DownloadTask(queued.id, item.copy(originalName = name), name, destination = destination))
         AppLog.i("Download", "Retry queued · id=${queued.id} · provider=${queued.providerId} · name=${queued.originalName}")
         refreshBatch(queued)
     }
@@ -336,11 +340,16 @@ class DownloadQueue(
         }
     }
 
+    private suspend fun <T> withDestination(path: String?, action: suspend () -> T): T =
+        if (path == null) action() else withContext(com.domenota.medialoader.data.storage.DownloadFolderOverride(path)) { action() }
+
     private suspend fun transfer(task: DownloadTask) {
         try {
             val startedAt = clock()
             AppLog.verbose("Download", "Engine transfer begin · id=${task.id} · provider=${task.item.providerId}")
-            val result = engine.download(task) { bytes, total -> reportProgress(task.id, bytes, total) }
+            val result = withDestination(task.destination) {
+                engine.download(task) { bytes, total -> reportProgress(task.id, bytes, total) }
+            }
             AppLog.verbose("Download", "Engine transfer finished · id=${task.id} · elapsedMs=${clock() - startedAt}")
             update(task.id) {
                 it.copy(

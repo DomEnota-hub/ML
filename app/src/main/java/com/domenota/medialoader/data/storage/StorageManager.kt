@@ -216,15 +216,17 @@ class StorageManager(
 
     /** Names already present in the target folder (file system and MediaStore). */
     suspend fun existingNames(): Set<String> = withContext(Dispatchers.IO) {
-        selectedFolder()?.let { folder ->
+        val profilePath = currentCoroutineContext()[DownloadFolderOverride]?.path
+        val basePath = profilePath ?: relativeDirectory
+        (if (profilePath == null) selectedFolder() else null)?.let { folder ->
             if (!folder.canWrite()) throw IOException("Выбранная папка недоступна")
             return@withContext folder.listFiles().mapNotNull { it.name }.toSet()
         }
         val names = mutableSetOf<String>()
         val targets = listOf(
-            relativeDirectory,
-            MediaStoragePolicy.route(relativeDirectory, "audio/mpeg"),
-            MediaStoragePolicy.route(relativeDirectory, "application/octet-stream"),
+            basePath,
+            MediaStoragePolicy.route(basePath, "audio/mpeg"),
+            MediaStoragePolicy.route(basePath, "application/octet-stream"),
         ).distinct()
         for (path in targets) publicFolder(path).list()?.let(names::addAll)
         if (Build.VERSION.SDK_INT >= 29) {
@@ -262,6 +264,8 @@ class StorageManager(
             if (independentPrivateRestore) HistoricalRecoverySignals.requireIndependentPrivatePublication()
             else HistoricalRecoverySignals.requireIdle()
             val recovery=currentCoroutineContext()[MissingRecoveryPublication]
+            val profilePath = currentCoroutineContext()[DownloadFolderOverride]?.path
+            check(profilePath == null || (recovery == null && !independentPrivateRestore))
             recovery?.prepare(source,mimeType)
             val initialNames = existingNames().toMutableSet()
             // A stalled SHOW does not yet appear in MediaStore for every planned
@@ -275,7 +279,7 @@ class StorageManager(
                 initialNames += com.domenota.medialoader.data.catalog.visibility.FolderVisibilityManager
                     .reservedPendingPublicNames(context,MediaStoragePolicy.route(relativeDirectory,mimeType))
             }
-            selectedFolder()?.let { folder ->
+            (if (profilePath == null) selectedFolder() else null)?.let { folder ->
                 if (!folder.canWrite()) throw IOException("Выбранная папка недоступна")
                 val actualName = StorageNaming.availableName(fileName, initialNames)
                 val document = folder.createFile(mimeType, actualName)
@@ -291,7 +295,7 @@ class StorageManager(
                 }
                 return@withContext PublishedFile(document.uri, actualName)
             }
-            val targetPath = MediaStoragePolicy.route(relativeDirectory, mimeType)
+            val targetPath = MediaStoragePolicy.route(profilePath ?: relativeDirectory, mimeType)
             if (Build.VERSION.SDK_INT >= 29) {
                 val resolver = context.contentResolver
                 val collection = collectionFor(mimeType)

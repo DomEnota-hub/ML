@@ -2534,6 +2534,22 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.download.SourceDownloadProfilesTest#audioPreferenceIsOnlyInitialSelectionAndDoesNotRemoveAlternatives": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.SourceDownloadProfilesTest#defaultInheritanceAndExplicitMaximumRemainDistinct": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.SourceDownloadProfilesTest#folderAndConfirmationAreExplicitAndSafKeepsItsGrant": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.download.SourceDownloadProfilesTest#sourceModesDoNotChangeGlobalModeAndConfirmationWins": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.AiModelCatalogTest#catalogCoversAllFiveModelsAndExactKnownPins": {
     "skipped": false,
     "failed": false

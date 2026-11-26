@@ -116,8 +116,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.domenota.medialoader.core.model.PreferredVideoQuality
-import com.domenota.medialoader.data.preferences.VideoPreferences
 import com.domenota.medialoader.data.preview.RemoteImageLoader
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -287,7 +285,7 @@ class MediaRepository private constructor(context: Context) {
         referer = com.domenota.medialoader.core.provider.VkDirectMedia.REFERER)
     private val recognitionAudioPreprocessor = RecognitionAudioPreprocessor(appContext)
     private val sourceCoverGate = Semaphore(2)
-    private val videoPreferences = VideoPreferences(appContext)
+    private val sourceProfiles = com.domenota.medialoader.data.download.SourceDownloadProfiles(appContext)
     private val recognitionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val waveformGate = Semaphore(1)
     private val musicPostProcessGate = Semaphore(1)
@@ -314,6 +312,7 @@ class MediaRepository private constructor(context: Context) {
             muzmo = MuzmoDownloadEngine(appContext, storage),
         ),
         existingNames = storage::existingNames,
+        destinationFor = { item -> sourceProfiles.folderPath(item.providerId, storage.usesSelectedFolder) },
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
         onBatchChanged = { id, items -> notifier.update(id, items) },
         onCompleted = { task, result ->
@@ -1060,7 +1059,7 @@ class MediaRepository private constructor(context: Context) {
             } }.awaitAll().map { item ->
                 item.copy(sourcePageUrl = item.sourcePageUrl ?: if (item.providerId == VkProvider.ID) item.downloadUrl else url)
             }
-        }.let { PreferredVideoQuality.apply(it, videoPreferences.preferredHeight, videoPreferences.qualityDirection) }.also { results ->
+        }.let(sourceProfiles::defaults).also { results ->
             AppLog.verbose(
                 "Resolve",
                 "Completed · items=${results.size} · sources=${results.map { it.providerId }.distinct().joinToString(",")} · elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}",

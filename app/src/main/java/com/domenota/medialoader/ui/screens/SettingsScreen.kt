@@ -455,6 +455,7 @@ fun SettingsScreen(
     var recognitionDialog by remember { mutableStateOf(false) }
     var musicSourceDialog by remember { mutableStateOf(false) }
     var instagramModeDialog by remember { mutableStateOf(false) }
+    var sourceProfilesDialog by remember { mutableStateOf(false) }
     val gapiKeyStore = remember(context) { GapiKeyStore(context) }
     var gapiKeysDialog by remember { mutableStateOf(false) }
     var spareAuthorizationDialog by remember { mutableStateOf(false) }
@@ -501,7 +502,7 @@ fun SettingsScreen(
         !recoveryLabBusy&&!openAppearance&&!openJournal&&editorKind==null&&
         !showMediaWriteExplanation&&!videoThumbnailDialog&&!aiModelsDialog&&!themeDialog&&
         !recognitionDialog&&!musicSourceDialog&&!instagramModeDialog&&!gapiKeysDialog&&
-        !spareAuthorizationDialog&&!folderDialog&&!confirmClear&&!confirmInstagramSignOut&&
+        !spareAuthorizationDialog&&!sourceProfilesDialog&&!folderDialog&&!confirmClear&&!confirmInstagramSignOut&&
         !confirmYouTubeSignOut&&!confirmVkSignOut&&!confirmRutubeSignOut&&!trashDialog&&
         !confirmEmptyTrash&&!sessionDialog&&!logsDialog&&!confirmClearAppLog)
     fun setRecoveryLabVisible(value: Boolean) {
@@ -772,6 +773,10 @@ fun SettingsScreen(
         onDismissRequest = { gapiKeysDialog = false },
     )
 
+    if (sourceProfilesDialog) SourceDownloadProfilesDialog(
+        selectedSafFolder = downloadFolder.startsWith("Выбранная папка:"),
+        onDismiss = { sourceProfilesDialog = false },
+    )
     if (instagramModeDialog) AlertDialog(
         onDismissRequest = { instagramModeDialog = false },
         title = { Text("Режим загрузки") },
@@ -1124,6 +1129,11 @@ fun SettingsScreen(
                 "Instagram и YouTube · " + if (automaticInstagram) "Автоматический" else "Ручной",
                 grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
                 onClick = { instagramModeDialog = true })
+            GroupDivider()
+            SettingRow(Icons.Rounded.Tune, "Профили источников",
+                "Instagram, YouTube, VK, Rutube",
+                grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
+                onClick = { sourceProfilesDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.Key, "Ключи GAPI для Instagram и VK",
                 "Ключи, приоритет и резерв через аккаунт",

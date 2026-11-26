@@ -759,7 +759,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         val storageReady = android.os.Build.VERSION.SDK_INT >= 29 || !needsLegacyStoragePermission() ||
             androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
-        val automatic = allowAutomatic && storageReady && InstagramShareSettings.isAutomatic(context) &&
+        val automatic = allowAutomatic && storageReady && com.domenota.medialoader.data.download.SourceDownloadProfiles(context).automatic("youtube") &&
             YouTubeAutoSelection.canonicalUrl(url) != null
         analyzeInternal(url, null, automatic, onAutomaticFinished)
     }

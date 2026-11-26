@@ -15,6 +15,8 @@ data class DownloadTask(
     val publishAfter: CompletableDeferred<Unit>? = null,
     /** Completed by DownloadQueue after this task has finished or been skipped/cancelled. */
     val publishDone: CompletableDeferred<Unit>? = null,
+    /** Source profile snapshot; null inherits the normal destination. */
+    val destination: String? = null,
 )
 
 enum class DownloadState { QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED }
