@@ -21,7 +21,7 @@ internal object EqualizerPlaybackFormat {
  * the final clamp is a guard for malformed/overshooting inputs, never a wrapping integer cast.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-class EqualizerAudioProcessor : BaseAudioProcessor() {
+class EqualizerAudioProcessor(private val publishFormat: Boolean = true) : BaseAudioProcessor() {
     @Volatile private var target = EqualizerSettings()
     private var rate = 0
     private var channels = 0
@@ -40,11 +40,11 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     }
     override fun onFlush() {
         rate = inputAudioFormat.sampleRate; channels = inputAudioFormat.channelCount; encoding = inputAudioFormat.encoding
-        EqualizerPlaybackFormat.update(rate)
+        if (publishFormat) EqualizerPlaybackFormat.update(rate)
         filters = Array(5) { Filter(channels) }
         gains.fill(0.0); desired.fill(0.0); headroom = 1.0; frame = 0
     }
-    override fun onReset() { rate = 0; channels = 0; filters = Array(5) { Filter(0) }; gains.fill(0.0); EqualizerPlaybackFormat.update(null) }
+    override fun onReset() { rate = 0; channels = 0; filters = Array(5) { Filter(0) }; gains.fill(0.0); if (publishFormat) EqualizerPlaybackFormat.update(null) }
     override fun queueInput(inputBuffer: ByteBuffer) {
         if (!inputBuffer.hasRemaining()) return
         inputBuffer.order(ByteOrder.nativeOrder())

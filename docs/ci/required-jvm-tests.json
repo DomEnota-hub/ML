@@ -5826,6 +5826,22 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.CrossfadePolicyTest#complementaryGainsAreBounded": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.CrossfadePolicyTest#defaultsAreOffAndRangeIsStrict": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.CrossfadePolicyTest#disabledAndUnknownDurationNeverOverlap": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.CrossfadePolicyTest#durationRespectsSpeedAndShortTracks": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.CurrentPlayerRequestTest#coldRequestSurvivesRecreationAndConsumedRequestCannotReplay": {
     "skipped": false,
     "failed": false

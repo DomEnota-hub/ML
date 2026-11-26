@@ -71,6 +71,8 @@ internal fun EqualizerScreen(
                     if (!supported) Text("Недоступна при частоте текущего трека $sampleRate Гц", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            Spacer(Modifier.height(16.dp))
+            CrossfadeControls()
             Spacer(Modifier.height(8.dp))
             TextButton({ onSettings(settings.withPreset("Ровный")) }, Modifier.align(Alignment.CenterHorizontally)) { Text("Сбросить настройки") }
         }

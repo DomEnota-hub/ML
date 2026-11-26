@@ -114,6 +114,17 @@ internal class MusicStopTimer(private val player: ExoPlayer, private val scope: 
         }
         return true
     }
+    /** Never start an incoming track beyond an armed stop boundary. */
+    fun allowsOverlap(next: androidx.media3.common.MediaItem, remainingWallMs: Long): Boolean {
+        val active = request ?: return true
+        if (waiting) return false
+        return when (active.criterion) {
+            MusicStopCriterion.PLAYLIST -> !isLastPlaylistItem() &&
+                next.mediaMetadata.extras?.getString(AudioPlaybackMetadata.PLAYLIST_ID) == playlistId
+            MusicStopCriterion.AT_TIME -> deadline - System.currentTimeMillis() > remainingWallMs + 250
+            MusicStopCriterion.AFTER_TIME -> deadline - SystemClock.elapsedRealtime() > remainingWallMs + 250
+        }
+    }
     private fun updateBoundary() {
         val r = request
         val atEnd = r != null && when (r.criterion) {
