@@ -44,6 +44,7 @@ class DownloadQueue(
     private val networkWait: (MediaItem, Boolean) -> DownloadNetworkWait? = { _, _ -> null },
     private val networkUpdates: Flow<Unit> = emptyFlow(),
     private val restoreWaitingAllowed: (MediaItem) -> Boolean = { true },
+    private val onDeferredRestored: () -> Unit = {},
 ) {
     private val pending = Channel<DownloadTask>(Channel.UNLIMITED)
     private val enqueueLock = Mutex()
@@ -339,6 +340,8 @@ class DownloadQueue(
                 restored++
             } else history.save(row.copy(state = DownloadState.FAILED, errorMessage = INTERRUPTED))
         }
+        if (restored > 0) runCatching(onDeferredRestored)
+            .onFailure { AppLog.w("Download", "Foreground restore notification unavailable", it) }
         if (interrupted.isNotEmpty()) AppLog.w("Download", "Recovered interrupted tasks · count=${interrupted.size} · deferred=$restored")
     }
 

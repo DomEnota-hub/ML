@@ -317,6 +317,7 @@ class MediaRepository private constructor(context: Context) {
         networkWait = downloadNetwork::waitFor,
         networkUpdates = downloadNetwork.changes(),
         restoreWaitingAllowed = resolver::canDownload,
+        onDeferredRestored = { ActiveDownloadService.start(appContext) },
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
         onBatchChanged = { id, items -> notifier.update(id, items) },
         onCompleted = { task, result ->
