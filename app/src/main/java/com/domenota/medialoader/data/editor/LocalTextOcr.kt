@@ -107,6 +107,25 @@ internal object LocalTextOcr {
         selected
     }
 
+    /** Bounded offline library pass, no OCR text in diagnostics. */
+    suspend fun readIndexPage(context: Context, image: Bitmap): TextReadResult = withEngine(context) { api ->
+        fun recognize(mode: Int, stage: String): OcrAttempt {
+            api.pageSegMode = mode
+            api.setImage(image)
+            return OcrAttempt(api.getUTF8Text().orEmpty().trim(), api.meanConfidence(), stage)
+        }
+        val auto = recognize(TessBaseAPI.PageSegMode.PSM_AUTO, "index-auto")
+        currentCoroutineContext().ensureActive()
+        fun usable(value: OcrAttempt): Boolean = value.usable ||
+            (value.confidence >= 65 && Regex("[0-9]{3,}").containsMatchIn(value.text))
+        if (usable(auto) && auto.confidence >= 65) TextReadResult(auto.text,auto.confidence)
+        else {
+            val sparse = recognize(TessBaseAPI.PageSegMode.PSM_SPARSE_TEXT,"index-sparse")
+            listOf(auto,sparse).filter(::usable).maxByOrNull { it.confidence }
+                ?.let { TextReadResult(it.text,it.confidence) } ?: TextReadResult("",0)
+        }
+    }
+
     /**
      * High-contrast second attempt: white background, dark outlines, bounded memory.
      * Keep the original color image for the first three OCR attempts.

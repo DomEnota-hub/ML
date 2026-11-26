@@ -5098,6 +5098,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.GalleryOcrIndexTest#changedVersionCannotMatchAndReconcileKeepsUnchangedRows": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.GalleryOcrIndexTest#checkpointSurvivesReopeningAndEmptyRecognitionCounts": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.GalleryOcrIndexTest#onlyProvenPublicPhotosAndUnambiguousIdsEnterCatalog": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.GalleryOcrIndexTest#privateMovePurgeRemovesPersistentIndexBeforeReuse": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.GalleryOcrIndexTest#staleGuardCannotReadOrWriteAndPruneRemovesDeniedRecord": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.HistoricalSnapshotValidationTest#absentCatalogCacheNeverAcceptsLaterCorruptEmptyOrInvalidDocument": {
     "skipped": false,
     "failed": false

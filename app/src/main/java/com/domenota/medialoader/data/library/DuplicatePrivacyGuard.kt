@@ -70,6 +70,7 @@ internal object DuplicatePrivacyGuard {
             MusicPairResultCache.clearForPrivacy(context)
             MusicDuplicateScanner.clearForPrivacy(context)
             VisualDuplicateScanner.clearForPrivacy(context)
+            GalleryOcrIndex.clearForPrivacy(context)
             com.domenota.medialoader.data.recognition.TrackRecognitionCache.clearForPrivacy(context)
             if (!keepUnrelatedReports) {
                 MusicDuplicateSessionStore.clearForPrivacy(context)

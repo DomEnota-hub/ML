@@ -1533,6 +1533,15 @@ fun MediaLoaderApp(
     val passportNotes = rememberMediaPassportNotes(organizationRefs,
         organizationReadAccess.takeIf { organizationReady && organizationProjection.ready && !recoveryRunning },
         collectionPrivacyGeneration) { ids -> validCollectionRefs(ids, queueSave = true) }
+    val galleryOcr = com.domenota.medialoader.ui.screens.gallery.rememberGalleryOcr(publicLibraryRefs,phoneGallery.fingerprints,
+        collectionReadAccess.takeIf { organizationReady && libraryIndex.appComplete && !recoveryRunning &&
+            libraryIndex.appUris == historySnapshot?.appUris &&
+            (phoneGallery.complete || !hasPhoneLibraryAccess(context,AppMode.GALLERY)) &&
+            (!phoneGallery.complete || (!phoneGallery.loading && phoneGallery.message == null &&
+                phoneGallery.accessEpoch == galleryAccessEpoch && libraryIndex.galleryRevision == phoneGallery.revision)) },
+        collectionBlocked,collectionPrivacyGeneration,{ libraryModel.refresh(AppMode.GALLERY) }) { ids ->
+        validCollectionRefs(ids,queueSave=true)
+    }
     val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
     val consumePlayerRequest by rememberUpdatedState(onCurrentPlayerRequestConsumed)
     // Notification entry observes the existing controller only. Opening an ordinary audio row
@@ -2259,6 +2268,7 @@ fun MediaLoaderApp(
                 )
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
                     notes=passportNotes,
+                    ocr=galleryOcr,
                     unifiedDrawerRoutes=true,
                     onSimpleArchive = { archiveActions.archiveSelection(it, ArchiveEntrySource.GALLERY) },
                     onArchiveFolder = { archiveActions.archiveVirtualFolder(it, ArchiveEntrySource.GALLERY) },
