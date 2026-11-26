@@ -19,6 +19,7 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.domenota.medialoader.data.privatevault.PrivateAccessManager
 import com.domenota.medialoader.data.privatevault.PrivateAccessMode
+import com.domenota.medialoader.data.privatevault.PrivateUnlockDuration
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Before
@@ -56,10 +57,11 @@ class PrivateAccessGateTest {
         compose.runOnUiThread { owner.registry.currentState = Lifecycle.State.CREATED }
     }
 
-    private fun show(autoAuthenticate: Boolean = true) {
+    private fun show(autoAuthenticate: Boolean = true, allowRememberedSession: Boolean = false) {
         compose.setContent {
             CompositionLocalProvider(LocalLifecycleOwner provides owner) {
-                MaterialTheme { PrivateAccessGate(manager, autoAuthenticate = autoAuthenticate) }
+                MaterialTheme { PrivateAccessGate(manager, autoAuthenticate = autoAuthenticate,
+                    allowRememberedSession = allowRememberedSession) }
             }
         }
     }
@@ -118,6 +120,31 @@ class PrivateAccessGateTest {
         compose.onNodeWithText("Подтвердить вход").performClick()
         assertEquals(1, PlatformPrompt.requests)
         assertFalse(manager.state.value.unlocked)
+    }
+
+    @Test fun rememberedEntryWaitsForResumedPrivateScreenWithoutSystemPrompt() {
+        manager.onSystemAuthenticationSucceeded()
+        manager.setUnlockDuration(PrivateUnlockDuration.FIVE_MINUTES)
+        manager.suspendAccess()
+        show(allowRememberedSession = true)
+        compose.waitForIdle()
+        assertFalse(manager.state.value.unlocked)
+        assertEquals(0, PlatformPrompt.requests)
+        resume()
+        compose.waitUntil(10_000) { manager.state.value.unlocked }
+        assertEquals(0, PlatformPrompt.requests)
+    }
+
+    @Test fun rememberedEntryCannotBypassGateWithoutExplicitScreenPermission() {
+        manager.onSystemAuthenticationSucceeded()
+        manager.setUnlockDuration(PrivateUnlockDuration.FIVE_MINUTES)
+        manager.suspendAccess()
+        show(autoAuthenticate = false, allowRememberedSession = false)
+        resume()
+        compose.waitForIdle()
+        assertFalse(manager.state.value.unlocked)
+        assertEquals(0, PlatformPrompt.requests)
+        compose.onNodeWithText("Подтвердить вход").assertIsDisplayed()
     }
 
     @Implements(BiometricPrompt::class)
