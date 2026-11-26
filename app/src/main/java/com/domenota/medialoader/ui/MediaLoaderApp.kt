@@ -1650,6 +1650,9 @@ fun MediaLoaderApp(
             (ref.appDownloadId != null || ref.item.mediaType in allowedTypes) && (!(recent || analytics) ||
                 com.domenota.medialoader.ui.screens.music.MusicFolderRules.visible(ref.item,excluded,currentRecentFolders)) }
     }
+    val passportNotes = rememberMediaPassportNotes(organizationRefs,
+        organizationReadAccess.takeIf { organizationReady && organizationProjection.ready && !recoveryRunning },
+        collectionPrivacyGeneration) { ids -> validCollectionRefs(ids, queueSave = true) }
     val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}
     val consumePlayerRequest by rememberUpdatedState(onCurrentPlayerRequestConsumed)
     // Notification entry observes the existing controller only. Opening an ordinary audio row
@@ -2424,6 +2427,7 @@ fun MediaLoaderApp(
                     onRecognizeDownload = recognizeVisibilityFile,
                 )
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
+                    notes=passportNotes,
                     unifiedDrawerRoutes=true,
                     onSimpleArchive = { archiveActions.archiveSelection(it, ArchiveEntrySource.GALLERY) },
                     onArchiveFolder = { archiveActions.archiveVirtualFolder(it, ArchiveEntrySource.GALLERY) },
@@ -2776,7 +2780,7 @@ fun MediaLoaderApp(
                 }.orEmpty()
                 val playlistNames=ref?.let{r->playlists.filter{p->p.trackIds.any{it==r.key||it in r.aliases}}.map{it.name}}.orEmpty()
                 MediaPassportScreen(ref?.takeIf{candidate->organizationRefs.any{it.key==candidate.key}},organizationRefs,collections,ops,names,playlistNames,
-                    {navController.popBackStack()},openDownloadWithQueue,::openOrganizationLink,{openCollections(it)})
+                    {navController.popBackStack()},openDownloadWithQueue,::openOrganizationLink,{openCollections(it)},notes=passportNotes)
             },
             LibraryRouteContent("batch-photo-editor") {
                 val coordinator=remember(context){com.domenota.medialoader.data.editor.EditorExportCoordinator.get(context)}
