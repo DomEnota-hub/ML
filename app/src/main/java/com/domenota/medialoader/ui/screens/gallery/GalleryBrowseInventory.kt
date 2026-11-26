@@ -64,13 +64,13 @@ internal class GalleryBrowseInventory private constructor(
         }
         return next
     }
-    fun select(selection: String, search: String): List<DownloadEntity> {
+    fun select(selection: String, search: String, noteMatches: Set<String> = emptySet()): List<DownloadEntity> {
         if (search.isBlank()) when (selection) {
             "all" -> return media
             "videos" -> return videos
             "favorites" -> return favorites
         }
-        return GalleryLibraryState.filter(items, assignments, selection, search, buckets, hiddenFolders)
+        return GalleryLibraryState.filter(items, assignments, selection, search, buckets, hiddenFolders, noteMatches)
     }
     companion object {
         val EMPTY = build(emptyList(), emptyList(), emptyList(), LibrarySource.APP, emptyMap(), emptySet())
