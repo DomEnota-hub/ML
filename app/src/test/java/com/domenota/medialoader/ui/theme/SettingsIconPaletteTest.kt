@@ -59,7 +59,7 @@ class SettingsIconPaletteTest {
         }
     }
     /**
-     * All 33 visible settings items have their own accent. This catches the
+     * All 37 visible settings items have their own accent. This catches the
      * shared PLAYER/FOLDER colours that survived the previous QA releases.
      */
     @Test fun everyVisibleSettingsRowHasItsOwnColourInBothThemes() {
@@ -80,6 +80,7 @@ class SettingsIconPaletteTest {
             SettingIconTone.RECOGNITION,
             SettingIconTone.RENAME,
             SettingIconTone.APPEARANCE,
+            SettingIconTone.DRAWER,
             SettingIconTone.THEME,
             SettingIconTone.HIDE_EXTENSIONS,
             SettingIconTone.VIDEO_THUMBNAIL,
@@ -93,12 +94,15 @@ class SettingsIconPaletteTest {
             SettingIconTone.DIAGNOSTICS,
             SettingIconTone.LOG,
             SettingIconTone.ADVANCED_LOG,
+            SettingIconTone.PERFORMANCE,
+            SettingIconTone.RECOVERY_LAB,
+            SettingIconTone.AI_MODELS,
             SettingIconTone.SHORTCUTS,
             SettingIconTone.SHORTCUT_STYLE,
             SettingIconTone.SHORTCUT_GALLERY,
             SettingIconTone.SHORTCUT_MUSIC,
         )
-        assertEquals(33, rows.size)
+        assertEquals(37, rows.size)
         for (dark in listOf(false, true)) {
             val samples = rows.map { it.swatch(dark) }
             val duplicateColors = samples.groupingBy { it.foreground }.eachCount().filterValues { it > 1 }.keys

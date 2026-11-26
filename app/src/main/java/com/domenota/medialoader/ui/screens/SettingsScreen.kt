@@ -1266,7 +1266,7 @@ fun SettingsScreen(
         SettingsGroup {
             SettingRow(Icons.Rounded.FormatListBulleted, "Боковое меню",
                 "Порядок и видимость разделов", grouped = true,
-                iconTone = SettingIconTone.APPEARANCE, onClick = onOpenDrawerSettings)
+                iconTone = SettingIconTone.DRAWER, onClick = onOpenDrawerSettings)
             GroupDivider()
             SettingRow(Icons.Rounded.Palette, "Оформление и просмотр",
                 "Тема, миниатюры, проигрыватель и ярлыки", grouped = true,
@@ -1405,13 +1405,13 @@ fun SettingsScreen(
                 GroupDivider()
                 SettingRow(Icons.Rounded.Speed, "Подробная диагностика производительности",
                     if(detailedPerf) "Очереди, кеш, память и длительность операций · включена" else "Дополнительные замеры · выключена",
-                    grouped=true, iconTone=SettingIconTone.DIAGNOSTICS, showChevron=false,
+                    grouped=true, iconTone=SettingIconTone.PERFORMANCE, showChevron=false,
                     trailing={Switch(checked=detailedPerf,onCheckedChange={ value -> detailedPerf=value;AppLog.setDetailedPerformance(value) })},
                     onClick={detailedPerf=!detailedPerf;AppLog.setDetailedPerformance(detailedPerf)})
                 GroupDivider()
                 SettingRow(Icons.Rounded.Science, "Лаборатория исправлений",
                     if (recoveryLabVisible) "Показана" else "Скрыта", grouped = true,
-                    iconTone = SettingIconTone.DIAGNOSTICS, showChevron = false,
+                    iconTone = SettingIconTone.RECOVERY_LAB, showChevron = false,
                     trailing = { Switch(checked = recoveryLabVisible, enabled = !recoveryLabBusy,
                         onCheckedChange = ::setRecoveryLabVisible) },
                     onClick = if (recoveryLabBusy) null else { { setRecoveryLabVisible(!recoveryLabVisible) } })

@@ -235,7 +235,8 @@ class FloatingVideoService : Service() {
             setControls(true)
         }
         playButton = center
-        layer.addView(center, FrameLayout.LayoutParams(dp(54), dp(54), Gravity.CENTER))
+        center.clearColorFilter() // Keep the two-tone glyph's thin dark outline.
+        layer.addView(center, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
         // Expand is placed above the seekbar in root z-order below.
         // Keeping it in the controls layer left it floating high above the lower-right corner.
         val expand = imageButton(R.drawable.ic_floating_expand, "Развернуть плеер") {
