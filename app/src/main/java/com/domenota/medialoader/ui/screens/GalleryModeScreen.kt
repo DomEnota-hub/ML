@@ -99,6 +99,7 @@ internal fun GalleryModeScreen(
     onOpenSimpleArchive: (() -> Unit)? = null,
     unifiedDrawerRoutes:Boolean=false,
     onArchiveFolder: ((String) -> Unit)? = null,
+    notes: com.domenota.medialoader.ui.screens.organization.MediaPassportNotes? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -222,8 +223,18 @@ internal fun GalleryModeScreen(
     val otherAlbums = remember(orderedAlbums,albumSettings.hiddenAlbums) {
         orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
     }
+    val noteQuery = search.trim()
+    var noteMatches by remember(noteQuery, notes?.searchKey) { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(noteQuery, notes?.searchKey) {
+        if (noteQuery.isNotEmpty() && notes?.searchKey != null) {
+            kotlinx.coroutines.delay(160)
+            try { noteMatches = notes.search(noteQuery) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { noteMatches = emptySet() }
+        }
+    }
     val gridKey=GalleryGridKey(selection,search,detailOpen,tab,albumFileSort,albumSettings.excludedFromMedia,
-        LocalDate.now(),ZoneId.systemDefault())
+        LocalDate.now(),ZoneId.systemDefault(),noteMatches)
     val canPrepare=preparedBrowse?.usable!=false
     val grid=if(preparedBrowse==null)remember(browse,gridKey){browse.prepareGrid(gridKey)} else {
         // A routine data refresh retains the previous safe grid until its new
