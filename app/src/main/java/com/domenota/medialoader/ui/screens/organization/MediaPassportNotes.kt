@@ -44,11 +44,11 @@ internal class MediaPassportNotes(
     }
     suspend fun search(query: String): Set<String> {
         if (addressKey == null || !active() || query.isBlank()) return emptySet()
-        val matches = store.search(catalog,query,epoch)
-        if (matches.isEmpty() || !active()) return emptySet()
-        val live = validate(matches.map { it.key }).associateBy { it.key }
+        val hits = store.search(catalog,query,epoch)
+        if (hits.isEmpty() || !active()) return emptySet()
+        val live = validate(hits.map { it.key }).associateBy { it.key }
         if (!active()) return emptySet()
-        return matches.filter { candidate -> live[candidate.key]?.let { matches(candidate,it) } == true }
+        return hits.filter { candidate -> live[candidate.key]?.let { matches(candidate,it) } == true }
             .mapTo(linkedSetOf()) { it.item.id }
     }
 }
