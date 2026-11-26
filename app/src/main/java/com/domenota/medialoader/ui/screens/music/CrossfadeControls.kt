@@ -11,6 +11,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.domenota.medialoader.data.playback.CrossfadePreferences
+import com.domenota.medialoader.ui.components.AppSlider
 import kotlin.math.roundToInt
 
 @Composable
@@ -31,7 +32,7 @@ internal fun CrossfadeControls() {
         Text("Длительность", fontSize = 13.sp)
         Text("${value.seconds} с", fontSize = 13.sp)
     }
-    Slider(value.seconds.toFloat(), { preferences.set(value.copy(seconds = it.roundToInt().coerceIn(1,12))) },
+    AppSlider(value.seconds.toFloat(), { preferences.set(value.copy(seconds = it.roundToInt().coerceIn(1,12))) },
         modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Длительность плавного перехода" },
-        enabled = value.enabled, valueRange = 1f..12f, steps = 10)
+        enabled = value.enabled, valueRange = 1f..12f, steps = 10, neutralWhenDisabled = true)
 }
