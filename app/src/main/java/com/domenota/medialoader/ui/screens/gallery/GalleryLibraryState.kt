@@ -34,13 +34,13 @@ object GalleryLibraryState {
 
     fun filter(items: List<DownloadEntity>, assignments: List<CatalogAssignmentEntity>, selection: String,
                query: String, deviceAlbums: Map<String, DeviceAlbum>,
-               hiddenFolderIds: Set<String> = emptySet()): List<DownloadEntity> {
+               hiddenFolderIds: Set<String> = emptySet(), noteMatches: Set<String> = emptySet()): List<DownloadEntity> {
         val catalog = assignments.associateBy { it.downloadId }
         return items.filter { row ->
             val folder = catalog[row.id]?.folderId
             val visible = folder == null || folder !in hiddenFolderIds || selection == "folder:$folder"
             visible && !row.hidden && !row.isPrivate && row.state == DownloadState.COMPLETED &&
-                row.mediaType in setOf(MediaType.PHOTO, MediaType.VIDEO) && row.originalName.contains(query.trim(), true) &&
+                row.mediaType in setOf(MediaType.PHOTO, MediaType.VIDEO) && (row.originalName.contains(query.trim(), true) || (row.id in noteMatches && folder !in hiddenFolderIds)) &&
                 when {
                     selection == "favorites" -> catalog[row.id]?.isFavorite == true
                     selection == "videos" -> row.mediaType == MediaType.VIDEO
