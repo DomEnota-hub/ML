@@ -64,8 +64,22 @@ internal fun SimpleArchiveScreen(
     var gridMode by rememberSaveable { mutableStateOf(prefs.getBoolean("archive_grid", false)) }
     var type by remember { mutableStateOf<MediaType?>(null) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
-    val filtered = remember(records, type) {
-        records.filter { type == null || it.mediaType == type }.sortedByDescending { it.archivedAtMillis }
+    var sort by remember { mutableStateOf(PrivateArchiveSort.read(prefs, "archive")) }
+    val candidates = remember(records, type) { records.filter { type == null || it.mediaType == type } }
+    val admittedRows = remember(candidates, liveRows) { candidates.mapNotNull { record ->
+        liveRows[record.catalogId]?.takeIf { !it.isPrivate && !it.hidden && it.savedUri == record.savedUri }
+            ?.let { record.catalogId to it }
+    }.toMap() }
+    val dates = rememberPrivateArchiveDates(context, admittedRows,
+        sort.field == PrivateArchiveSortField.FILE_DATE, privateSection = false)
+    val keysById = remember(candidates, admittedRows, dates) { candidates.associate { record ->
+        val admitted = admittedRows[record.catalogId]
+        record.catalogId to PrivateArchiveSortKey(record.catalogId, record.displayName,
+            dates[record.catalogId], record.archivedAtMillis.takeIf { it > 0 },
+            if (admitted != null) (admitted.sizeBytes ?: record.fileSizeBytes)?.takeIf { it >= 0 } else null)
+    } }
+    val filtered = remember(candidates, sort, keysById) {
+        sortPrivateArchive(candidates, sort) { requireNotNull(keysById[it.catalogId]) }
     }
     val liveIds = remember(filtered) { filtered.mapTo(mutableSetOf()) { it.catalogId } }
     val chosen = selected.intersect(liveIds)
@@ -74,11 +88,15 @@ internal fun SimpleArchiveScreen(
         if (!busy && id in liveIds) selected = if (id in selected) selected - id else selected + id
     }
     var expandedGroups by remember { mutableStateOf(emptySet<String>()) }
-    val grouped = remember(filtered) { filtered.filter { it.group != null }.groupBy {
-        val group = checkNotNull(it.group)
-        group.kind.name + ":" + group.key
-    } }
-    val ungrouped = remember(filtered) { filtered.filter { it.group == null } }
+    val grouped = remember(filtered, sort, keysById) {
+        val groups = filtered.groupBy { record ->
+            record.group?.let { it.kind.name + ":" + it.key } ?: ("file:" + record.catalogId)
+        }
+        sortPrivateArchive(groups.entries.toList(), sort) { (id, members) ->
+            groupPrivateArchiveKey(id, members.first().group?.name ?: members.first().displayName,
+                members.map { requireNotNull(keysById[it.catalogId]) })
+        }
+    }
         @Composable
         fun itemRow(item: SimpleArchiveRecord) {
                 Row(
@@ -153,6 +171,9 @@ internal fun SimpleArchiveScreen(
             IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
             Text("Архив", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold)
+            PrivateArchiveSortMenu(sort, { next ->
+                sort = next; next.save(prefs, "archive")
+            }, enabled = !busy && !legacyBusy)
             IconButton(onClick = {
                 gridMode = !gridMode
                 prefs.edit().putBoolean("archive_grid", gridMode).apply()
@@ -223,8 +244,12 @@ internal fun SimpleArchiveScreen(
                             enabled = !busy && !legacyBusy && onLegacyFolderRestore != null) { Text("Вернуть") }
                     }
                 }
-                items(ungrouped, key = { "file:" + it.catalogId }) { item -> itemCell(item) }
                 grouped.forEach { (key, members) ->
+                    if (members.first().group == null) {
+                        val record = members.single()
+                        item(key = "file:" + record.catalogId) { itemCell(record) }
+                        return@forEach
+                    }
                     val expanded = key in expandedGroups
                     val ids = members.mapTo(mutableSetOf()) { it.catalogId }
                     val allSelected = chosen.containsAll(ids)
