@@ -7,9 +7,9 @@ internal const val MUSIC_SEARCH_ROUTE="music-search"
 internal const val FAVORITES_ROUTE="favorites"
 internal enum class DrawerEntry(val label:String){
     HOME("Главная"),DOWNLOADS("Загрузки"),GALLERY("Галерея"),MUSIC("Музыка"),
-    TASK_CENTER("Центр задач"), MUSIC_SEARCH("Поиск музыки"),
+    MUSIC_SEARCH("Поиск музыки"),
     FAVORITES("Избранное"),PRIVATE("Личное"),ARCHIVE("Архив"),
-    COLLECTIONS("Коллекции"),TRASH("Корзина"),
+    COLLECTIONS("Коллекции"),TRASH("Корзина"), TASK_CENTER("Центр задач"),
     SETTINGS("Настройки"),APPEARANCE("Оформление"),JOURNAL("Журнал"),
     VISUAL_DUPLICATES("Дубликаты фото и видео"), MUSIC_DUPLICATES("Дубликаты музыки"),
     EQUALIZER("Эквалайзер"), BULK_DOWNLOAD("Массовая загрузка"),

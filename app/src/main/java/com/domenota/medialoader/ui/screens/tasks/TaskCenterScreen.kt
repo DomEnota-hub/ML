@@ -137,7 +137,10 @@ internal fun TaskCenterScreen(onBack: () -> Unit) {
                                 } else {
                                     Text(kind.label,style=MaterialTheme.typography.titleSmall)
                                     // Summary is bounded; full task list stays virtualized in Tasks.
-                                    rows.take(2).forEach { row -> TaskRowContent(row,compact=true) }
+                                    rows.take(2).forEach { row ->
+                                        if(row.kind==TaskKind.DOWNLOAD)Text(TaskCenterPresentation.title(row),style=MaterialTheme.typography.bodyMedium)
+                                        TaskRowContent(row,compact=true)
+                                    }
                                     if(rows.size>2)TextButton({filter=0;tab=1}){Text("Все задачи (${rows.size})")}
                                 }
                             }
@@ -182,7 +185,7 @@ internal fun TaskCenterScreen(onBack: () -> Unit) {
                     Text(TaskCenterPresentation.title(row),style=MaterialTheme.typography.titleSmall)
                     if(row.status.terminal&&row.updatedAt>0)Text(DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(row.updatedAt)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if(canExpand)Icon(if(expanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(expanded)"Свернуть"else"Развернуть")
+                if(canExpand)Icon(if(expanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(expanded) "Свернуть" else "Развернуть")
             }
             TaskRowContent(row,compact=false)
             if(expanded&&canExpand){

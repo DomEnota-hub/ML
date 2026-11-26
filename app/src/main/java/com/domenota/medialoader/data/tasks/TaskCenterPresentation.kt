@@ -26,7 +26,7 @@ internal object TaskCenterPresentation {
     } else row.kind.label
     fun progressText(row:TaskSnapshot):String? = row.files?.let {
         val unit=when(row.kind){TaskKind.WAVEFORM,TaskKind.LOUDNESS,TaskKind.AUDIO_DUPLICATES->"треков";TaskKind.OCR->"фото";else->"файлов"}
-        if(it.total!=null) "${it.done} из ${it.total} $unit" else "${it.done} $unit"
+        if(it.total!=null) "${it.done} из ${it.total} $unit" + if(row.kind==TaskKind.WAVEFORM) " · пакет" else "" else "${it.done} $unit"
     } ?: row.progress?.let { if(it.total!=null) "${bytes(it.done)} / ${bytes(it.total)}" else if(it.done>0) bytes(it.done) else null }
     fun expandable(row:TaskSnapshot)=row.children.isNotEmpty() || row.stage!=null || row.errors>0
     fun showBar(row:TaskSnapshot)=row.active || (!row.status.terminal&&!row.idle&&(row.files?.fraction!=null||row.progress?.fraction!=null||row.percent!=null))

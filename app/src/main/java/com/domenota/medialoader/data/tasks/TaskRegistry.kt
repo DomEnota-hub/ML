@@ -111,7 +111,7 @@ internal class TaskRegistry {
         val nested=live.flatMap{it.children}.mapTo(hashSetOf()){it.id}
         val archive=saved.value.rows.filter { it.updatedAt>cutoff && it.id !in nested }.associateBy { it.id }.toMutableMap()
         for(row in live) {
-            if(row.idle) { archive.remove(row.id); seen.remove(row.id); started.remove(row.id); continue }
+            if(row.idle) { seen.remove(row.id); started.remove(row.id); continue }
             val before=seen.put(row.id,row.status)
             if(!row.status.terminal) {
                 archive.remove(row.id)
