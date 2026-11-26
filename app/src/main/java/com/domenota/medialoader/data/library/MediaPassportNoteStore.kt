@@ -141,6 +141,7 @@ internal class MediaPassportNoteStore(context: Context, name: String = "media-pa
                 resolved.mapNotNull { (ref, matches) ->
                     val record = matches.singleOrNull() ?: return@mapNotNull null
                     if (ref.item.mediaType in setOf(MediaType.PHOTO, MediaType.VIDEO) && current(ref, epoch) &&
+                        catalog.keys(ref).isNotEmpty() &&
                         record.note.contains(term, ignoreCase = true)) ref else null
                 }
             }
