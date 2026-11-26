@@ -19,6 +19,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.playback.*
 import com.domenota.medialoader.ui.theme.musicPlaybackAccent
@@ -113,11 +119,24 @@ internal fun MusicStopTimerAction(enabled: Boolean) {
 private fun TimerNumber(value:String,change:(String)->Unit,label:String,modifier:Modifier,digits:Int) {
     val requester = remember { BringIntoViewRequester() }
     val scope = rememberCoroutineScope()
+    val hintColor = MaterialTheme.colorScheme.onSurfaceVariant
+    // Material3 hides a standard placeholder while an empty labelled field is unfocused.
+    // Keep the floating label and gray zero visible without putting zero in editable state.
+    val zeroHint = remember(hintColor) {
+        VisualTransformation { input ->
+            if (input.isNotEmpty()) TransformedText(input, OffsetMapping.Identity)
+            else TransformedText(buildAnnotatedString { withStyle(SpanStyle(color = hintColor)) { append("0") } },
+                object : OffsetMapping {
+                    override fun originalToTransformed(offset: Int): Int = 0
+                    override fun transformedToOriginal(offset: Int): Int = 0
+                })
+        }
+    }
     OutlinedTextField(value,{ if (it.length<=digits && it.all(Char::isDigit)) change(it) },modifier
         .bringIntoViewRequester(requester).onFocusChanged { focus ->
             if (focus.isFocused) scope.launch { delay(350); requester.bringIntoView() }
         },
-        label={ Text(label) }, placeholder={ Text("0", color=MaterialTheme.colorScheme.onSurfaceVariant) },
+        label={ Text(label) }, visualTransformation=zeroHint,
         shape=RoundedCornerShape(16.dp),
         colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=musicPlaybackAccent),
         singleLine=true,keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))
