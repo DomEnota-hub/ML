@@ -55,4 +55,18 @@ class MusicFolderScreenTest{
         assertEquals(0,played)
     }
 
+    @Test fun folderMenuAddsAllVisibleTracksWithoutPlayback() {
+        val rows=listOf("a","b").map { id -> DownloadEntity(id,"device","$id.mp3",MediaType.AUDIO,
+            DownloadState.COMPLETED,null,1024,1) }
+        var played=0
+        var added=emptyList<String>()
+        compose.setContent { MaterialTheme {
+            MusicFolderScreen("Folder",rows,false,null,false,{}, {},{played++}, {played++},
+                onAddAllToPlaylist={added=it}) {}
+        } }
+        compose.onNodeWithContentDescription("Настройки папки").performClick()
+        compose.onNodeWithText("Добавить все треки в плейлист").performClick()
+        assertEquals(listOf("a","b"),added)
+        assertEquals(0,played)
+    }
 }

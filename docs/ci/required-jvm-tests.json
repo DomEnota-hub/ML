@@ -5394,6 +5394,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.PlaylistRepositoryTest#folderBatchCreateAndRepeatedAddKeepCanonicalMembersInOrder": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.PlaylistRepositoryTest#historyOnlyCleanupKeepsMergedPhoneTrackPlayableAfterRestart": {
     "skipped": false,
     "failed": false
@@ -9919,6 +9923,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.music.MusicFolderScreenTest#folderArtworkLongPressAddsOnlySelectedTrackToCollection": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.MusicFolderScreenTest#folderMenuAddsAllVisibleTracksWithoutPlayback": {
     "skipped": false,
     "failed": false
   },

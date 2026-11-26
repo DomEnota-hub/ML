@@ -1574,14 +1574,14 @@ fun MediaLoaderApp(
             musicBrowse.ready,musicBrowse.usable,!musicBrowse.usable,phoneMusic.message!=null,
             musicBrowse.value.available.size,musicBrowseAccess!=null,musicAccessEpoch,collectionPrivacyGeneration)
     }
-    suspend fun validCollectionRefs(ids: List<String>, recent: Boolean = false, analytics: Boolean = false, selectedId: String? = null): List<LibraryMediaRef> {
+    suspend fun validCollectionRefs(ids: List<String>, recent: Boolean = false, analytics: Boolean = false, selectedId: String? = null, folder: Boolean = false): List<LibraryMediaRef> {
         val full = currentCollectionCatalog.byKey
         val scoped = currentScopedCatalog?.byKey.orEmpty()
         val music = currentRecentCatalog.byKey
         val audioEpoch = libraryModel.musicAccessEpoch.value
         val visualEpoch = libraryModel.galleryAccessEpoch.value
         val actionPrivacyEpoch = DuplicatePrivacyGuard.generation(context)
-        val candidates = ids.distinct().mapNotNull { id -> if (analytics) currentAudioRef(id) else if (recent) music[id] else scoped[id] ?: full[id] }
+        val candidates = ids.distinct().mapNotNull { id -> if (analytics) currentAudioRef(id) else if (recent || folder) music[id] else scoped[id] ?: full[id] }
         val (checked, statuses) = withContext(Dispatchers.IO) {
             val statuses = mutableMapOf<String, Pair<String?, SavedFileStatus>>()
             val hiddenKeys = musicVisibilityPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty()
@@ -1607,7 +1607,7 @@ fun MediaLoaderApp(
                         val strong = ref.aliases.filter { it.startsWith("file-stat:") }
                         val known = if (strong.isNotEmpty()) strong else ref.aliases.filter { it.startsWith("uri:") || it.startsWith("media:") || it.startsWith("file:") }
                         known.any(identities::contains) && identities.none(blocked::contains) &&
-                            (recent || analytics || !CollectionAddressResolver.isTypedPhoneAddress(requireNotNull(ref.item.savedUri)) || libraryModel.addressCollectionPhone(requireNotNull(ref.item.savedUri)).let { actual ->
+                            (recent || analytics || folder || !CollectionAddressResolver.isTypedPhoneAddress(requireNotNull(ref.item.savedUri)) || libraryModel.addressCollectionPhone(requireNotNull(ref.item.savedUri)).let { actual ->
                                 actual.status == SavedFileStatus.PRESENT && actual.ref?.let { CollectionAddressResolver.matches(MediaOrganizationPolicy.keys(ref),it) } == true
                             })
                     })
@@ -1621,7 +1621,7 @@ fun MediaLoaderApp(
         val liveFull = currentCollectionCatalog.byKey
         val liveScoped = currentScopedCatalog?.byKey.orEmpty()
         val liveMusic = currentRecentCatalog.byKey
-        fun live(id: String) = if (analytics) currentAudioRef(id) else if (recent) liveMusic[id] else liveScoped[id] ?: liveFull[id]
+        fun live(id: String) = if (analytics) currentAudioRef(id) else if (recent || folder) liveMusic[id] else liveScoped[id] ?: liveFull[id]
         val updates = statuses.filter { (id, result) -> live(id)?.item?.savedUri == result.first && id !in keys }
         if (updates.any { (id, result) -> fileStatusUris[id] != result.first || fileStatuses[id] != result.second }) {
             if (statusScanActive) statusOverrides.putAll(updates)
@@ -2483,6 +2483,14 @@ fun MediaLoaderApp(
                     onDeletePlaylist = libraryModel.playlistRepository::delete, onAddTracks = { id, ids ->
                         val aliases = publicLibraryRefs.flatMap { ref -> ref.aliases.map { it to ref.key } }.toMap()
                         libraryModel.playlistRepository.addTracksResolved(id, ids, aliases)
+                    },
+                    onSaveFolderPlaylist = { target,name,ids ->
+                        val refs=validCollectionRefs(ids,folder=true)
+                        check(refs.isNotEmpty() && refs.map{it.key}==ids.distinct() && refs.all{it.item.mediaType==MediaType.AUDIO}) { "Состав папки изменился. Повторите действие" }
+                        val aliases=refs.flatMap{ref->(ref.aliases+ref.key).map{it to ref.key}}.toMap()
+                        if(target==null) libraryModel.playlistRepository.createFromTracks(name,refs.map{it.key},aliases)
+                        else libraryModel.playlistRepository.addTracksResolved(target,refs.map{it.key},aliases)
+                        Unit
                     },
                     onRemoveTrack = libraryModel.playlistRepository::removeTrack, onMoveTrack = libraryModel.playlistRepository::moveTrack,
                     onShare = shareLibraryFile, onDeleteFile = deleteLibraryFile,

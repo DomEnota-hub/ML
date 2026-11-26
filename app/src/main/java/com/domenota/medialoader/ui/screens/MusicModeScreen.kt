@@ -93,6 +93,7 @@ internal fun MusicModeScreen(
     analyticsReady: Boolean = !loading,
     onAnalyticsPreview: (String,List<String>)->Unit = onPreview ?: onOpen,
     onAnalyticsOpen: (String,List<String>)->Unit = onOpen,
+    onSaveFolderPlaylist: (suspend (String?,String,List<String>)->Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -522,14 +523,43 @@ internal fun MusicModeScreen(
         } else BackgroundLibraryValue(remember(folders,folder,hiddenTrackKeys,sort){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,hiddenTrackKeys)},sort)},true)
         val folderTracks=folderView.value
         val folderIds=remember(folderTracks){folderTracks.map{it.id}}
+        var folderPlaylistIds by remember(folder){mutableStateOf<List<String>?>(null)}
+        var newFolderPlaylist by remember(folder){mutableStateOf(false)}
+        var folderPlaylistError by remember(folder){mutableStateOf<String?>(null)}
+        var folderPlaylistBusy by remember(folder){mutableStateOf(false)}
+        val liveFolderIds by rememberUpdatedState(folderIds)
+        suspend fun saveFolderPlaylist(target:String?,name:String,ids:List<String>) {
+            check(ids.isNotEmpty() && ids.toSet()==liveFolderIds.toSet()) { "Состав папки изменился. Повторите действие" }
+            requireNotNull(onSaveFolderPlaylist)(target,name,ids)
+            folderPlaylistIds=null;newFolderPlaylist=false;folderPlaylistError=null
+        }
         MusicFolderScreen(MusicFolderRules.title(folder),folderTracks,folder in excludedFolders,currentPlayingId,playing,{folderOpen=null},
             onToggleVisibility={val exclude=folder !in excludedFolders;excludedFolders=if(exclude)excludedFolders+folder else excludedFolders-folder;folderPrefs.edit().putStringSet("excluded",excludedFolders).apply()},
             onPlay={shuffle->if(folderIds.isNotEmpty()){if(onFolderPlay!=null)onFolderPlay(folderIds,shuffle) else {val order=if(shuffle)folderIds.shuffled() else folderIds;(onPreview?:onOpen)(order.first(),order)}}},
             onPreview={id->(onPreview?:onOpen)(id,folderIds)},
             onAddCollection=onAddCollection,
             onSimpleArchive=onSimpleArchive,
+            onAddAllToPlaylist=onSaveFolderPlaylist?.let{{ids:List<String>->folderPlaylistError=null;folderPlaylistIds=ids}},
             actions={track->val id=track.id;MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},{onOpen(id,folderIds)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,MusicTrackVisibility.hidden(track,hiddenTrackKeys),{toggleHidden(track)},
                 favorite=id in favoriteIds,onFavorite=onFavorite?.let{action->{mutate{action(id,id !in favoriteIds)}}},onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})})
+        folderPlaylistIds?.let { ids ->
+            if(newFolderPlaylist) LibraryNameDialog("Новый плейлист", MusicFolderRules.title(folder),
+                {newFolderPlaylist=false}) { name -> saveFolderPlaylist(null,name,ids) }
+            else AlertDialog(onDismissRequest={if(!folderPlaylistBusy)folderPlaylistIds=null},
+                title={Text("Добавить в плейлист")},
+                text={Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState())) {
+                    playlists.forEach { entry -> TextButton(enabled=!folderPlaylistBusy,onClick={
+                        if(!folderPlaylistBusy){folderPlaylistBusy=true;folderPlaylistError=null;scope.launch {
+                            try {saveFolderPlaylist(entry.id,"",ids)}
+                            catch(e:CancellationException){throw e}
+                            catch(e:Exception){folderPlaylistError=e.message?:"Не удалось сохранить плейлист"}
+                            finally {folderPlaylistBusy=false}
+                        }}
+                    }) {Text(entry.name)} }
+                    TextButton(enabled=!folderPlaylistBusy,onClick={newFolderPlaylist=true}) {Icon(Icons.Rounded.Add,null);Text("Новый плейлист")}
+                    folderPlaylistError?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+                }},confirmButton={TextButton({folderPlaylistIds=null},enabled=!folderPlaylistBusy){Text("Отмена")}})
+        }
     } else if(resumeOpen&&onResumeSelection!=null) {
         ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},(!resumeHasData && (resumeLoading||!analyticsUsable||!resumeError)),
             resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore)

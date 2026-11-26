@@ -22,6 +22,7 @@ internal fun MusicFolderScreen(title:String,tracks:List<DownloadEntity>,excluded
     onBack:()->Unit,onToggleVisibility:()->Unit,onPlay:(Boolean)->Unit,onPreview:(String)->Unit,
     onAddCollection:((List<String>)->Unit)?=null,
     onSimpleArchive:((List<String>)->Unit)?=null,
+    onAddAllToPlaylist:((List<String>)->Unit)?=null,
     actions:@Composable (DownloadEntity)->Unit){
     var menu by remember{mutableStateOf(false)}
     var chosenIds by remember(title){mutableStateOf<Set<String>>(emptySet())}
@@ -40,6 +41,11 @@ internal fun MusicFolderScreen(title:String,tracks:List<DownloadEntity>,excluded
             Box {
                 IconButton({menu=true}){Icon(Icons.Rounded.MoreVert,"Настройки папки")}
                 DropdownMenu(menu,{menu=false}){
+                    if(onAddAllToPlaylist!=null) DropdownMenuItem(
+                        {Text("Добавить все треки в плейлист")},
+                        {menu=false;onAddAllToPlaylist(tracks.map{it.id})},
+                        enabled=tracks.isNotEmpty()&&selected.isEmpty(),
+                        leadingIcon={Icon(Icons.Rounded.PlaylistAdd,null)})
                     DropdownMenuItem({Text(if(excluded)"Отобразить в общем списке" else "Скрыть из общего списка")},
                         {menu=false;onToggleVisibility()},leadingIcon={Icon(if(excluded)Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,null)})
                 }
