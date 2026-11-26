@@ -1560,30 +1560,22 @@ fun MediaLoaderApp(
             AppMode.MUSIC->musicBrowse.usable
             AppMode.DOWNLOADER->true
         }else true)
-    if(appMode==AppMode.MUSIC&&currentRoute==AppDestination.Home.route){
-        // Bit mask: 1 archive, 2 privacy unavailable, 4 audio snapshot absent,
-        // 8 access mismatch, 16 visibility mismatch, 32 recovery, 64 history absent,
-        // 128 privacy mismatch. No guard contents are ever written.
-        val reason=(if(!simpleArchiveLoaded)1 else 0) or (if(libraryPrivateKeys==null)2 else 0) or
-            (if(audioCatalog==null)4 else 0) or
-            (if(audioCatalog?.guard?.accessEpoch?.let{it!=musicAccessEpoch}==true)8 else 0) or
-            (if(audioCatalog?.guard?.let{it.visibility!=visibilityGuard}==true)16 else 0) or
-            (if(recoveryRunning)32 else 0) or
-            (if(historySnapshot==null||listeningHistoryRows==null)64 else 0) or
-            (if(audioCatalog?.guard?.let{it.privacy!=libraryPrivateKeys}==true)128 else 0)
-        com.domenota.medialoader.ui.components.MusicReadModelTrace(
-            com.domenota.medialoader.core.logging.MusicRefreshBlock.CATALOG,
-            analyticsProjection.ready,analyticsProjection.usable,!analyticsProjection.usable,false,
-            analyticsProjection.value.items.size,analyticsGuard!=null,musicAccessEpoch,collectionPrivacyGeneration,reason)
-        com.domenota.medialoader.ui.components.MusicReadModelTrace(
-            com.domenota.medialoader.core.logging.MusicRefreshBlock.RECENT,
-            recentProjection.ready,recentProjection.usable,!recentProjection.usable,false,
-            recentProjection.value.items.size,recentGuard!=null,musicAccessEpoch,collectionPrivacyGeneration)
-        com.domenota.medialoader.ui.components.MusicReadModelTrace(
-            com.domenota.medialoader.core.logging.MusicRefreshBlock.BROWSE,
-            musicBrowse.ready,musicBrowse.usable,!musicBrowse.usable,phoneMusic.message!=null,
-            musicBrowse.value.available.size,musicBrowseAccess!=null,musicAccessEpoch,collectionPrivacyGeneration)
-    }
+    MusicLibraryReadTrace(
+        enabled = appMode == AppMode.MUSIC && currentRoute == AppDestination.Home.route,
+        archiveLoaded = simpleArchiveLoaded, privacyReady = libraryPrivateKeys != null,
+        audioReady = audioCatalog != null,
+        accessMismatch = audioCatalog?.guard?.accessEpoch?.let { it != musicAccessEpoch } == true,
+        visibilityMismatch = audioCatalog?.guard?.let { it.visibility != visibilityGuard } == true,
+        recoveryRunning = recoveryRunning, historyReady = historySnapshot != null && listeningHistoryRows != null,
+        privacyMismatch = audioCatalog?.guard?.let { it.privacy != libraryPrivateKeys } == true,
+        catalog = ReadTraceValue(analyticsProjection.ready, analyticsProjection.usable, false,
+            analyticsProjection.value.items.size, analyticsGuard != null),
+        recent = ReadTraceValue(recentProjection.ready, recentProjection.usable, false,
+            recentProjection.value.items.size, recentGuard != null),
+        browse = ReadTraceValue(musicBrowse.ready, musicBrowse.usable, phoneMusic.message != null,
+            musicBrowse.value.available.size, musicBrowseAccess != null),
+        accessEpoch = musicAccessEpoch, privacyGeneration = collectionPrivacyGeneration,
+    )
     suspend fun validCollectionRefs(ids: List<String>, recent: Boolean = false, analytics: Boolean = false, selectedId: String? = null, folder: Boolean = false, queueSave: Boolean = false): List<LibraryMediaRef> {
         val full = currentCollectionCatalog.byKey
         val scoped = currentScopedCatalog?.byKey.orEmpty()
@@ -4094,4 +4086,37 @@ private fun DownloadPreviewSheet(
         }
         }
     }
+}
+
+
+private data class ReadTraceValue(
+    val ready: Boolean, val usable: Boolean, val hasMessage: Boolean, val count: Int, val guarded: Boolean,
+)
+
+@Composable
+private fun MusicLibraryReadTrace(
+    enabled: Boolean, archiveLoaded: Boolean, privacyReady: Boolean, audioReady: Boolean,
+    accessMismatch: Boolean, visibilityMismatch: Boolean, recoveryRunning: Boolean,
+    historyReady: Boolean, privacyMismatch: Boolean,
+    catalog: ReadTraceValue, recent: ReadTraceValue, browse: ReadTraceValue,
+    accessEpoch: Long, privacyGeneration: Long,
+) {
+    if (!enabled) return
+    // Preserve the exact existing diagnostic bit mask; never log guard contents.
+    val reason = (if (!archiveLoaded) 1 else 0) or (if (!privacyReady) 2 else 0) or
+        (if (!audioReady) 4 else 0) or (if (accessMismatch) 8 else 0) or
+        (if (visibilityMismatch) 16 else 0) or (if (recoveryRunning) 32 else 0) or
+        (if (!historyReady) 64 else 0) or (if (privacyMismatch) 128 else 0)
+    com.domenota.medialoader.ui.components.MusicReadModelTrace(
+        com.domenota.medialoader.core.logging.MusicRefreshBlock.CATALOG,
+        catalog.ready, catalog.usable, !catalog.usable, catalog.hasMessage,
+        catalog.count, catalog.guarded, accessEpoch, privacyGeneration, reason)
+    com.domenota.medialoader.ui.components.MusicReadModelTrace(
+        com.domenota.medialoader.core.logging.MusicRefreshBlock.RECENT,
+        recent.ready, recent.usable, !recent.usable, recent.hasMessage,
+        recent.count, recent.guarded, accessEpoch, privacyGeneration)
+    com.domenota.medialoader.ui.components.MusicReadModelTrace(
+        com.domenota.medialoader.core.logging.MusicRefreshBlock.BROWSE,
+        browse.ready, browse.usable, !browse.usable, browse.hasMessage,
+        browse.count, browse.guarded, accessEpoch, privacyGeneration)
 }
