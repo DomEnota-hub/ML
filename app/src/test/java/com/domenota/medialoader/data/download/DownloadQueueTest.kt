@@ -200,6 +200,7 @@ class DownloadQueueTest {
         engine: DownloadEngine,
         existing: Set<String> = emptySet(),
         clock: () -> Long = System::currentTimeMillis,
+        destinationFor: (MediaItem) -> String? = { null },
         block: suspend (FakeDao, DownloadQueue) -> Unit,
     ) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -212,11 +213,46 @@ class DownloadQueueTest {
                     { existing },
                     scope,
                     clock = clock,
+                    destinationFor = destinationFor,
                 )
                 block(dao, queue)
             }
         } finally {
             scope.cancel()
+        }
+    }
+
+    @Test fun sourceDestinationIsSnapshottedAndIsolatedAcrossTransfers() {
+        val seen = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val firstGate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val folder = java.util.concurrent.atomic.AtomicReference("Pictures/First/")
+        val engine = object : DownloadEngine {
+            override suspend fun download(task: DownloadTask,
+                onProgress: suspend (Long, Long?) -> Unit): DownloadResult {
+                val path = kotlinx.coroutines.currentCoroutineContext()[com.domenota.medialoader.data.storage.DownloadFolderOverride]?.path
+                assertEquals(task.destination, path)
+                seen[task.item.id] = path ?: "inherited"
+                if (task.item.id == "first.jpg") {
+                    entered.complete(Unit)
+                    firstGate.await()
+                }
+                return DownloadResult("content://saved/" + task.fileName, 10L)
+            }
+        }
+        withQueue(engine, destinationFor = { media ->
+            if (media.providerId == "instagram") folder.get() else null
+        }) { dao, queue ->
+            queue.enqueue(listOf(item("first.jpg", size=10)))
+            withTimeout(5000) { entered.await() }
+            queue.enqueue(listOf(item("other.jpg", size=10, providerId="vk")))
+            folder.set("Pictures/Changed/")
+            queue.enqueue(listOf(item("third.jpg", size=10)))
+            firstGate.complete(Unit)
+            dao.waitUntil { rows -> rows.size == 3 && rows.all { it.state == DownloadState.COMPLETED } }
+            assertEquals("Pictures/First/", seen["first.jpg"])
+            assertEquals("inherited", seen["other.jpg"])
+            assertEquals("Pictures/Changed/", seen["third.jpg"])
         }
     }
 

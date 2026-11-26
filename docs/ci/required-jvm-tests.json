@@ -2386,6 +2386,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.download.DownloadQueueTest#sourceDestinationIsSnapshottedAndIsolatedAcrossTransfers": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.download.DownloadQueueTest#sourcePageUrlIsStoredSeparatelyFromDirectMediaUrl": {
     "skipped": false,
     "failed": false
