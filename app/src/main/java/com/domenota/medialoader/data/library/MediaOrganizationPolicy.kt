@@ -62,12 +62,13 @@ internal object MediaOrganizationPolicy {
         }.groupBy({ it.first }, { it.second })
         fun resolve(id: String?): LibraryMediaRef? =
             id?.takeIf { it.isNotBlank() }?.let { identities[it]?.singleOrNull() }?.takeIf(::admitted)
-        val parent = resolve(parentId)?.takeIf { it.key != ref.key }
+        val resolvedParent = resolve(parentId)
+        val parent = resolvedParent?.takeIf { it.key != ref.key && resolve(it.item.derivedFromId) != ref }
         val children = related.filter { child ->
             child.key != ref.key && admitted(child) &&
                 identities[child.key]?.singleOrNull() == child &&
                 resolve(child.item.derivedFromId) == ref &&
-                child.key != parent?.key
+                child.key != resolvedParent?.key
         }.distinctBy { it.key }
         return Passport(ref.item, parent, children, !parentId.isNullOrBlank())
     }
