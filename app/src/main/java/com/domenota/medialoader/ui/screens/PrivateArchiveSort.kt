@@ -63,7 +63,8 @@ internal fun <T> sortPrivateArchive(
         PrivateArchiveSortField.SIZE -> compareKnown(a.bytes, b.bytes)
         PrivateArchiveSortField.COUNT -> compareKnown(a.count.toLong(), b.count.toLong())
     }
-    if (order != 0) order else a.id.compareTo(b.id)
+    // Kotlin sortedWith is stable: equal or unknown metadata must preserve the admitted input order.
+    order
 }.map { it.first }
 
 internal fun groupPrivateArchiveKey(
