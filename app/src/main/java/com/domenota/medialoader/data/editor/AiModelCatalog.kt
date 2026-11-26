@@ -23,9 +23,9 @@ internal object AiModelCatalog {
     )
 
     val entries = listOf(
-        Entry(Kind.LAMA, "LaMa", "Удаление объектов и текста", null,
+        Entry(Kind.LAMA, "LaMa", "Удаление объектов и текста", "208 МБ",
             "sha256-pinned", "https://huggingface.co/sapienkit/LaMa-ONNX", "Apache-2.0",
-            Distribution.UPSTREAM_DOWNLOAD, listOf(ExpectedModelBlob("lama_fp32.onnx", LaMaModelStore.SHA256)),
+            Distribution.UPSTREAM_DOWNLOAD, listOf(ExpectedModelBlob("lama_fp32.onnx", LaMaModelStore.SHA256, 208_044_816L)),
             "sapienkit/LaMa-ONNX"),
         Entry(Kind.MOBILE_SAM, "MobileSAM", "Выделение касанием", "44,7 МБ",
             MobileSamModelStore.REVISION, "https://huggingface.co/Acly/MobileSAM", "MIT (export publisher)",

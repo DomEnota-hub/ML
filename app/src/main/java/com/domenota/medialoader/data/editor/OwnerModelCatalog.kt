@@ -33,7 +33,11 @@ internal object OwnerModelCatalog {
                 files.map { it.name }.distinct().size == files.size &&
                 files.all { it.name.isNotBlank() && it.sha256.matches(Regex("[0-9a-f]{64}")) &&
                     (it.bytes == null || it.bytes > 0L) }
-            val expected = entry.files.map { pin -> Blob(pin.filename.substringAfterLast('/'), pin.sha256, pin.bytes) }
+            val expected = entry.files.map { pin ->
+                val name = if (entry.kind == AiModelUpdateChecker.Kind.PEOPLE)
+                    PersonDetectorModelStore.FILENAME else pin.filename.substringAfterLast('/')
+                Blob(name, pin.sha256, pin.bytes)
+            }
             val matchingNames = files.map { it.name }.toSet() == expected.map { it.name }.toSet()
             val matching = valid && matchingNames && expected.all { pin ->
                 val other = files.single { it.name == pin.name }

@@ -8,6 +8,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.io.FilterInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.sync.Mutex
@@ -43,6 +44,7 @@ internal class SpecularSrNetModelStore(context: Context) {
             "1538f5800858c329e93576566d40f568fcc07d8fdc674bca454fbfc4771c63e4"
         private const val MIN_FREE_BYTES = 8L * 1024 * 1024
         private val gate = Mutex()
+        private const val MAX_ENCODED_BYTES = 400_000L
         private const val DOWNLOAD_URL = "https://raw.githubusercontent.com/DomEnota-hub/ML-models/3a09edfdab217e8ea294d69a134a06793cc41658/srnet/1/specular_srnet_256.onnx.b64"
     }
 
@@ -70,9 +72,20 @@ internal class SpecularSrNetModelStore(context: Context) {
                 connection.readTimeout = 15_000
                 if (connection.responseCode != HttpURLConnection.HTTP_OK)
                     throw IOException("Скачивание SRNet недоступно.")
-                if (connection.contentLengthLong > 400_000L)
+                if (connection.contentLengthLong > MAX_ENCODED_BYTES)
                     throw IOException("Неверный размер SRNet.")
-                installLocked({ connection.inputStream }, onProgress)
+                installLocked({
+                    object : FilterInputStream(connection.inputStream) {
+                        private var total = 0L
+                        private fun count(n: Int) {
+                            if (n > 0) total += n
+                            if (total > MAX_ENCODED_BYTES) throw IOException("Слишком большой файл SRNet.")
+                        }
+                        override fun read(): Int = super.read().also { if (it >= 0) count(1) }
+                        override fun read(b: ByteArray, off: Int, len: Int): Int =
+                            super.read(b, off, len).also(::count)
+                    }
+                }, onProgress)
             } finally { connection.disconnect() }
         }
     }

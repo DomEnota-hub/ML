@@ -40,11 +40,16 @@ class AiModelCatalogTest {
         assertEquals("Не установлена", AiModelCatalog.status(model, false, false, null, false))
     }
     @Test fun ownerCatalogMatchesAllFiveAndRejectsChangedOrMissingWeights() {
-        val records = AiModelCatalog.entries.map { entry ->
-            OwnerModelCatalog.Record(entry.kind.key, entry.files.map {
-                OwnerModelCatalog.Blob(it.filename.substringAfterLast('/'), it.sha256, it.bytes)
-            })
-        }
+        // Literal published catalog names and sizes, not generated from comparison code.
+        val records = listOf(
+            OwnerModelCatalog.Record("lama", listOf(OwnerModelCatalog.Blob("lama_fp32.onnx", LaMaModelStore.SHA256, 208_044_816L))),
+            OwnerModelCatalog.Record("mobile", listOf(
+                OwnerModelCatalog.Blob("mobile_sam_image_encoder.onnx", MobileSamModelStore.ENCODER_SHA256, 28_157_093L),
+                OwnerModelCatalog.Blob("sam_mask_decoder_single.onnx", MobileSamModelStore.DECODER_SHA256, 16_501_323L))),
+            OwnerModelCatalog.Record("people", listOf(OwnerModelCatalog.Blob("efficientdet_lite0.tflite", PersonDetectorModelStore.SHA256, 13_836_895L))),
+            OwnerModelCatalog.Record("glare", listOf(OwnerModelCatalog.Blob("specular_srnet_256.onnx", SpecularSrNetModelStore.MODEL_SHA256, 230_221L))),
+            OwnerModelCatalog.Record("reflection", listOf(OwnerModelCatalog.Blob("dexnet_vgg19_reflection_128.onnx", ReflectionDExModelStore.EXPECTED_SHA256, 91_341_128L))),
+        )
         val installed = records.associate { it.id to true }
         assertTrue(OwnerModelCatalog.compare(records, installed).values.all { it.state == ModelUpdateState.CURRENT })
         val altered = records.map { record -> if (record.id == "glare")
