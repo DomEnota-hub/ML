@@ -5186,6 +5186,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.MediaOrganizationRepositoryTest#passportNeverExposesHiddenPrivateMissingOrIncompleteRelations": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MediaOrganizationRepositoryTest#passportRejectsAmbiguousSelfAndReciprocalIdentityMatches": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MediaOrganizationRepositoryTest#passportShowsOnlyExplicitDirectPublicRelationships": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.MediaOrganizationRepositoryTest#privateAndAmbiguousMediaCannotBeResolved": {
     "skipped": false,
     "failed": false
