@@ -456,6 +456,9 @@ fun SettingsScreen(
     var musicSourceDialog by remember { mutableStateOf(false) }
     var instagramModeDialog by remember { mutableStateOf(false) }
     var sourceProfilesDialog by remember { mutableStateOf(false) }
+    var networkDialog by remember { mutableStateOf(false) }
+    val downloadNetwork = remember(context) { com.domenota.medialoader.data.download.DownloadNetworkPreferences(context) }
+    var networkPolicy by remember { mutableStateOf(downloadNetwork.read()) }
     val gapiKeyStore = remember(context) { GapiKeyStore(context) }
     var gapiKeysDialog by remember { mutableStateOf(false) }
     var spareAuthorizationDialog by remember { mutableStateOf(false) }
@@ -502,7 +505,7 @@ fun SettingsScreen(
         !recoveryLabBusy&&!openAppearance&&!openJournal&&editorKind==null&&
         !showMediaWriteExplanation&&!videoThumbnailDialog&&!aiModelsDialog&&!themeDialog&&
         !recognitionDialog&&!musicSourceDialog&&!instagramModeDialog&&!gapiKeysDialog&&
-        !spareAuthorizationDialog&&!sourceProfilesDialog&&!folderDialog&&!confirmClear&&!confirmInstagramSignOut&&
+        !spareAuthorizationDialog&&!sourceProfilesDialog&&!networkDialog&&!folderDialog&&!confirmClear&&!confirmInstagramSignOut&&
         !confirmYouTubeSignOut&&!confirmVkSignOut&&!confirmRutubeSignOut&&!trashDialog&&
         !confirmEmptyTrash&&!sessionDialog&&!logsDialog&&!confirmClearAppLog)
     fun setRecoveryLabVisible(value: Boolean) {
@@ -773,6 +776,9 @@ fun SettingsScreen(
         onDismissRequest = { gapiKeysDialog = false },
     )
 
+    if (networkDialog) DownloadNetworkDialog(networkPolicy, onDismiss = { networkDialog = false }, onSave = {
+        downloadNetwork.save(it); networkPolicy = it; networkDialog = false
+    })
     if (sourceProfilesDialog) SourceDownloadProfilesDialog(
         selectedSafFolder = downloadFolder.startsWith("Выбранная папка:"),
         onDismiss = { sourceProfilesDialog = false },
@@ -1134,6 +1140,10 @@ fun SettingsScreen(
                 "Instagram, YouTube, VK, Rutube",
                 grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
                 onClick = { sourceProfilesDialog = true })
+            GroupDivider()
+            SettingRow(Icons.Rounded.Tune, "Условия сети", networkPolicy.label,
+                grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
+                onClick = { networkDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.Key, "Ключи GAPI для Instagram и VK",
                 "Ключи, приоритет и резерв через аккаунт",

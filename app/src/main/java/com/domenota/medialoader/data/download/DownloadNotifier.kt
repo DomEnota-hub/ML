@@ -28,6 +28,9 @@ class DownloadNotifier(private val context: Context) {
             CHANNEL, "Загрузки", NotificationManager.IMPORTANCE_LOW))
         val completed = items.count { it.state == DownloadState.COMPLETED }
         val active = items.any { it.state == DownloadState.QUEUED || it.state == DownloadState.RUNNING }
+        val waiting = items.count { it.networkWait != null }
+        val onlyWaiting = waiting > 0 && items.none { it.state == DownloadState.RUNNING ||
+            (it.state == DownloadState.QUEUED && it.networkWait == null) }
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -35,9 +38,9 @@ class DownloadNotifier(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notice = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(if (active) android.R.drawable.stat_sys_download else android.R.drawable.stat_sys_download_done)
-            .setContentTitle(if (active) "Загрузка файлов" else if (completed == items.size)
+            .setContentTitle(if (onlyWaiting) "Ожидание сети" else if (active) "Загрузка файлов" else if (completed == items.size)
                 "Загрузка завершена" else "Загрузка завершена с ошибками")
-            .setContentText("Скачано $completed из ${items.size}")
+            .setContentText("Скачано $completed из ${items.size}" + if (waiting > 0) " · Ожидают: $waiting" else "")
             .setOnlyAlertOnce(true)
             .setOngoing(active)
             .setAutoCancel(!active)

@@ -39,6 +39,8 @@ fun DownloadGroupCard(
     val inaccessible = group.count { it.state == DownloadUiState.COMPLETED && it.fileStatus == SavedFileStatus.INACCESSIBLE }
     val completed = group.count { it.state == DownloadUiState.COMPLETED } - missing - inaccessible
     val failures = if (group.any { it.state == DownloadUiState.FAILED }) " · Есть ошибки" else ""
+    val waiting = group.count { it.networkWaitLabel != null }
+    val waitingLabel = if (waiting > 0) " · Ожидают сеть: $waiting" else ""
     val absent = if (missing > 0) " · Отсутствует: $missing" else ""
     val unavailable = if (inaccessible > 0) " · Нет доступа: $inaccessible" else ""
     AppCard(Modifier.fillMaxWidth()) {
@@ -51,7 +53,7 @@ fun DownloadGroupCard(
                 Column(Modifier.weight(1f)) {
                     Text(if (community) "VK · ${group.size} изображений" else "Публикация · ${group.size} файлов",
                         style = MaterialTheme.typography.titleMedium)
-                    Text("Сохранено $completed из ${group.size}$failures$absent$unavailable",
+                    Text("Сохранено $completed из ${group.size}$failures$absent$unavailable$waitingLabel",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,

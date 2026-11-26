@@ -49,16 +49,18 @@ class ActiveDownloadService : Service() {
         if (observer == null) observer = scope.launch {
             val repository = MediaRepository.get(applicationContext)
             combine(repository.downloads, repository.recognitionActive, repository.bulk.state, repository.missingRecoveryActive) { rows, recognition, bulk, recovering ->
-                Triple(rows.count { it.state == DownloadState.QUEUED || it.state == DownloadState.RUNNING } + recovering,
-                    recognition, bulk.phase == BulkPhase.ANALYZING || bulk.phase == BulkPhase.QUEUING)
-            }.collect { (downloads, recognition, bulkActive) ->
+                Triple(Pair(rows.count { it.state == DownloadState.QUEUED || it.state == DownloadState.RUNNING } + recovering,
+                    rows.count { it.networkWait != null }), recognition,
+                    bulk.phase == BulkPhase.ANALYZING || bulk.phase == BulkPhase.QUEUING)
+            }.collect { (counts, recognition, bulkActive) ->
+                val (downloads, waiting) = counts
                 val active = downloads + recognition + if (bulkActive) 1 else 0
                 if (active > 0) hasSeenWork = true
                 if (hasSeenWork && active == 0) stopSelf()
                 else runCatching {
                     getSystemService(NotificationManager::class.java).notify(
                         ID,
-                        notification(downloads, recognition, bulkActive),
+                        notification(downloads, recognition, bulkActive, waiting),
                     )
                 }
             }
@@ -81,7 +83,7 @@ class ActiveDownloadService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun notification(downloads: Int, recognition: Int, bulkActive: Boolean = false): Notification {
+    private fun notification(downloads: Int, recognition: Int, bulkActive: Boolean = false, waiting: Int = 0): Notification {
         val intent = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return NotificationCompat.Builder(this, CHANNEL)
@@ -91,7 +93,9 @@ class ActiveDownloadService : Service() {
                 when {
                     recognition > 0 -> "Распознаётся музыка"
                     bulkActive -> "Обрабатывается список ссылок"
+                    waiting > 0 && waiting == downloads -> "Ожидают сеть: $waiting"
                     downloads == 0 -> "Подготовка загрузки"
+                    waiting > 0 -> "Активных: ${downloads - waiting} · Ожидают сеть: $waiting"
                     else -> "Загружается файлов: $downloads"
                 },
             )

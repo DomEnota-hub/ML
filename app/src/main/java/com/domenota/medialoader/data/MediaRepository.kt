@@ -300,6 +300,7 @@ class MediaRepository private constructor(context: Context) {
         preprocessor = recognitionAudioPreprocessor,
         metadataWriter = Mp3MetadataWriter(appContext),
     )
+    private val downloadNetwork = com.domenota.medialoader.data.download.DownloadNetworkPreferences(appContext)
     private val queue = DownloadQueue(
         history = history,
         engine = RoutingDownloadEngine(
@@ -313,6 +314,9 @@ class MediaRepository private constructor(context: Context) {
         ),
         existingNames = storage::existingNames,
         destinationFor = { item -> sourceProfiles.folderPath(item.providerId, storage.usesSelectedFolder) },
+        networkWait = downloadNetwork::waitFor,
+        networkUpdates = downloadNetwork.changes(),
+        restoreWaitingAllowed = resolver::canDownload,
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
         onBatchChanged = { id, items -> notifier.update(id, items) },
         onCompleted = { task, result ->
@@ -1915,6 +1919,12 @@ class MediaRepository private constructor(context: Context) {
         requireMediaAccess(previous)
         require(!previous.isPrivate)
         if (previous.sourceUrl == null) return
+        if (com.domenota.medialoader.data.download.DownloadNetworkWait.from(previous.state, previous.errorMessage) ==
+            com.domenota.medialoader.data.download.DownloadNetworkWait.WIFI) {
+            ActiveDownloadService.start(appContext)
+            queue.downloadNow(id)
+            return
+        }
         if (previous.state != com.domenota.medialoader.core.model.DownloadState.FAILED &&
             previous.state != com.domenota.medialoader.core.model.DownloadState.CANCELLED) return
         ActiveDownloadService.start(appContext)

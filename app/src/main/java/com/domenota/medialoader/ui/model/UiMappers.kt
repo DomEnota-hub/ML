@@ -64,6 +64,9 @@ fun DownloadEntity.toUi(fileStatus: SavedFileStatus = SavedFileStatus.UNCHECKED)
             ?.takeIf { mediaType == MediaType.VIDEO && it > 0L }
             ?.let(::formatDurationLabel),
         state = uiState,
+        networkWaitLabel = com.domenota.medialoader.data.download.DownloadNetworkWait.from(state, errorMessage)?.label,
+        canDownloadNow = com.domenota.medialoader.data.download.DownloadNetworkWait.from(state, errorMessage) ==
+            com.domenota.medialoader.data.download.DownloadNetworkWait.WIFI,
         progress = progress,
         dateLabel = downloadDateLabel(createdAtEpochMillis),
         // Embedded artwork is read first by DownloadThumbnail. If absent after a

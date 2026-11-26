@@ -17,6 +17,9 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -38,15 +41,27 @@ class DownloadQueue(
     private val onBatchChanged: suspend (String, List<DownloadEntity>) -> Unit = { _, _ -> },
     private val onCompleted: (DownloadTask, DownloadResult) -> Unit = { _, _ -> },
     private val destinationFor: (MediaItem) -> String? = { null },
+    private val networkWait: (MediaItem, Boolean) -> DownloadNetworkWait? = { _, _ -> null },
+    private val networkUpdates: Flow<Unit> = emptyFlow(),
+    private val restoreWaitingAllowed: (MediaItem) -> Boolean = { true },
 ) {
     private val pending = Channel<DownloadTask>(Channel.UNLIMITED)
     private val enqueueLock = Mutex()
     private var recovered = false
+    // All three maps are protected by enqueueLock. Only pending feeds the existing executor.
+    private val queuedTasks = mutableMapOf<String, DownloadTask>()
+    private val waiting = linkedMapOf<String, DownloadTask>()
+    private val forceNetwork = mutableSetOf<String>()
 
     private val running = ConcurrentHashMap<String, Job>()
     private val lastProgressAt = ConcurrentHashMap<String, Long>()
 
     init {
+        scope.launch {
+            networkUpdates.collect {
+                enqueueLock.withLock { resumeWaitingLocked() }
+            }
+        }
         scope.launch {
             enqueueLock.withLock { recoverInterruptedLocked() }
             val photos = ArrayDeque<Job>()
@@ -54,6 +69,10 @@ class DownloadQueue(
             val rutubeFiles = ArrayDeque<Job>()
             for (task in pending) {
                 try {
+                    if (!enqueueLock.withLock { admitLocked(task) }) {
+                        releasePublication(task)
+                        continue
+                    }
                     if (task.item.type == MediaType.PHOTO &&
                         task.item.sizeBytes != null && task.item.sizeBytes in 1..MAX_PARALLEL_PHOTO_BYTES) {
                         while (hitMozAudio.isNotEmpty()) hitMozAudio.removeFirst().join()
@@ -147,7 +166,7 @@ class DownloadQueue(
             )
             history.save(entity)
             val publicationDone = CompletableDeferred<Unit>()
-            pending.send(
+            submitLocked(
                 DownloadTask(
                     id = entity.id,
                     item = item,
@@ -242,7 +261,7 @@ class DownloadQueue(
             sizeBytes = if (current.mediaType == MediaType.AUDIO) null else current.sizeBytes,
             bytesDownloaded = 0, errorMessage = null, savedUri = null, hidden = false)
         history.save(queued)
-        pending.send(DownloadTask(queued.id, item.copy(originalName = name), name, destination = destination))
+        submitLocked(DownloadTask(queued.id, item.copy(originalName = name), name, destination = destination))
         AppLog.i("Download", "Retry queued · id=${queued.id} · provider=${queued.providerId} · name=${queued.originalName}")
         refreshBatch(queued)
     }
@@ -257,7 +276,8 @@ class DownloadQueue(
             } else {
                 val entity = history.byId(id)
                 if (entity?.state == DownloadState.QUEUED) {
-                    history.save(entity.copy(state = DownloadState.CANCELLED))
+                    forgetQueuedLocked(id)
+                    history.save(entity.copy(state = DownloadState.CANCELLED, errorMessage = null))
                     AppLog.i("Download", "Cancel queued · id=$id")
                     refreshBatch(entity)
                 }
@@ -269,7 +289,8 @@ class DownloadQueue(
     suspend fun cancelQueued(id: String) = enqueueLock.withLock {
         val entity = history.byId(id) ?: return@withLock
         if (entity.state == DownloadState.QUEUED) {
-            history.save(entity.copy(state = DownloadState.CANCELLED))
+            forgetQueuedLocked(id)
+            history.save(entity.copy(state = DownloadState.CANCELLED, errorMessage = null))
             refreshBatch(entity)
         }
     }
@@ -283,6 +304,7 @@ class DownloadQueue(
             it.providerId == providerId && it.state == DownloadState.QUEUED
         }
         queued.forEach { entity ->
+            forgetQueuedLocked(entity.id)
             history.save(entity.copy(state = DownloadState.CANCELLED, errorMessage = reason))
             refreshBatch(entity)
         }
@@ -292,14 +314,102 @@ class DownloadQueue(
         queued.size
     }
 
-    /** Rows left QUEUED/RUNNING by a previous process have no worker any more. */
+    /** Recreate only explicitly deferred, never-started rows. Ordinary interrupted
+     * transfers retain the established retry path (no blind replay of published bytes). */
     private suspend fun recoverInterruptedLocked() {
         if (recovered) return
         recovered = true
         val interrupted = history.all()
             .filter { it.state == DownloadState.QUEUED || it.state == DownloadState.RUNNING }
-        interrupted.forEach { history.save(it.copy(state = DownloadState.FAILED, errorMessage = INTERRUPTED)) }
-        if (interrupted.isNotEmpty()) AppLog.w("Download", "Recovered interrupted tasks · count=${interrupted.size}")
+            .sortedByDescending { it.createdAtEpochMillis }
+        var restored = 0
+        for (row in interrupted) {
+            val url = row.sourceUrl
+            val item = if (row.networkWait != null && !row.hidden && !row.isPrivate &&
+                row.savedUri == null && row.bytesDownloaded == 0L && !url.isNullOrBlank()) {
+                MediaItem(row.id, row.providerId, row.mediaType, row.originalName, url,
+                    previewUrl = row.previewUrl, sizeBytes = row.sizeBytes, formatSelector = row.formatSelector,
+                    audioArtist = row.sourceAudioArtist, audioTitle = row.sourceAudioTitle,
+                    audioArtworkUrl = row.sourceAudioArtworkUrl, sourcePageUrl = row.sourcePageUrl)
+            } else null
+            if (item != null && restoreWaitingAllowed(item)) {
+                submitLocked(DownloadTask(row.id, item, row.originalName, destination = destinationFor(item)))
+                restored++
+            } else history.save(row.copy(state = DownloadState.FAILED, errorMessage = INTERRUPTED))
+        }
+        if (interrupted.isNotEmpty()) AppLog.w("Download", "Recovered interrupted tasks · count=${interrupted.size} · deferred=$restored")
+    }
+
+    private suspend fun submitLocked(task: DownloadTask) {
+        queuedTasks[task.id] = task
+        pending.send(task)
+    }
+
+    private fun forgetQueuedLocked(id: String) {
+        val task = queuedTasks.remove(id)
+        waiting.remove(id)
+        forceNetwork.remove(id)
+        if (task != null) releasePublication(task)
+    }
+
+    private fun releasePublication(task: DownloadTask) {
+        // A skipped middle item must not let later publication leapfrog an
+        // earlier transfer that is still saving. Parked tasks rejoin detached.
+        val done = task.publishDone ?: return
+        val before = task.publishAfter
+        if (before == null || before.isCompleted) done.complete(Unit)
+        else before.invokeOnCompletion { done.complete(Unit) }
+    }
+
+    /** Called both before capacity/barriers and again immediately before RUNNING. */
+    private suspend fun admitLocked(task: DownloadTask): Boolean {
+        if (queuedTasks[task.id] !== task) return false
+        val row = history.byId(task.id)
+        if (row?.state != DownloadState.QUEUED || row.hidden || row.isPrivate) {
+            forgetQueuedLocked(task.id)
+            return false
+        }
+        val reason = networkWait(task.item, task.id in forceNetwork)
+        if (reason == null) return true
+        val detached = task.copy(publishAfter = null, publishDone = null)
+        queuedTasks[task.id] = detached
+        waiting[task.id] = detached
+        if (row.networkWait != reason) {
+            val deferred = row.copy(errorMessage = reason.marker)
+            history.save(deferred)
+            refreshBatch(deferred)
+        }
+        return false
+    }
+
+    private suspend fun resumeWaitingLocked() {
+        for ((id, task) in waiting.toList()) {
+            val row = history.byId(id)
+            if (queuedTasks[id] !== task || row?.state != DownloadState.QUEUED || row.hidden || row.isPrivate) {
+                forgetQueuedLocked(id)
+                continue
+            }
+            val reason = networkWait(task.item, id in forceNetwork)
+            if (reason == null) {
+                waiting.remove(id)
+                pending.send(task)
+            } else if (row.networkWait != reason) {
+                val deferred = row.copy(errorMessage = reason.marker)
+                history.save(deferred)
+                refreshBatch(deferred)
+            }
+        }
+    }
+
+    /** One file, one attempt; never overrides absence of an Internet connection. */
+    suspend fun downloadNow(id: String): Boolean = enqueueLock.withLock {
+        recoverInterruptedLocked()
+        val row = history.byId(id)
+        if (row?.networkWait != DownloadNetworkWait.WIFI || row.hidden || row.isPrivate || id !in queuedTasks)
+            return@withLock false
+        forceNetwork.add(id)
+        resumeWaitingLocked()
+        true
     }
 
     private suspend fun process(task: DownloadTask) {
@@ -307,9 +417,12 @@ class DownloadQueue(
             // The job is registered before RUNNING becomes visible, so a cancel can always find it.
             val job = scope.launch(start = CoroutineStart.LAZY) { transfer(task) }
             val start = enqueueLock.withLock {
-                val entity = history.byId(task.id)
-                if (entity?.state != DownloadState.QUEUED) false
+                if (!admitLocked(task)) false
                 else {
+                    val entity = requireNotNull(history.byId(task.id))
+                    queuedTasks.remove(task.id)
+                    waiting.remove(task.id)
+                    forceNetwork.remove(task.id)
                     running[task.id] = job
                     history.save(entity.copy(state = DownloadState.RUNNING, errorMessage = null))
                     AppLog.i("Download", "Started · id=${task.id} · provider=${entity.providerId} · name=${entity.originalName}")
@@ -336,7 +449,7 @@ class DownloadQueue(
             }
         } finally {
             // Always release the next item in the same batch, even after failure/cancellation.
-            task.publishDone?.complete(Unit)
+            releasePublication(task)
         }
     }
 

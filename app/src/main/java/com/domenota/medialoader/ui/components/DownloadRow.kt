@@ -231,7 +231,7 @@ fun DownloadRow(
         missing -> "Файл отсутствует" to MaterialTheme.colorScheme.error
         inaccessible -> "Нет доступа к файлу" to MaterialTheme.colorScheme.error
         else -> when (item.state) {
-        DownloadUiState.QUEUED -> "В очереди" to MaterialTheme.colorScheme.onSurfaceVariant
+        DownloadUiState.QUEUED -> (item.networkWaitLabel ?: "В очереди") to MaterialTheme.colorScheme.onSurfaceVariant
         DownloadUiState.DOWNLOADING -> "Загружается…" to if (isDarkPalette) MaterialTheme.colorScheme.primary else AccentPurple
         DownloadUiState.COMPLETED -> "Сохранено" to if (MaterialTheme.colorScheme.background.luminance() > 0.5f)
             Color(0xFF16734D) else Success
@@ -346,6 +346,9 @@ fun DownloadRow(
                             onClick = { menuExpanded = false; onHide() },
                         )
                     } else if (item.state == DownloadUiState.DOWNLOADING || item.state == DownloadUiState.QUEUED) {
+                        if (item.canDownloadNow) DropdownMenuItem(
+                            leadingIcon = { Icon(Icons.Rounded.PlayArrow, null) },
+                            text = { Text("Скачать сейчас") }, onClick = { menuExpanded = false; onRetry() })
                         DropdownMenuItem(leadingIcon = { Icon(Icons.Rounded.Close, contentDescription = null) },
                             text = { Text("Отмена") }, onClick = { menuExpanded = false; onCancel() })
                     } else {
@@ -378,8 +381,10 @@ fun DownloadRow(
                 tint = Color.White,
                 modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp)
                     .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(5.dp)).padding(3.dp).size(16.dp))
-            if (missing || inaccessible || item.state != DownloadUiState.COMPLETED) Icon(Icons.Rounded.Error,
-                contentDescription = statusText, tint = MaterialTheme.colorScheme.error,
+            if (missing || inaccessible || item.state != DownloadUiState.COMPLETED) Icon(
+                if (item.networkWaitLabel != null) Icons.Rounded.Info else Icons.Rounded.Error,
+                contentDescription = statusText, tint = if (item.networkWaitLabel != null)
+                    MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
                     .size(20.dp))
             VideoWatchStripe(item, Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp))
@@ -451,6 +456,7 @@ fun DownloadRow(
                 }
                 if (item.state != DownloadUiState.COMPLETED || missing || inaccessible) {
                     Text(statusText, style = MaterialTheme.typography.labelLarge, color = statusColor)
+                    if (item.canDownloadNow) TextButton(onClick = onRetry) { Text("Скачать сейчас") }
                 }
             }
             if (!selectionMode) Box {
