@@ -652,7 +652,8 @@ internal fun ReviewScreen(entries:List<MediaReviewEntity>,refs:List<LibraryMedia
 @Composable
 internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>,collections:List<MediaCollection>,
     operations:List<MediaOperationEntity>,folderNames:List<String>,playlistNames:List<String>,onBack:()->Unit,
-    onOpen:(String,List<String>)->Unit,onLink:(String)->Unit,onCollection:(String)->Unit) {
+    onOpen:(String,List<String>)->Unit,onLink:(String)->Unit,onCollection:(String)->Unit,
+    notes:MediaPassportNotes?=null) {
     Column(Modifier.fillMaxSize().testTag("media-passport")){
         Header("Паспорт медиафайла",onBack)
         if(ref==null){Text("Файл недоступен",Modifier.padding(16.dp));return@Column}
@@ -679,6 +680,7 @@ internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>
                 if(operations.isEmpty())Text(if(passport.parentKnown)"Создан производный файл; точная операция не записана" else "Нет подтверждённых операций")
                 operations.forEach{Text("${date(it.occurredAt)}, ${it.operation}")}
             }
+            if(notes!=null)item(key="passport-note"){MediaPassportNoteEditor(ref,notes)}
             if(passport.parentKnown)item{
                 Text("Оригинал",style=MaterialTheme.typography.titleMedium)
                 passport.parent?.let{parent->MediaLine(parent.item,{onOpen(parent.key,listOf(parent.key))})}
