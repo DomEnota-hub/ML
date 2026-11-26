@@ -1,6 +1,7 @@
 package com.domenota.medialoader.ui.screens.gallery
 
 import android.content.Context
+import com.domenota.medialoader.data.tasks.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -84,6 +85,27 @@ internal fun rememberGalleryOcr(
             }
             if (active() && DuplicatePrivacyGuard.generation(context) == epoch) result else emptySet()
         }
+    }
+    val reporter = remember(controller) { TaskReporter.create(TaskOwner.OCR, TaskKind.OCR) }
+    DisposableEffect(reporter) { onDispose { reporter.remove() } }
+    LaunchedEffect(controller.enabled,controller.progress) {
+        val p=controller.progress
+        if (!controller.enabled && p.done==0 && p.phase!=GalleryOcrPhase.PAUSED) { reporter.remove(); return@LaunchedEffect }
+        if (!controller.enabled && p.total==0) { reporter.remove(); return@LaunchedEffect }
+        val status=when(p.phase) {
+            GalleryOcrPhase.WAITING_ACCESS, GalleryOcrPhase.WAITING_CHARGE -> TaskStatus.WAITING
+            GalleryOcrPhase.PAUSED -> TaskStatus.PAUSED
+            GalleryOcrPhase.RUNNING -> TaskStatus.RUNNING
+            GalleryOcrPhase.COMPLETE -> TaskStatus.COMPLETE
+            GalleryOcrPhase.PARTIAL -> TaskStatus.PARTIAL
+            GalleryOcrPhase.ERROR -> TaskStatus.FAILED
+        }
+        val wait=when(p.phase) {
+            GalleryOcrPhase.WAITING_ACCESS -> TaskWait.PERMISSION
+            GalleryOcrPhase.WAITING_CHARGE -> TaskWait.CHARGING
+            else -> null
+        }
+        reporter.report(status,files=countProgress(p.done,p.total),errors=p.failed+p.unverified,wait=wait,stage=TaskStage.SCANNING)
     }
     LaunchedEffect(controller.enabled) { if (controller.enabled) liveEnsure() }
     LaunchedEffect(token,catalog,controller.enabled,controller.chargeOnly,controller.retryNonce) {

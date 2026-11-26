@@ -1,6 +1,7 @@
 package com.domenota.medialoader.data.playback
 
 import android.content.Context
+import com.domenota.medialoader.data.tasks.*
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -86,6 +87,12 @@ internal class MusicLoudness(
             analysis = null
         } else if (analysis?.isActive != true && next.any { !measurements.containsKey(it) }) {
             analysis = scope.launch {
+                val pending = next.filterNot { measurements.containsKey(it) }
+                val reporter = TaskReporter.create(TaskOwner.LOUDNESS, TaskKind.LOUDNESS)
+                var done=0
+                var failures=0
+                reporter.report(files=countProgress(done,pending.size),stage=TaskStage.SCANNING)
+                try {
                 for (source in next) {
                     if (measurements.containsKey(source)) continue
                     val result = serial.withLock {
@@ -95,8 +102,15 @@ internal class MusicLoudness(
                     ensureActive()
                     if (!player.playWhenReady || source !in desired || source !in candidates()) return@launch
                     measurements[source] = result
+                    done++
+                    if(result==null) failures++
+                    reporter.report(files=countProgress(done,pending.size),errors=failures,stage=TaskStage.SCANNING)
                     updateGain()
                 }
+                reporter.report(if(failures>0) TaskStatus.PARTIAL else TaskStatus.COMPLETE,files=countProgress(done,pending.size),errors=failures)
+                } catch (e: CancellationException) { reporter.remove(); throw e }
+                catch (e: Exception) { reporter.report(TaskStatus.FAILED,files=countProgress(done,pending.size),errors=failures+1); throw e }
+                finally { if(done<pending.size) reporter.remove() }
             }
         }
         updateGain()
