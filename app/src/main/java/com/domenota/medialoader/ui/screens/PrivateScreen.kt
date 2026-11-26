@@ -94,12 +94,34 @@ fun PrivateScreen(
     }
     var gridMode by rememberSaveable { mutableStateOf(prefs.getBoolean("private_grid", false)) }
     var mediaType by rememberSaveable { mutableStateOf<com.domenota.medialoader.core.model.MediaType?>(null) }
-    val visibleItems=remember(items,mediaType){
-        com.domenota.medialoader.ui.navigation.filterLibraryMedia(items,mediaType){it.mediaType}
+    var sort by remember { mutableStateOf(PrivateArchiveSort.read(prefs, "private")) }
+    val admittedItems = remember(items, mediaType, state.unlocked) {
+        if (!state.unlocked) emptyList() else
+            com.domenota.medialoader.ui.navigation.filterLibraryMedia(items, mediaType) { it.mediaType }
+    }
+    val rowsById = remember(admittedItems) { admittedItems.associateBy { it.id } }
+    val dates = rememberPrivateArchiveDates(context, rowsById,
+        state.unlocked && sort.field == PrivateArchiveSortField.FILE_DATE, privateSection = true,
+        stillAllowed = { access.state.value.unlocked })
+    val keysById = remember(admittedItems, dates) { admittedItems.associate { row ->
+        row.id to PrivateArchiveSortKey(row.id, row.originalName, dates[row.id],
+            row.createdAtEpochMillis.takeIf { it > 0 }, row.sizeBytes?.takeIf { it >= 0 })
+    } }
+    val visibleItems = remember(admittedItems, sort, keysById) {
+        sortPrivateArchive(admittedItems, sort) { requireNotNull(keysById[it.id]) }
     }
     val visibleIds=remember(visibleItems){visibleItems.mapTo(mutableSetOf()){it.id}}
-    val uiItems = remember(visibleItems) { visibleItems.map { it.toUi() } }
-    val groups = remember(uiItems) { uiItems.groupBy { VkDownloadGroup.key(it) } }
+    val mappedItems = remember(visibleItems) { visibleItems.map { it.toUi() } }
+    val groups = remember(mappedItems, sort, keysById) {
+        sortPrivateArchive(mappedItems.groupBy { VkDownloadGroup.key(it) }.entries.toList(), sort) { (id, members) ->
+            val label = if (members.size == 1) members.first().title
+                else if (members.any { VkDownloadGroup.isCommunity(it) }) "VK" else "Публикация"
+            groupPrivateArchiveKey(id, label, members.map { requireNotNull(keysById[it.id]) })
+        }.associate { it.key to it.value }
+    }
+    val uiItems = remember(mappedItems, groups, sort, gridMode) {
+        if (!gridMode || sort.field == PrivateArchiveSortField.COUNT) groups.values.flatten() else mappedItems
+    }
     val assignments = remember(catalogAssignments) { catalogAssignments.associateBy { it.downloadId } }
     fun action(block: suspend () -> Unit) {
         if (busy || externalBusy) return
@@ -157,6 +179,9 @@ fun PrivateScreen(
                     TextButton(onClick = { if (access.state.value.unlocked) onOpenVault() },
                         enabled = !busy && !externalBusy) { Text("Ранее защищённые файлы") }
                 }
+                PrivateArchiveSortMenu(sort, { next ->
+                    sort = next; next.save(prefs, "private")
+                }, enabled = !busy && !externalBusy, privateSection = true)
                 IconButton(onClick = {
                     gridMode = !gridMode
                     prefs.edit().putBoolean("private_grid", gridMode).apply()
