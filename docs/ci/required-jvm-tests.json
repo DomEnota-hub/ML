@@ -2930,6 +2930,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.editor.ModelRangeAssemblerTest#cancellationRemovesOnlyStagingAndExistingFileIsNeverReplaced": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.ModelRangeAssemblerTest#reconstructsExactOutputFromTwoPinnedSources": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.ModelRangeAssemblerTest#rejectsCorruptedSliceAndDeletesPartialOutput": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.ModelRangeAssemblerTest#rejectsOverlapBoundsAndUnknownSourceBeforeWriting": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.ModelRangeAssemblerTest#rejectsTruncatedExtraOrWrongSkeletonAndWrongFinalHash": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.NormalizedTextShapeTest#ranksMatchingShapeAboveDifferentFamilyAndWeight": {
     "skipped": false,
     "failed": false
