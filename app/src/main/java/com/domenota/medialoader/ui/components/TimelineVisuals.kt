@@ -132,6 +132,9 @@ fun AudioWaveformTimeline(
     uri: Uri,
     durationMs: Long,
     modifier: Modifier = Modifier,
+    viewportStartMs: Long = 0L,
+    viewportEndMs: Long = durationMs,
+    zoom: Int = 1,
 ) {
     val context = LocalContext.current
     var waveform by remember(uri, durationMs) { mutableStateOf<List<Float>>(emptyList()) }
@@ -156,6 +159,36 @@ fun AudioWaveformTimeline(
         }
     }
 
+    // The library's ordinary waveform/cache stays at 1024 buckets. Only this editor
+    // requests bounded high-resolution PCM, once per open track, on demand.
+    var detailRequested by remember(uri, durationMs) { mutableStateOf(false) }
+    var detailFinished by remember(uri, durationMs) { mutableStateOf(false) }
+    var detail by remember(uri, durationMs) { mutableStateOf<List<Float>>(emptyList()) }
+    LaunchedEffect(zoom) { if (zoom > 1) detailRequested = true }
+    LaunchedEffect(uri, durationMs, detailRequested) {
+        if (!detailRequested || durationMs <= 0L) return@LaunchedEffect
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        val cancelled = { job?.isActive == false }
+        val started = com.domenota.medialoader.core.logging.PerformanceLog.begin("editor_waveform_detail")
+        try {
+            detail = withContext(Dispatchers.IO) {
+                com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode(cancelled) {
+                    decodeAudioWaveform(context, uri, durationMs, AudioEditorViewport.detailBuckets(durationMs), cancelled, detailed = true)
+                }
+            }
+        } catch (cancelledError: CancellationException) { throw cancelledError }
+        catch (error: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.e("AudioWaveform", "Editor detail failed", error)
+        } finally {
+            detailFinished = true
+            com.domenota.medialoader.core.logging.PerformanceLog.end("editor_waveform_detail", started, "buckets=${detail.size}")
+        }
+    }
+    val selected = if (zoom > 1) detail else waveform
+    val visibleWaveform = remember(selected, durationMs, viewportStartMs, viewportEndMs) {
+        AudioEditorViewport.visiblePeaks(selected, durationMs, viewportStartMs, viewportEndMs)
+    }
+    val visibleLoading = if (zoom > 1) !detailFinished else loading
     val barColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
     Box(modifier) {
     Canvas(
@@ -165,11 +198,11 @@ fun AudioWaveformTimeline(
                 androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
             ),
     ) {
-        if (waveform.isEmpty()) return@Canvas
+        if (visibleWaveform.isEmpty()) return@Canvas
         // AIMP-like: individual narrow vertical strokes, almost touching at phone scale.
         // Never fill a continuous polygon; preserve actual amplitude differences.
-        val columns = (size.width / 1.35f).toInt().coerceIn(1, waveform.size)
-        val amplitudes = waveformColumnPeaks(waveform, columns)
+        val columns = (size.width / 1.35f).toInt().coerceIn(1, visibleWaveform.size)
+        val amplitudes = waveformColumnPeaks(visibleWaveform, columns)
         val center = size.height / 2f
         val slot = size.width / columns
         val stroke = (slot * 0.84f).coerceIn(0.85f, 1.6f)
@@ -184,8 +217,8 @@ fun AudioWaveformTimeline(
             )
         }
     }
-    if (waveform.isEmpty()) androidx.compose.material3.Text(
-        if (loading) "Строим звуковую волну…" else "Не удалось построить звуковую волну",
+    if (visibleWaveform.isEmpty()) androidx.compose.material3.Text(
+        if (visibleLoading) "Строим звуковую волну…" else "Не удалось построить звуковую волну",
         modifier = Modifier.align(Alignment.Center),
         style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
     }
@@ -370,6 +403,7 @@ private fun decodeAudioWaveform(
     durationMs: Long,
     bucketCount: Int,
     isCancelled: () -> Boolean,
+    detailed: Boolean = false,
 ): List<Float> {
     val extractor = MediaExtractor()
     var codec: MediaCodec? = null
@@ -406,6 +440,8 @@ private fun decodeAudioWaveform(
         var inputEnded = false
         var outputEnded = false
         var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
+        var sampleRate = inputFormat.getIntegerOrNull(MediaFormat.KEY_SAMPLE_RATE) ?: 0
+        var channels = inputFormat.getIntegerOrNull(MediaFormat.KEY_CHANNEL_COUNT) ?: 0
 
         while (!outputEnded) {
             if (isCancelled() || Thread.currentThread().isInterrupted)
@@ -444,17 +480,24 @@ private fun decodeAudioWaveform(
                     val output = decoder.outputFormat
                     pcmEncoding = output.getIntegerOrNull(MediaFormat.KEY_PCM_ENCODING)
                         ?: AudioFormat.ENCODING_PCM_16BIT
+                    sampleRate = output.getIntegerOrNull(MediaFormat.KEY_SAMPLE_RATE) ?: sampleRate
+                    channels = output.getIntegerOrNull(MediaFormat.KEY_CHANNEL_COUNT) ?: channels
                 }
                 MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                 else -> if (outputIndex >= 0) {
                     if (info.size > 0) {
                         decoder.getOutputBuffer(outputIndex)?.let { buffer ->
-                            val part = pcmEnergy(buffer, info.offset, info.size, pcmEncoding)
-                            val bucket = (
-                                info.presentationTimeUs.coerceAtLeast(0L) * bucketCount / durationUs
-                                ).toInt().coerceIn(0, bucketCount - 1)
-                            energy[bucket] += part.total
-                            sampleCounts[bucket] += part.count
+                            if (detailed) {
+                                accumulateEditorPcm(buffer, info.offset, info.size, pcmEncoding,
+                                    info.presentationTimeUs, durationUs, sampleRate, channels, energy, sampleCounts)
+                            } else {
+                                val part = pcmEnergy(buffer, info.offset, info.size, pcmEncoding)
+                                val bucket = (
+                                    info.presentationTimeUs.coerceAtLeast(0L) * bucketCount / durationUs
+                                    ).toInt().coerceIn(0, bucketCount - 1)
+                                energy[bucket] += part.total
+                                sampleCounts[bucket] += part.count
+                            }
                         }
                     }
                     outputEnded = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
@@ -469,7 +512,8 @@ private fun decodeAudioWaveform(
             if (sampleCounts[index] == 0L) 0f
             else sqrt(energy[index] / sampleCounts[index]).toFloat()
         }
-        normalizeWaveformRms(rms)
+        if (detailed && sampleCounts.any { it > 0L } && rms.all { it == 0f }) rms.toList()
+        else normalizeWaveformRms(rms)
     } catch (cancelled: java.util.concurrent.CancellationException) {
         throw cancelled
     } catch (_: Exception) {

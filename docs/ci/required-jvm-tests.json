@@ -2570,6 +2570,22 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.editor.AudioEditorViewportTest#detailedPcmSeparatesStereoFramesWithinOneDecoderBuffer": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.AudioEditorViewportTest#panAndTrimCoordinatesUseAbsoluteTimeWithoutMovingSelection": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.AudioEditorViewportTest#waveformViewportUsesRealBucketsAndBoundedDetail": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.AudioEditorViewportTest#zoomCentersOnPlaybackAndClampsAtTrackEdges": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.AudioReplacePolicyTest#alwaysFailsClosedForPrivateHiddenAndNonMp3AndUnsupportedUris": {
     "skipped": false,
     "failed": false

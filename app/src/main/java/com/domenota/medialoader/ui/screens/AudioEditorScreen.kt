@@ -354,7 +354,6 @@ fun AudioEditorScreen(
             )
 
             Spacer(Modifier.height(24.dp))
-            Text("Обрезка", style = MaterialTheme.typography.titleMedium)
             val duration = sourceInfo?.durationMs ?: 0L
             if (duration > 0L) {
                 MediaTrimControls(
@@ -369,11 +368,14 @@ fun AudioEditorScreen(
                     modifier = Modifier.fillMaxWidth(),
                     showSolidTrimBar = false,
                     independentSeek = true,
-                    timelineVisual = { visualModifier ->
+                    audioTimelineVisual = { visualModifier, start, end, zoom ->
                         AudioWaveformTimeline(
                             uri = uri,
                             durationMs = duration,
                             modifier = visualModifier,
+                            viewportStartMs = start,
+                            viewportEndMs = end,
+                            zoom = zoom,
                         )
                     },
                 )
@@ -383,6 +385,7 @@ fun AudioEditorScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
+                Text("Обрезка", style = MaterialTheme.typography.titleMedium)
                 Text("Определяем длительность…", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
@@ -429,10 +432,8 @@ fun AudioEditorScreen(
                 ) {
                     Text("Заменить оригинал")
                 }
-                Text(
-                    if (canReplaceOriginal)
-                        "Копия сохраняется отдельно. Замена MP3 изменяет исходный файл только после подтверждения."
-                    else "Безопасная замена доступна только для общих MP3-файлов в медиатеке. Остальные сохраняются копией.",
+                if (!canReplaceOriginal) Text(
+                    "Безопасная замена доступна только для общих MP3-файлов в медиатеке. Остальные сохраняются копией.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
