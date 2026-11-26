@@ -28,7 +28,11 @@ internal fun observeDuplicateTasks(context: Context, scope: CoroutineScope) {
                 else -> null
             }
             if(status!=null) reporter?.report(status,files=countProgress(s.done,s.total),
-                errors=if(status==TaskStatus.FAILED) 1 else 0,stage=if(s.committing) TaskStage.SAVING else TaskStage.SCANNING)
+                errors=if(status==TaskStatus.FAILED) 1 else 0,stage=if(s.committing) TaskStage.SAVING else TaskStage.SCANNING,
+                commands=if(s.running&&!s.committing)setOf(TaskCommand.PAUSE,TaskCommand.CANCEL)else emptySet(),onCommand={ action ->
+                    val live=DuplicateBackgroundScan.state.value
+                    if(live.token==s.token&&live.running&&!live.committing) when(action){TaskCommand.PAUSE->DuplicateBackgroundScan.pause(context);TaskCommand.CANCEL->DuplicateBackgroundScan.cancel(context);else->Unit}
+                })
         }
     }
     scope.launch(Dispatchers.Main.immediate) {
@@ -47,7 +51,11 @@ internal fun observeDuplicateTasks(context: Context, scope: CoroutineScope) {
                 else -> null
             }
             if(status!=null) reporter?.report(status,files=countProgress(s.done,s.total),
-                errors=if(status==TaskStatus.FAILED) 1 else 0,stage=if(s.committing) TaskStage.SAVING else TaskStage.SCANNING)
+                errors=if(status==TaskStatus.FAILED) 1 else 0,stage=if(s.committing) TaskStage.SAVING else TaskStage.SCANNING,
+                commands=if(s.running&&!s.committing)setOf(TaskCommand.PAUSE,TaskCommand.CANCEL)else emptySet(),onCommand={ action ->
+                    val live=VisualDuplicateBackgroundScan.state.value
+                    if(live.token==s.token&&live.running&&!live.committing) when(action){TaskCommand.PAUSE->VisualDuplicateBackgroundScan.pause(context);TaskCommand.CANCEL->VisualDuplicateBackgroundScan.cancel(context);else->Unit}
+                })
         }
     }
 }

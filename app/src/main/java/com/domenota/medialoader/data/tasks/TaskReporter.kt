@@ -6,12 +6,13 @@ import java.util.UUID
 internal class TaskReporter private constructor(private val owner: TaskOwner, private val kind: TaskKind, private val id: String) {
     private var last: TaskSnapshot? = null
     @Synchronized fun report(status: TaskStatus = TaskStatus.RUNNING, files: TaskProgress? = null,
-        percent: Int? = null, errors: Int = 0, wait: TaskWait? = null, stage: TaskStage? = null) {
+        percent: Int? = null, errors: Int = 0, wait: TaskWait? = null, stage: TaskStage? = null,
+        commands:Set<TaskCommand> = emptySet(), onCommand:((TaskCommand)->Unit)?=null) {
         val row = TaskSnapshot(id, kind, status, files = files, errors = errors, wait = wait,
-            percent = percent, stage = stage)
+            percent = percent, stage = stage, commands=commands)
         if (row == last) return
         last = row
-        TaskCenter.registry.record(owner, row.copy(updatedAt = System.currentTimeMillis()))
+        TaskCenter.registry.record(owner, row.copy(updatedAt = System.currentTimeMillis()),onCommand)
     }
     @Synchronized fun remove() { TaskCenter.registry.remove(owner, id); last = null }
     companion object {

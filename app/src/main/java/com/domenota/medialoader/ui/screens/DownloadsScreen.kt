@@ -268,7 +268,7 @@ fun DownloadsScreen(
         groupBusy = true
         scope.launch {
             try {
-                val result = runFileBatch(ids, operation)
+                val result = runFileBatch(ids, true, operation)
                 AppNotice.postBatch(context, "Результат операции", result, "Обработано")
             } finally { groupBusy = false }
         }
@@ -320,7 +320,7 @@ fun DownloadsScreen(
         onAssign = { id, folder ->
             if (folderGroupTargets.isEmpty()) onSetFolder(id, folder)
             else {
-                val result = runFileBatch(folderGroupTargets) { onSetFolder(it, folder) }
+                val result = runFileBatch(folderGroupTargets, true) { onSetFolder(it, folder) }
                 AppNotice.postBatch(context, "Результат операции", result, "Обработано")
                 check(result.failed == 0) { result.summary }
             }

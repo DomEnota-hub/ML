@@ -72,6 +72,7 @@ internal fun taskId(owner: TaskOwner, key: String): String =
 internal class TaskRegistry {
     private data class Feed(val rows: List<TaskSnapshot>, val command: (String, TaskCommand) -> Unit)
     private val sources = linkedMapOf<TaskOwner, Feed>()
+    private val rowHandlers=hashMapOf<String,(TaskCommand)->Unit>()
     private val mutable = MutableStateFlow<List<TaskSnapshot>>(emptyList())
     val tasks = mutable.asStateFlow()
     private val saved = MutableStateFlow(TaskHistoryData())
@@ -97,7 +98,8 @@ internal class TaskRegistry {
         val now=System.currentTimeMillis()
         val cutoff=if(retentionDays==0) saved.value.clearedAt else maxOf(saved.value.clearedAt,now-retentionDays*86_400_000L)
         val live=sources.values.flatMap { it.rows }
-        val archive=saved.value.rows.filter { it.updatedAt>cutoff }.associateBy { it.id }.toMutableMap()
+        val nested=live.flatMap{it.children}.mapTo(hashSetOf()){it.id}
+        val archive=saved.value.rows.filter { it.updatedAt>cutoff && it.id !in nested }.associateBy { it.id }.toMutableMap()
         for(row in live) {
             val before=seen.put(row.id,row.status)
             if(!row.status.terminal) {
@@ -118,7 +120,7 @@ internal class TaskRegistry {
         val allowed=archive.keys
         val shown=live.filter { !it.status.terminal || it.id in allowed }
         val liveKeys=live.mapTo(hashSetOf()){it.id}
-        seen.keys.retainAll(liveKeys); started.keys.retainAll(liveKeys)
+        seen.keys.retainAll(liveKeys); started.keys.retainAll(liveKeys); rowHandlers.keys.retainAll(liveKeys)
         val liveIds=shown.mapTo(hashSetOf()) { it.id }
         mutable.value=shown+rows.filterNot { it.id in liveIds }
     }
@@ -134,7 +136,8 @@ internal class TaskRegistry {
         rebuild()
     }
 
-    @Synchronized fun record(owner: TaskOwner, row: TaskSnapshot) {
+    @Synchronized fun record(owner: TaskOwner, row: TaskSnapshot, handler: ((TaskCommand)->Unit)?=null) {
+        if(handler!=null && row.commands.isNotEmpty())rowHandlers[row.id]=handler else rowHandlers.remove(row.id)
         val old = sources[owner]
         publish(owner, old?.rows.orEmpty().filterNot { it.id == row.id || it.status.terminal } + row,
             old?.command ?: { _, _ -> })
@@ -155,7 +158,7 @@ internal class TaskRegistry {
                 val row = feed.rows.firstNotNullOfOrNull { top ->
                     if (top.id == id) top else top.children.firstOrNull { it.id == id }
                 }
-                if (row != null && command in row.commands) feed.command else null
+                if (row != null && command in row.commands) rowHandlers[id]?.let { callback -> { _:String, action:TaskCommand -> callback(action) } } ?: feed.command else null
             }
         } ?: return false
         handler(id, command)

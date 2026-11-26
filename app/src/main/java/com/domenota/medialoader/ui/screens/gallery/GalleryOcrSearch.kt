@@ -105,7 +105,10 @@ internal fun rememberGalleryOcr(
             GalleryOcrPhase.WAITING_CHARGE -> TaskHistoryStore.waitReason(context) ?: TaskWait.CHARGING
             else -> null
         }
-        reporter.report(status,files=countProgress(p.done,p.total),errors=p.failed+p.unverified,wait=wait,stage=TaskStage.SCANNING)
+        val commands=when { controller.enabled && !status.terminal -> setOf(TaskCommand.PAUSE); !controller.enabled && status==TaskStatus.PAUSED -> setOf(TaskCommand.RESUME); status in setOf(TaskStatus.FAILED,TaskStatus.PARTIAL) -> setOf(TaskCommand.RETRY); else -> emptySet() }
+        reporter.report(status,files=countProgress(p.done,p.total),errors=p.failed+p.unverified,wait=wait,stage=TaskStage.SCANNING,commands=commands,onCommand={ action ->
+            when(action) { TaskCommand.PAUSE -> if(controller.enabled)controller.toggle(); TaskCommand.RESUME -> if(!controller.enabled)controller.toggle(); TaskCommand.RETRY -> if(controller.progress.phase in setOf(GalleryOcrPhase.ERROR,GalleryOcrPhase.PARTIAL))controller.retry(); else -> Unit }
+        })
     }
     LaunchedEffect(controller.enabled) { if (controller.enabled) liveEnsure() }
     LaunchedEffect(token,catalog,controller.enabled,controller.chargeOnly,controller.retryNonce) {

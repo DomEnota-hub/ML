@@ -75,6 +75,7 @@ class EditorExportCoordinator private constructor(context: Context) {
             var temp: java.io.File? = null
             try {
                 temp = videoEditor.export(Uri.parse(savedUri), spec) { progress ->
+                    report?.report(percent=progress.coerceIn(0,100),stage=TaskStage.PROCESSING)
                     _state.update {
                         it.copy(exporting = true, progress = progress.coerceIn(0, 100))
                     }
@@ -354,6 +355,7 @@ class EditorExportCoordinator private constructor(context: Context) {
             var result: PhotoExportResult? = null
             try {
                 result = photoEditor.export(Uri.parse(savedUri), spec) { progress ->
+                    report?.report(percent=progress.coerceIn(0,100),stage=TaskStage.PROCESSING)
                     _state.update {
                         it.copy(exporting = true, progress = progress.coerceIn(0, 100))
                     }

@@ -39,4 +39,38 @@ class TaskRegistryTest {
         assertTrue(TaskStatus.PARTIAL.terminal)
         assertTrue(runCatching { TaskProgress(11, 10) }.isFailure)
     }
+
+    @Test fun clearingTaskHistoryKeepsActiveWorkAndDoesNotReimportOldTerminalRows() {
+        val registry=TaskRegistry()
+        val old=row("old",TaskStatus.COMPLETE).copy(updatedAt=System.currentTimeMillis()-1000)
+        val live=row("live")
+        registry.publish(TaskOwner.DOWNLOADS,listOf(old,live))
+        assertEquals(2,registry.tasks.value.size)
+        registry.clearHistory()
+        registry.publish(TaskOwner.DOWNLOADS,listOf(old,live))
+        assertEquals(listOf(live.id),registry.tasks.value.map{it.id})
+        assertTrue(registry.history.value.rows.isEmpty())
+    }
+    @Test fun historyDoesNotRestoreExecutableCommands() {
+        val registry=TaskRegistry()
+        val ended=row("ended",TaskStatus.FAILED,setOf(TaskCommand.RETRY)).copy(updatedAt=System.currentTimeMillis())
+        registry.publish(TaskOwner.DOWNLOADS,listOf(ended)){_,_->}
+        assertTrue(registry.dispatch(ended.id,TaskCommand.RETRY))
+        val saved=registry.history.value
+        val restored=TaskRegistry()
+        restored.restore(saved)
+        assertEquals(1,restored.tasks.value.size)
+        assertTrue(restored.tasks.value.single().commands.isEmpty())
+        assertFalse(restored.dispatch(ended.id,TaskCommand.RETRY))
+    }
+    @Test fun reporterCommandsAreCheckedAgainstLatestSnapshot() {
+        val registry=TaskRegistry()
+        val live=row("scan",commands=setOf(TaskCommand.PAUSE))
+        var count=0
+        registry.record(TaskOwner.AUDIO_SCAN,live){count++}
+        assertTrue(registry.dispatch(live.id,TaskCommand.PAUSE))
+        registry.record(TaskOwner.AUDIO_SCAN,live.copy(status=TaskStatus.COMPLETE,commands=emptySet()))
+        assertFalse(registry.dispatch(live.id,TaskCommand.PAUSE))
+        assertEquals(1,count)
+    }
 }

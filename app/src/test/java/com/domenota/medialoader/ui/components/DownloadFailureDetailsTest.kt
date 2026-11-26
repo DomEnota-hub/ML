@@ -5,7 +5,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.performClick
 import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.ui.model.DownloadUiState
 import org.junit.Rule
@@ -33,13 +32,9 @@ class DownloadFailureDetailsTest {
                 )
             }
         }
-        compose.onNodeWithText("Показать ошибку полностью").assertExists().performClick()
-        compose.onNodeWithText("Подробности ошибки загрузки").assertExists()
-        // One full-text semantics node belongs to the underlying failed row;
-        // the second is inside the open details dialog. No text was truncated.
-        org.junit.Assert.assertEquals(2, compose.onAllNodesWithText(reason).fetchSemanticsNodes().size)
-        compose.onNodeWithText("Закрыть").performClick()
+        compose.onNodeWithText("Показать ошибку полностью").assertDoesNotExist()
         compose.onNodeWithText("Подробности ошибки загрузки").assertDoesNotExist()
+        compose.onNodeWithText(reason).assertExists()
         org.junit.Assert.assertEquals(1, compose.onAllNodesWithText(reason).fetchSemanticsNodes().size)
     }
 }
