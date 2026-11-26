@@ -2203,57 +2203,8 @@ fun MediaLoaderApp(
             catch(_:Exception){AppNotice.post(context,"Нет доступных треков или плеер недоступен")}
         }
     }
-    if (preview.duplicateMatches.isNotEmpty()) {
-        val duplicates = preview.duplicateMatches
-        val selectedCount = preview.selectedIds.size
-        val singleExisting = duplicates.singleOrNull()?.takeIf { selectedCount == 1 }
-        AlertDialog(
-            onDismissRequest = viewModel::dismissDuplicatePrompt,
-            title = { Text("Уже скачано") },
-            text = {
-                Text(
-                    if (singleExisting != null) {
-                        "«${singleExisting.name}» уже есть в загрузках."
-                    } else {
-                        "${duplicates.size} из $selectedCount выбранных файлов уже скачаны. " +
-                            "Можно оставить существующие файлы и скачать только новые."
-                    },
-                )
-            },
-            confirmButton = {
-                Row {
-                    if (duplicates.size < selectedCount) {
-                        TextButton(onClick = {
-                            viewModel.downloadSelected(
-                                pendingNames,
-                                afterDownload,
-                                DuplicateDownloadPolicy.SKIP_EXISTING,
-                            )
-                        }) { Text("Только новые") }
-                    }
-                    TextButton(onClick = {
-                        viewModel.downloadSelected(
-                            pendingNames,
-                            afterDownload,
-                            DuplicateDownloadPolicy.ALLOW_EXISTING,
-                        )
-                    }) { Text("Скачать ещё раз") }
-                }
-            },
-            dismissButton = {
-                Row {
-                    if (singleExisting != null) {
-                        TextButton(onClick = {
-                            viewModel.dismissDuplicatePrompt()
-                            showPicker = false
-                            openDownload(singleExisting.historyId)
-                        }) { Text("Открыть") }
-                    }
-                    TextButton(onClick = viewModel::dismissDuplicatePrompt) { Text("Отмена") }
-                }
-            },
-        )
-    }
+    DuplicatePreviewPrompt(preview, viewModel, pendingNames, afterDownload,
+        onOpenExisting = { id -> showPicker = false; openDownload(id) })
     val reanalyzeMissingFile: (String) -> Unit = { id ->
         val old = downloads.firstOrNull { it.id == id }
         val link = listOfNotNull(old?.sourcePageUrl, old?.sourceUrl).firstOrNull { candidate ->
@@ -4018,9 +3969,90 @@ fun MediaLoaderApp(
     }
     }
     }
-    if (showPicker && (currentRoute == AppDestination.Home.route || currentRoute == BROWSER_ROUTE)) {
+    DownloadPreviewSheet(
+        visible = showPicker && (currentRoute == AppDestination.Home.route || currentRoute == BROWSER_ROUTE),
+        pickerState = pickerState, preview = preview, pendingUrl = pendingUrl, viewModel = viewModel,
+        requestDownload = requestDownload, startLoginForCurrentUrl = startLoginForCurrentUrl,
+        onClosePicker = { showPicker = false },
+        onDeferred = { showPicker = false; if (currentRoute == PREVIEW_ROUTE) navController.popBackStack() },
+    )
+
+}
+
+/** Never reserve space for gallery's floating navigation in Scaffold.bottomBar. */
+internal fun galleryBottomSwitcherIsOverlay(mode: AppMode, route: String?): Boolean =
+    mode == AppMode.GALLERY && route == AppDestination.Home.route
+
+
+/** Keep independent preview chrome out of the large root composable's JVM method. */
+@Composable
+private fun DuplicatePreviewPrompt(
+    preview: PreviewState, viewModel: MediaLoaderViewModel, pendingNames: Map<String, String>,
+    afterDownload: () -> Unit, onOpenExisting: (String) -> Unit,
+) {
+    if (preview.duplicateMatches.isNotEmpty()) {
+        val duplicates = preview.duplicateMatches
+        val selectedCount = preview.selectedIds.size
+        val singleExisting = duplicates.singleOrNull()?.takeIf { selectedCount == 1 }
+        AlertDialog(
+            onDismissRequest = viewModel::dismissDuplicatePrompt,
+            title = { Text("Уже скачано") },
+            text = {
+                Text(
+                    if (singleExisting != null) {
+                        "«${singleExisting.name}» уже есть в загрузках."
+                    } else {
+                        "${duplicates.size} из $selectedCount выбранных файлов уже скачаны. " +
+                            "Можно оставить существующие файлы и скачать только новые."
+                    },
+                )
+            },
+            confirmButton = {
+                Row {
+                    if (duplicates.size < selectedCount) {
+                        TextButton(onClick = {
+                            viewModel.downloadSelected(
+                                pendingNames,
+                                afterDownload,
+                                DuplicateDownloadPolicy.SKIP_EXISTING,
+                            )
+                        }) { Text("Только новые") }
+                    }
+                    TextButton(onClick = {
+                        viewModel.downloadSelected(
+                            pendingNames,
+                            afterDownload,
+                            DuplicateDownloadPolicy.ALLOW_EXISTING,
+                        )
+                    }) { Text("Скачать ещё раз") }
+                }
+            },
+            dismissButton = {
+                Row {
+                    if (singleExisting != null) {
+                        TextButton(onClick = {
+                            viewModel.dismissDuplicatePrompt()
+                            onOpenExisting(singleExisting.historyId)
+                        }) { Text("Открыть") }
+                    }
+                    TextButton(onClick = viewModel::dismissDuplicatePrompt) { Text("Отмена") }
+                }
+            },
+        )
+    }
+}
+
+/** The sheet has its own composition; its existing navigation and callbacks are unchanged. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DownloadPreviewSheet(
+    visible: Boolean, pickerState: androidx.compose.material3.SheetState, preview: PreviewState,
+    pendingUrl: String, viewModel: MediaLoaderViewModel, requestDownload: () -> Unit,
+    startLoginForCurrentUrl: () -> Unit, onClosePicker: () -> Unit, onDeferred: () -> Unit,
+) {
+    if (visible) {
         ModalBottomSheet(
-            onDismissRequest = { viewModel.cancelAutomaticAnalysis(); showPicker = false },
+            onDismissRequest = { viewModel.cancelAutomaticAnalysis(); onClosePicker() },
             sheetState = pickerState,
             containerColor = MaterialTheme.colorScheme.surface,
         ) {
@@ -4030,7 +4062,7 @@ fun MediaLoaderApp(
                 url = preview.url.ifBlank { pendingUrl },
                 state = preview.analysis,
                 items = preview.items.map { it.toPreviewUi(selected = it.id in preview.selectedIds) },
-                onBack = { viewModel.cancelAutomaticAnalysis(); showPicker = false },
+                onBack = { viewModel.cancelAutomaticAnalysis(); onClosePicker() },
                 onToggleItem = viewModel::toggle,
                 onToggleAllPhotos = viewModel::toggleAllPhotos,
                 onDownloadSelected = requestDownload,
@@ -4053,7 +4085,7 @@ fun MediaLoaderApp(
                     recoveryMode=preview.recoveryHistoryId!=null,recoveryIdentityFailure=preview.recoveryIdentityFailure,
                     onCancelRecovery=viewModel::cancelRecoveryDownload,recoveryProgress=preview.recoveryProgress,
                     onDefer = { if(viewModel.deferLink(preview.url.ifBlank { pendingUrl },preview.recoveryHistoryId)){
-                        showPicker=false;if(currentRoute==PREVIEW_ROUTE)navController.popBackStack()
+                        onDeferred()
                     } },
                 asSheet = true,
             )
@@ -4063,7 +4095,3 @@ fun MediaLoaderApp(
         }
     }
 }
-
-/** Never reserve space for gallery's floating navigation in Scaffold.bottomBar. */
-internal fun galleryBottomSwitcherIsOverlay(mode: AppMode, route: String?): Boolean =
-    mode == AppMode.GALLERY && route == AppDestination.Home.route
