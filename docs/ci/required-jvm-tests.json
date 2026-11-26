@@ -2534,6 +2534,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.editor.AiModelCatalogTest#catalogCoversAllFiveModelsAndExactKnownPins": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.AiModelCatalogTest#changedOrUnavailableUpstreamNeverClaimsAnApprovedUpdate": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.AiModelCatalogTest#offlineAndImportModelsNeverPretendToHavePublishedNetworkUpdates": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.AiModelUpdatePolicyTest#changedSizeRequiresReviewEvenIfDigestAppearsUnchanged": {
     "skipped": false,
     "failed": false

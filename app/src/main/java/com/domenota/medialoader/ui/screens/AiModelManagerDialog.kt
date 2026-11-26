@@ -3,7 +3,6 @@ package com.domenota.medialoader.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,12 +26,8 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -50,12 +45,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.domenota.medialoader.data.editor.AiModelCatalog
 import com.domenota.medialoader.data.editor.AiModelUpdateChecker
 import com.domenota.medialoader.data.editor.ModelUpdateResult
 import com.domenota.medialoader.data.editor.ModelUpdateState
@@ -67,6 +62,9 @@ import com.domenota.medialoader.data.editor.ReflectionDExModelStore
 import com.domenota.medialoader.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 /** Optional AI weights, never downloaded implicitly when a photo is opened. */
@@ -93,19 +91,21 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     var pendingDelete by remember { mutableStateOf<String?>(null) }
     var updateChecking by remember { mutableStateOf(false) }
     var updateResults by remember { mutableStateOf<Map<String, ModelUpdateResult>>(emptyMap()) }
+    var updateJob by remember { mutableStateOf<Job?>(null) }
+    var checkGeneration by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        lamaReady = lama.verifyInstalled()
-        mobileReady = mobile.verifyInstalled()
-        peopleReady = people.verifyInstalled()
-        glareReady = glare.verifyInstalled()
-        reflectionReady = reflection.verifyInstalled()
-        checking = false
+    fun cancelUpdateCheck() {
+        checkGeneration++
+        updateJob?.cancel()
+        updateJob = null
+        updateChecking = false
     }
+
     val reflectionFilePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
-        if (uri != null && active == null && !checking && !updateChecking) {
+        if (uri != null && active == null && !checking) {
+            cancelUpdateCheck()
             error = null
             progress = 0
             active = "reflection"
@@ -126,7 +126,8 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     }
 
     fun download(kind: String) {
-        if (active != null || checking || updateChecking) return
+        if (active != null || checking) return
+        cancelUpdateCheck()
         if (kind == "reflection" && !reflection.bundled()) {
             reflectionFilePicker.launch(arrayOf("*/*"))
             return
@@ -165,7 +166,8 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         }
     }
     fun delete(kind: String) {
-        if (active != null || updateChecking) return
+        if (active != null || checking) return
+        cancelUpdateCheck()
         updateResults = emptyMap()
         error = null
         removing = true
@@ -200,37 +202,50 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     }
 
     fun checkUpdates() {
-        if (checking || updateChecking || active != null) return
-        error = null
-        updateResults = emptyMap()
+        if (checking || active != null || updateChecking) return
+        val generation = ++checkGeneration
         updateChecking = true
-        scope.launch {
+        error = null
+        // Keep the local install/delete actions available even with no network.
+        // A user-initiated operation cancels this advisory metadata check.
+        updateJob = scope.launch {
             try {
-                // Never download weights here. Compare upstream file digests with reviewed pins.
-                val verifiedLaMa = lama.verifyInstalled()
-                val verifiedMobile = mobile.verifyInstalled()
-                lamaReady = verifiedLaMa
-                mobileReady = verifiedMobile
-                val verifiedPeople = people.verifyInstalled()
-                peopleReady = verifiedPeople
-                glareReady = glare.verifyInstalled()
-                reflectionReady = reflection.verifyInstalled()
-                val lamaResult = AiModelUpdateChecker.check(
-                    AiModelUpdateChecker.Kind.LAMA, verifiedLaMa)
-                val mobileResult = AiModelUpdateChecker.check(
-                    AiModelUpdateChecker.Kind.MOBILE_SAM, verifiedMobile)
-                val peopleResult = AiModelUpdateChecker.check(
-                    AiModelUpdateChecker.Kind.PEOPLE, verifiedPeople)
-                updateResults = mapOf("lama" to lamaResult, "mobile" to mobileResult,
-                    "people" to peopleResult)
+                val verified = mapOf(
+                    "lama" to lamaReady, "mobile" to mobileReady, "people" to peopleReady,
+                    "glare" to glareReady, "reflection" to reflectionReady,
+                )
+                val results = coroutineScope {
+                    AiModelCatalog.entries.map { entry ->
+                        async {
+                            entry.kind.key to AiModelUpdateChecker.check(entry.kind, verified[entry.kind.key] == true)
+                        }
+                    }.awaitAll().toMap()
+                }
+                if (generation == checkGeneration) updateResults = results
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {
-                error = "Не удалось проверить обновления моделей."
+                if (generation == checkGeneration) error = "Проверка версий недоступна."
             } finally {
-                updateChecking = false
+                if (generation == checkGeneration) {
+                    updateChecking = false
+                    updateJob = null
+                }
             }
         }
+    }
+
+    LaunchedEffect(Unit) {
+        try {
+            lamaReady = lama.verifyInstalled()
+            mobileReady = mobile.verifyInstalled()
+            peopleReady = people.verifyInstalled()
+            glareReady = glare.verifyInstalled()
+            reflectionReady = reflection.verifyInstalled()
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { error = "Не удалось проверить локальные модели." }
+        finally { checking = false }
+        checkUpdates()
     }
 
     val actionColors = ButtonDefaults.textButtonColors(
@@ -255,67 +270,46 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
 
     // Full-screen manager shares the same stores and jobs as the former dialog.
     // In editor routes the caller's scoped editor theme is retained.
-    Dialog(onDismissRequest = { if (active == null && !updateChecking) onDismiss() },
+    Dialog(onDismissRequest = { if (active == null) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false,
             dismissOnClickOutside = false)) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 16.dp)) {
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDismiss, enabled = active == null && !updateChecking) {
+                    IconButton(onClick = onDismiss, enabled = active == null) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад")
                     }
                     Text("AI-модели", style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold)
+                        fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    IconButton(onClick = ::checkUpdates, enabled = !checking && !updateChecking && active == null) {
+                        if (updateChecking) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Rounded.Refresh, "Проверить обновления")
+                    }
                 }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    val count = listOf(lamaReady, mobileReady, peopleReady, glareReady, reflectionReady).count { it }
-                    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.Psychology, null, Modifier.size(36.dp),
-                                    tint = MaterialTheme.colorScheme.primary)
-                                Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-                                    Text("Локальная обработка", fontWeight = FontWeight.SemiBold)
-                                    Text("Модели на устройстве", style = MaterialTheme.typography.bodySmall)
-                                }
-                                Text(if (checking) "…" else "$count/5", style = MaterialTheme.typography.headlineSmall,
-                                    color = MaterialTheme.colorScheme.primary)
-                            }
-                            if (checking) LinearProgressIndicator(Modifier.fillMaxWidth())
-                            else LinearProgressIndicator(progress = { count / 5f }, modifier = Modifier.fillMaxWidth())
-                            Text("Локальная обработка фотографий · без отправки в облако", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val ready = mapOf("lama" to lamaReady, "mobile" to mobileReady, "people" to peopleReady,
+                        "glare" to glareReady, "reflection" to reflectionReady)
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("Обработка на устройстве", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Text(if (checking) "…" else "${ready.values.count { it }}/5",
+                            fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    }
+                    val enabled = !checking && active == null
+                    AiModelCatalog.entries.forEach { entry ->
+                        val key = entry.kind.key
+                        val icon = when (entry.kind) {
+                            AiModelUpdateChecker.Kind.LAMA -> Icons.Rounded.AutoFixHigh
+                            AiModelUpdateChecker.Kind.MOBILE_SAM -> Icons.Rounded.TouchApp
+                            AiModelUpdateChecker.Kind.PEOPLE -> Icons.Rounded.PersonSearch
+                            AiModelUpdateChecker.Kind.GLARE -> Icons.Rounded.LightMode
+                            AiModelUpdateChecker.Kind.REFLECTION -> Icons.Rounded.Photo
                         }
-                    }
-                    val enabled = !checking && !updateChecking && active == null
-                    ModelRow("LaMa", "Удаление объектов и текста", "Восстановление фона в выделенной области.",
-                        Icons.Rounded.AutoFixHigh, lamaReady, enabled, checking,
-                        onInstall = { download("lama") }, onDelete = { pendingDelete = "lama" })
-                    ModelRow("MobileSAM", "Выделение касанием · 44,7 МБ", "Сегментация объекта по точке касания.",
-                        Icons.Rounded.TouchApp, mobileReady, enabled, checking,
-                        onInstall = { download("mobile") }, onDelete = { pendingDelete = "mobile" })
-                    ModelRow("EfficientDet-Lite0", "Обнаружение людей · 13,8 МБ", "Обнаружение людей для последующего построения масок.",
-                        Icons.Rounded.PersonSearch, peopleReady, enabled, checking,
-                        onInstall = { download("people") }, onDelete = { pendingDelete = "people" })
-                    ModelRow("SRNet", "Удаление бликов · 230 КБ", "Модель поставляется с приложением. Установка без сети; обновление весов — с новой версией.",
-                        Icons.Rounded.LightMode, glareReady, enabled, checking,
-                        onInstall = { download("glare") }, onDelete = { pendingDelete = "glare" })
-                    ModelRow("DExNet + VGG19", "Удаление отражений · 91 МБ",
-                        if (BuildConfig.REFLECTION_MODEL_BUNDLED) "Установка из QA-приложения." else "Импорт проверенного ONNX-файла.",
-                        Icons.Rounded.Photo, reflectionReady, enabled, checking,
-                        installDescription = if (BuildConfig.REFLECTION_MODEL_BUNDLED) "Установить" else "Импортировать ONNX",
-                        onInstall = { download("reflection") }, onDelete = { pendingDelete = "reflection" })
-                    if (updateChecking) {
-                        LinearProgressIndicator(Modifier.fillMaxWidth())
-                        Text("Проверка версий и SHA-256…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    updateResults.forEach { (kind, result) ->
-                        Text("${when (kind) { "lama" -> "LaMa"; "mobile" -> "MobileSAM"; else -> "EfficientDet" }}: ${result.detail}",
-                            color = if (result.state == ModelUpdateState.REVIEW_REQUIRED)
-                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.bodySmall)
+                        ModelRow(entry, icon, ready[key] == true, enabled, checking, updateResults[key],
+                            reflection.bundled(), onInstall = { download(key) }, onDelete = { pendingDelete = key })
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Spacer(Modifier.height(4.dp))
@@ -334,11 +328,6 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                         TextButton(onClick = { job?.cancel() }) { Text("Отменить установку") }
                     }
                 }
-                Button(onClick = ::checkUpdates, enabled = !checking && !updateChecking && active == null,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-                    Icon(Icons.Rounded.Refresh, null)
-                    Spacer(Modifier.width(8.dp)); Text("Проверить обновления")
-                }
             }
         }
     }
@@ -346,53 +335,48 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
 
 @Composable
 private fun ModelRow(
-    title: String,
-    detail: String,
-    explanation: String,
+    entry: AiModelCatalog.Entry,
     icon: ImageVector,
     ready: Boolean,
     enabled: Boolean,
     checking: Boolean,
-    installDescription: String = "Установить",
+    result: ModelUpdateResult?,
+    reflectionBundled: Boolean,
     onInstall: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
     Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                    Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
-                        Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                }
-                Column(Modifier.weight(1f).clickable { expanded = !expanded }) {
-                    Text(title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
-                    Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                }
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия · $title") }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("О модели") }, onClick = { menu = false; expanded = true })
-                        if (ready) DropdownMenuItem(text = { Text("Удалить модель", color = MaterialTheme.colorScheme.error) },
-                            enabled = enabled, onClick = { menu = false; onDelete() })
-                    }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(if (checking) "Проверка…" else if (ready) "Установлена" else "Не установлена",
-                    color = if (ready && !checking) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                if (!ready && !checking) TextButton(onClick = onInstall, enabled = enabled) { Text(installDescription) }
-                IconButton(onClick = { expanded = !expanded }) {
-                    Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, "Сведения о модели $title")
-                }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(entry.title, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                Text(listOfNotNull(entry.purpose, entry.sizeLabel).joinToString(" · "),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                Text(AiModelCatalog.status(entry, ready, checking, result, reflectionBundled),
+                    color = when {
+                        result?.state == ModelUpdateState.REVIEW_REQUIRED -> MaterialTheme.colorScheme.primary
+                        ready && !checking -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }, style = MaterialTheme.typography.bodySmall)
             }
-            if (expanded) {
-                HorizontalDivider()
-                Text(explanation, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (ready && !checking) {
+                IconButton(onClick = onDelete, enabled = enabled) {
+                    Icon(Icons.Rounded.DeleteOutline, "Удалить ${entry.title}",
+                        tint = if (enabled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else if (!checking) {
+                val action = AiModelCatalog.installAction(entry, reflectionBundled)
+                IconButton(onClick = onInstall, enabled = enabled) {
+                    Icon(if (action == "Импортировать") Icons.Rounded.FolderOpen else Icons.Rounded.Download,
+                        "$action ${entry.title}")
+                }
+            } else {
+                Spacer(Modifier.size(48.dp))
             }
         }
     }
