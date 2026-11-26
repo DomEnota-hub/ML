@@ -23,9 +23,9 @@ class AiModelCatalogTest {
         assertNull(sr.metadataRepository)
         assertNull(dex.metadataRepository)
         assertEquals("Скачать", AiModelCatalog.installAction(sr, false))
-        assertEquals("Импортировать", AiModelCatalog.installAction(dex, false))
+        assertEquals("Скачать", AiModelCatalog.installAction(dex, false))
         assertEquals("Установить", AiModelCatalog.installAction(dex, true))
-        assertTrue(AiModelCatalog.status(dex, true, false, null, false).contains("импорт"))
+        assertTrue(AiModelCatalog.status(dex, false, false, null, false).contains("сборка"))
     }
 
     @Test fun changedOrUnavailableUpstreamNeverClaimsAnApprovedUpdate() {

@@ -60,7 +60,6 @@ import com.domenota.medialoader.data.editor.MobileSamModelStore
 import com.domenota.medialoader.data.editor.PersonDetectorModelStore
 import com.domenota.medialoader.data.editor.SpecularSrNetModelStore
 import com.domenota.medialoader.data.editor.ReflectionDExModelStore
-import com.domenota.medialoader.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -126,10 +125,6 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     fun download(kind: String, offline: Boolean = false) {
         if (active != null || checking) return
         cancelUpdateCheck()
-        if (kind == "reflection" && !reflection.bundled()) {
-            reflectionFilePicker.launch(arrayOf("*/*"))
-            return
-        }
         updateResults = emptyMap()
         error = null
         progress = 0
@@ -149,8 +144,9 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                     if (offline) glare.install { progress = it }
                     else glare.download { progress = it }
                     glareReady = glare.verifyInstalled()
-                } else if (kind == "reflection" && BuildConfig.REFLECTION_MODEL_BUNDLED) {
-                    reflection.install { progress = it }
+                } else if (kind == "reflection") {
+                    if (reflection.bundled()) reflection.install { progress = it }
+                    else reflection.downloadAndAssemble { progress = it }
                     reflectionReady = reflection.verifyInstalled()
                 }
             } catch (cancel: CancellationException) {
@@ -303,7 +299,10 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                         }
                         ModelRow(entry, icon, ready[key] == true, enabled, checking, updateResults[key],
                             reflection.bundled(), onInstall = { download(key) }, onDelete = { pendingDelete = key },
-                            onOfflineInstall = if (entry.kind == AiModelUpdateChecker.Kind.GLARE) ({ download(key, offline = true) }) else null)
+                            onOfflineInstall = if (entry.kind == AiModelUpdateChecker.Kind.GLARE) ({ download(key, offline = true) }) else null,
+                            onImport = if (entry.kind == AiModelUpdateChecker.Kind.REFLECTION) ({
+                                reflectionFilePicker.launch(arrayOf("*/*"))
+                            }) else null)
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Spacer(Modifier.height(4.dp))
@@ -339,6 +338,7 @@ private fun ModelRow(
     onInstall: () -> Unit,
     onDelete: () -> Unit,
     onOfflineInstall: (() -> Unit)? = null,
+    onImport: (() -> Unit)? = null,
 ) {
     Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
@@ -367,6 +367,9 @@ private fun ModelRow(
             } else if (!checking) {
                 if (onOfflineInstall != null) IconButton(onClick = onOfflineInstall, enabled = enabled) {
                     Icon(Icons.Rounded.SaveAlt, "Установить SRNet офлайн")
+                }
+                if (onImport != null) IconButton(onClick = onImport, enabled = enabled) {
+                    Icon(Icons.Rounded.FolderOpen, "Импортировать DExNet ONNX")
                 }
                 val action = AiModelCatalog.installAction(entry, reflectionBundled)
                 IconButton(onClick = onInstall, enabled = enabled) {

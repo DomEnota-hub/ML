@@ -8,7 +8,7 @@ import com.domenota.medialoader.data.editor.AiModelUpdateChecker.Kind
  * No unpublished remote catalog or model is represented as available.
  */
 internal object AiModelCatalog {
-    enum class Distribution { UPSTREAM_DOWNLOAD, NETWORK_OR_OFFLINE, VERIFIED_IMPORT }
+    enum class Distribution { UPSTREAM_DOWNLOAD, NETWORK_OR_OFFLINE, LOCAL_ASSEMBLY }
     data class Entry(
         val kind: Kind,
         val title: String,
@@ -42,7 +42,7 @@ internal object AiModelCatalog {
             Distribution.NETWORK_OR_OFFLINE, listOf(ExpectedModelBlob(SpecularSrNetModelStore.MODEL_NAME, SpecularSrNetModelStore.MODEL_SHA256, SpecularSrNetModelStore.MODEL_BYTES))),
         Entry(Kind.REFLECTION, "DExNet + VGG19", "Удаление отражений", "91 МБ",
             "sha256-pinned", "https://github.com/jjhuangcs/DExNet", "Redistribution of combined weights not established",
-            Distribution.VERIFIED_IMPORT, listOf(ExpectedModelBlob(ReflectionDExModelStore.MODEL_NAME, ReflectionDExModelStore.EXPECTED_SHA256, ReflectionDExModelStore.EXACT_BYTES))),
+            Distribution.LOCAL_ASSEMBLY, listOf(ExpectedModelBlob(ReflectionDExModelStore.MODEL_NAME, ReflectionDExModelStore.EXPECTED_SHA256, ReflectionDExModelStore.EXACT_BYTES))),
     )
 
     fun entry(kind: Kind): Entry = entries.single { it.kind == kind }
@@ -51,7 +51,7 @@ internal object AiModelCatalog {
     fun installAction(entry: Entry, reflectionBundled: Boolean): String = when (entry.distribution) {
         Distribution.UPSTREAM_DOWNLOAD -> "Скачать"
         Distribution.NETWORK_OR_OFFLINE -> "Скачать"
-        Distribution.VERIFIED_IMPORT -> if (reflectionBundled) "Установить" else "Импортировать"
+        Distribution.LOCAL_ASSEMBLY -> if (reflectionBundled) "Установить" else "Скачать"
     }
 
     fun status(entry: Entry, ready: Boolean, checking: Boolean, result: ModelUpdateResult?, reflectionBundled: Boolean): String {
@@ -59,7 +59,7 @@ internal object AiModelCatalog {
         val base = if (ready) "Установлена" else "Не установлена"
         val suffix = when (entry.distribution) {
             Distribution.NETWORK_OR_OFFLINE -> if (result?.state == ModelUpdateState.REVIEW_REQUIRED) "новая версия на проверке" else "доступна офлайн"
-            Distribution.VERIFIED_IMPORT -> if (result?.state == ModelUpdateState.REVIEW_REQUIRED) "новая версия на проверке" else if (reflectionBundled) "локальная версия" else "импорт ONNX"
+            Distribution.LOCAL_ASSEMBLY -> if (result?.state == ModelUpdateState.REVIEW_REQUIRED) "новая версия на проверке" else if (ready || reflectionBundled) "локальная версия" else "сборка на устройстве · 694 МБ"
             Distribution.UPSTREAM_DOWNLOAD -> when (result?.state) {
                 ModelUpdateState.CURRENT -> if (ready) "актуальна" else null
                 ModelUpdateState.REVIEW_REQUIRED -> "новая версия на проверке"
