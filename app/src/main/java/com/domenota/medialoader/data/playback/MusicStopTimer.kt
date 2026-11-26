@@ -11,12 +11,13 @@ import java.time.LocalTime
 import java.time.ZoneId
 
 internal enum class MusicStopCriterion(val label: String) {
-    AT_TIME("В указанное время"), AFTER_TIME("Через указанное время"), TRACKS("После окончания треков"),
-    PLAYLIST("После окончания плейлиста"), QUEUE("После окончания очереди")
+    AT_TIME("В указанное время"), AFTER_TIME("Через указанное время"),
+    PLAYLIST("После окончания плейлиста")
 }
 internal data class MusicStopRequest(val criterion: MusicStopCriterion, val value: Long = 0, val finishTrack: Boolean = false)
 internal data class MusicStopStatus(val request: MusicStopRequest? = null, val remaining: Long = 0, val waiting: Boolean = false,
-    val playlistAvailable: Boolean = false, val message: String? = null)
+    val playlistAvailable: Boolean = false, val message: String? = null,
+    val playlistUnavailableReason: String? = null)
 
 internal object MusicStopTimerPolicy {
     fun nextTime(now: Long, minuteOfDay: Int, zone: ZoneId): Long {
@@ -27,11 +28,19 @@ internal object MusicStopTimerPolicy {
         if (!candidate.toInstant().isAfter(local.toInstant())) candidate = local.toLocalDate().plusDays(1).atTime(time).atZone(zone)
         return candidate.toInstant().toEpochMilli()
     }
+    fun durationSeconds(hours: String, minutes: String, seconds: String): Long {
+        val h = hours.ifEmpty { "0" }.toLongOrNull() ?: return -1
+        val m = minutes.ifEmpty { "0" }.toLongOrNull() ?: return -1
+        val s = seconds.ifEmpty { "0" }.toLongOrNull() ?: return -1
+        return if (h in 0..23 && m in 0..59 && s in 0..59) h*3600+m*60+s else -1
+    }
+    fun playlistAvailable(publicCurrent: Boolean, playlistId: String?, repeatMode: Int): Boolean =
+        publicCurrent && playlistId != null && repeatMode != Player.REPEAT_MODE_ONE
+
     fun valid(request: MusicStopRequest): Boolean = when (request.criterion) {
         MusicStopCriterion.AT_TIME -> request.value in 0L..1439L
         MusicStopCriterion.AFTER_TIME -> request.value in 1L..86399L
-        MusicStopCriterion.TRACKS -> request.value in 1L..999L
-        else -> true
+        MusicStopCriterion.PLAYLIST -> true
     }
 }
 
@@ -42,12 +51,8 @@ internal class MusicStopTimer(private val player: ExoPlayer, private val scope: 
     val state = mutable.asStateFlow()
     private var request: MusicStopRequest? = null
     private var deadline = 0L
-    private var tracksLeft = 0L
     private var waiting = false
     private var playlistId: String? = null
-    private var repeatBefore: Int? = null
-    private var changingRepeat = false
-    internal fun isTemporaryRepeat(mode:Int)=mode==Player.REPEAT_MODE_OFF && repeatBefore!=null
     private var ticker: Job? = null
     var stopGeneration = 0L
         private set
@@ -58,25 +63,25 @@ internal class MusicStopTimer(private val player: ExoPlayer, private val scope: 
         val remaining = when (active?.criterion) {
             MusicStopCriterion.AT_TIME -> ((deadline-System.currentTimeMillis()+999)/1000).coerceAtLeast(0)
             MusicStopCriterion.AFTER_TIME -> ((deadline-SystemClock.elapsedRealtime()+999)/1000).coerceAtLeast(0)
-            MusicStopCriterion.TRACKS -> tracksLeft
             else -> 0L
         }
-        mutable.value = MusicStopStatus(active,remaining,waiting,publicCurrent() && currentPlaylist()!=null,message)
+        val available = MusicStopTimerPolicy.playlistAvailable(publicCurrent(), currentPlaylist(), player.repeatMode)
+        val unavailableReason = when {
+            !publicCurrent() || currentPlaylist() == null -> "Нет активного плейлиста"
+            player.repeatMode == Player.REPEAT_MODE_ONE -> "Включён повтор трека"
+            else -> null
+        }
+        mutable.value = MusicStopStatus(active,remaining,waiting,available,message,unavailableReason)
     }
     fun attach() { player.addListener(this); publish() }
     fun start(value: MusicStopRequest): Boolean {
-        if (!MusicStopTimerPolicy.valid(value) || !publicCurrent() || value.criterion == MusicStopCriterion.PLAYLIST && currentPlaylist()==null) return false
+        if (!MusicStopTimerPolicy.valid(value) || !publicCurrent() || value.criterion == MusicStopCriterion.PLAYLIST && !MusicStopTimerPolicy.playlistAvailable(publicCurrent(), currentPlaylist(), player.repeatMode)) return false
         cancel()
-        request = value; waiting = false; tracksLeft = value.value; playlistId = currentPlaylist()
+        request = value; waiting = false; playlistId = currentPlaylist()
         deadline = when (value.criterion) {
             MusicStopCriterion.AT_TIME -> MusicStopTimerPolicy.nextTime(System.currentTimeMillis(),value.value.toInt(),ZoneId.systemDefault())
             MusicStopCriterion.AFTER_TIME -> SystemClock.elapsedRealtime()+value.value*1000L
             else -> 0L
-        }
-        if (value.criterion == MusicStopCriterion.PLAYLIST || value.criterion == MusicStopCriterion.QUEUE) {
-            repeatBefore = player.repeatMode
-            changingRepeat = true
-            try { player.repeatMode = Player.REPEAT_MODE_OFF } finally { changingRepeat = false }
         }
         updateBoundary(); publish()
         ticker = scope.launch {
@@ -112,9 +117,7 @@ internal class MusicStopTimer(private val player: ExoPlayer, private val scope: 
     private fun updateBoundary() {
         val r = request
         val atEnd = r != null && when (r.criterion) {
-            MusicStopCriterion.TRACKS -> tracksLeft <= 1
             MusicStopCriterion.PLAYLIST -> isLastPlaylistItem()
-            MusicStopCriterion.QUEUE -> !player.hasNextMediaItem()
             else -> waiting
         }
         player.setPauseAtEndOfMediaItems(atEnd)
@@ -136,11 +139,6 @@ internal class MusicStopTimer(private val player: ExoPlayer, private val scope: 
                 if (!hasMore) { stop(); return }
             } else { cancel("Плейлист изменён"); return }
         }
-        if (r.criterion == MusicStopCriterion.TRACKS &&
-            (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT)) {
-            tracksLeft--
-            if (tracksLeft <= 0) { stop(); return }
-        }
         updateBoundary(); publish()
     }
     override fun onPlaybackStateChanged(playbackState: Int) {
@@ -152,10 +150,9 @@ internal class MusicStopTimer(private val player: ExoPlayer, private val scope: 
     }
     override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { updateBoundary(); publish() }
     override fun onRepeatModeChanged(repeatMode: Int) {
-        if (!changingRepeat && repeatBefore != null && repeatMode != Player.REPEAT_MODE_OFF) {
-            // An explicit change wins over a scheduled end-of-list operation.
-            repeatBefore = null; cancel("Таймер отменён: изменён повтор")
-        }
+        if (request?.criterion == MusicStopCriterion.PLAYLIST && repeatMode == Player.REPEAT_MODE_ONE) {
+            cancel("Таймер отменён: включён повтор трека")
+        } else { updateBoundary(); publish() }
     }
     private fun stop() {
         stopGeneration++
@@ -166,11 +163,6 @@ internal class MusicStopTimer(private val player: ExoPlayer, private val scope: 
         request = null; waiting = false
         ticker?.cancel(); ticker = null
         player.setPauseAtEndOfMediaItems(false)
-        val previous = repeatBefore; repeatBefore = null
-        if (previous != null && player.repeatMode == Player.REPEAT_MODE_OFF) {
-            changingRepeat = true
-            try { player.repeatMode = previous } finally { changingRepeat = false }
-        }
         publish(message)
     }
     fun release() { cancel(); player.removeListener(this) }

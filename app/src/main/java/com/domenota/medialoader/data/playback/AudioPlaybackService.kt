@@ -175,7 +175,7 @@ class AudioPlaybackService : MediaSessionService() {
                 playbackModes.edit().putBoolean("shuffle", shuffleModeEnabled).apply()
             }
             override fun onRepeatModeChanged(repeatMode: Int) {
-                if(liveTimer?.isTemporaryRepeat(repeatMode)!=true) playbackModes.edit().putInt("repeat", repeatMode).apply()
+                playbackModes.edit().putInt("repeat", repeatMode).apply()
             }
         })
 
