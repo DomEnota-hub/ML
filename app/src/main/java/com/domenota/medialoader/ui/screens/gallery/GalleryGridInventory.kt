@@ -10,7 +10,8 @@ import java.time.ZoneId
 /** All grid data belongs to one browse generation and one selection. Only row
  * references are retained, not duplicated media entities or bitmaps. */
 internal data class GalleryGridKey(val selection:String,val search:String,val detail:Boolean,val tab:Int,
-    val sort:GalleryAlbumFileSort,val excluded:Set<String>,val today:LocalDate,val zone:ZoneId)
+    val sort:GalleryAlbumFileSort,val excluded:Set<String>,val today:LocalDate,val zone:ZoneId,
+    val noteMatches:Set<String> = emptySet())
 internal data class GalleryGridInventory(val allVisible:List<DownloadEntity> = emptyList(),
     val visible:List<DownloadEntity> = emptyList(),val ordered:List<DownloadEntity> = emptyList(),
     val queue:List<String> = emptyList(),val queueSet:Set<String> = emptySet(),
@@ -45,7 +46,7 @@ internal data class GalleryGridInventory(val allVisible:List<DownloadEntity> = e
             val all=if(key.excluded.isEmpty())browse.media else browse.media.filter{row->
                 visibleInGalleryMedia(row,browse.catalog[row.id],browse.buckets[row.id],key.excluded)
             }
-            val selected=browse.select(key.selection,key.search)
+            val selected=browse.select(key.selection,key.search,key.noteMatches)
             val visible=if(key.tab==0&&key.selection=="all"&&key.excluded.isNotEmpty()) {
                 if(key.search.isBlank())all else selected.filter{row->visibleInGalleryMedia(row,browse.catalog[row.id],browse.buckets[row.id],key.excluded)}
             } else selected
