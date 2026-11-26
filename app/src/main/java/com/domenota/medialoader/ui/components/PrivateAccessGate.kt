@@ -29,11 +29,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.privatevault.PrivateAccessManager
 import com.domenota.medialoader.data.privatevault.PrivateAccessMode
+import com.domenota.medialoader.data.privatevault.PrivateUnlockDuration
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.Executor
 
 @Composable
-fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifier, autoAuthenticate: Boolean = true) {
+fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifier,
+    autoAuthenticate: Boolean = true, allowRememberedSession: Boolean = false) {
     val state by manager.state.collectAsState()
     if (state.unlocked) return
     if (state.mode == PrivateAccessMode.UNCONFIGURED) {
@@ -45,12 +50,16 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var attemptedSystemEntry by rememberSaveable { mutableStateOf(false) }
-    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     val authenticate = rememberSystemAuthentication(
         onSuccess = { manager.onSystemAuthenticationSucceeded(); busy = false },
         onFailure = { error = it.takeUnless { reason -> reason == "Подтверждение отменено" }; busy = false }
     )
-    LaunchedEffect(state.mode, lifecycleState, autoAuthenticate) {
+    LaunchedEffect(state.mode, lifecycleState, autoAuthenticate, allowRememberedSession) {
+        if (lifecycleState != Lifecycle.State.RESUMED ||
+            lifecycleOwner.lifecycle.currentState != Lifecycle.State.RESUMED) return@LaunchedEffect
+        if (allowRememberedSession && manager.resumeRememberedAccess()) return@LaunchedEffect
         if (autoAuthenticate && state.mode == PrivateAccessMode.BIOMETRIC &&
             lifecycleState == Lifecycle.State.RESUMED && !attemptedSystemEntry && manager.systemProtectionAvailable) {
             // Consume before launching: credential activities stop/resume our lifecycle.
@@ -96,9 +105,12 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
 }
 
 @Composable
-fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit) {
+fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit,
+    onManualLock: (() -> Unit)? = null) {
     val state by manager.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val unlockDuration by manager.unlockDuration.collectAsState()
+    var durationMenu by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<PrivateAccessMode?>(null) }
     var pin by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
@@ -122,6 +134,26 @@ fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit)
             Text("Сначала разблокируйте приватный раздел")
             return@Column
         }
+        if (state.unlocked && state.mode in setOf(PrivateAccessMode.PIN, PrivateAccessMode.BIOMETRIC)) {
+            Text("Время разблокировки", style = MaterialTheme.typography.titleMedium)
+            Box {
+                OutlinedButton(onClick = { durationMenu = true }, enabled = !busy) { Text(unlockDuration.title) }
+                DropdownMenu(expanded = durationMenu && !busy, onDismissRequest = { durationMenu = false }) {
+                    PrivateUnlockDuration.values().forEach { choice ->
+                        DropdownMenuItem(text = { Text(choice.title) }, onClick = {
+                            durationMenu = false; busy = true; error = null
+                            scope.launch {
+                                try { withContext(Dispatchers.IO) { manager.setUnlockDuration(choice) } }
+                                catch (cancelled: CancellationException) { throw cancelled }
+                                catch (e: Exception) { error = e.message ?: "Не удалось сохранить время" }
+                                finally { busy = false }
+                            }
+                        })
+                    }
+                }
+            }
+            Text("Отсчёт после выхода из раздела или сворачивания.", style = MaterialTheme.typography.bodySmall)
+        }
         Text("Выберите способ входа")
         listOf(PrivateAccessMode.NONE to "Без защиты", PrivateAccessMode.PIN to "Свой PIN из 6 цифр", PrivateAccessMode.BIOMETRIC to "Биометрия / блокировка устройства").forEach { (mode, title) ->
             Row {
@@ -144,6 +176,10 @@ fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit)
             // A second credential activity would background the app and revoke that authorization.
             if (mode == PrivateAccessMode.BIOMETRIC && state.mode == PrivateAccessMode.UNCONFIGURED) authenticate() else save(mode)
         }) { Text(if (selected == PrivateAccessMode.BIOMETRIC && state.mode == PrivateAccessMode.UNCONFIGURED) "Подтвердить и сохранить" else "Сохранить") }
+        if (onManualLock != null && state.unlocked &&
+            state.mode in setOf(PrivateAccessMode.PIN, PrivateAccessMode.BIOMETRIC)) {
+            TextButton(onClick = onManualLock, enabled = !busy) { Text("Заблокировать сейчас") }
+        }
         if (busy) CircularProgressIndicator()
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
