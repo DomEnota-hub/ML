@@ -166,4 +166,25 @@ class PrivateScreenUiTest {
         compose.onNodeWithText("Ранее защищённые файлы").assertDoesNotExist()
         compose.onNodeWithText(secretName,useUnmergedTree=true).assertDoesNotExist()
     }
+
+    @Test fun durationSettingRequiresFreshPinAndManualLockClearsRememberedEntry() {
+        showPrivateScreen()
+        enterPin("123456")
+        compose.waitUntil(10_000) { access.state.value.unlocked }
+        compose.onNodeWithContentDescription("Настройки личного").performClick()
+        compose.onNodeWithText("Время разблокировки").assertDoesNotExist()
+        enterPin("123456")
+        compose.waitUntil(10_000) { access.state.value.unlocked }
+        compose.onNodeWithText("До выхода из раздела", substring = false).performScrollTo().performClick()
+        compose.onNodeWithText("5 минут", substring = false).performClick()
+        compose.waitUntil(10_000) {
+            access.unlockDuration.value == com.domenota.medialoader.data.privatevault.PrivateUnlockDuration.FIVE_MINUTES
+        }
+        compose.onNodeWithText("Заблокировать сейчас", substring = false).performScrollTo().performClick()
+        compose.waitUntil(10_000) { !access.state.value.unlocked }
+        compose.onNodeWithText("Введите PIN из 6 цифр").assertIsDisplayed()
+        compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
+        assertFalse(access.resumeRememberedAccess())
+    }
+
 }
