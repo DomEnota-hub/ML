@@ -88,6 +88,7 @@ fun BackgroundAudioPlayer(
     onBack: () -> Unit = {}, onEqualizer: (() -> Unit)? = null,
     favoriteIds: Set<String> = emptySet(), onFavorite: ((DownloadEntity) -> Unit)? = null, onEdit: ((DownloadEntity) -> Unit)? = null,
     onRecognize:((DownloadEntity,Long)->Unit)?=null, onToggle:(()->Unit)?=null,
+    onSaveQueue: (suspend (String, List<MediaItem>) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val playableQueue = remember(item.id, queue) {
@@ -308,6 +309,10 @@ fun BackgroundAudioPlayer(
         if (queueOpen && !blocked) ModalBottomSheet(onDismissRequest = { queueOpen = false }) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
             Text("Очередь воспроизведения", Modifier.padding(17.dp), style = MaterialTheme.typography.titleLarge)
+            if (onSaveQueue != null && controller != null) {
+                com.domenota.medialoader.ui.screens.music.SaveQueuePlaylistAction(
+                    controller, sessionItems.isNotEmpty(), blockedIdentities, onSaveQueue)
+            }
             com.domenota.medialoader.ui.screens.music.EditableAudioQueue(
                 sessionItems, controller, currentIndex, isPlaying, lookup, blockedIdentities,
                 onSelect = { index ->

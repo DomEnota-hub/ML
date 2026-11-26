@@ -17,6 +17,35 @@ import org.robolectric.annotation.Config
 class AudioQueuePlaybackTest {
     private fun item(id: String, private: Boolean = false) = MediaItem.Builder().setMediaId(id).setUri("file:///missing-$id.mp3")
         .setMediaMetadata(MediaMetadata.Builder().setExtras(Bundle().apply { putBoolean("private_media", private) }).build()).build()
+    @Test fun playlistSnapshotRespectsManualOrderAndDoesNotChangePlayback() {
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            player.setMediaItems(listOf(item("a"), item("b"), item("c")))
+            player.seekTo(1, 4567)
+            player.pause()
+            AudioQueuePlayback.move(player, 2, 0)
+            player.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ONE
+            assertEquals(listOf("c", "a", "b"), AudioQueuePlayback.playlistSnapshot(player).map { it.mediaId })
+            assertEquals("b", player.currentMediaItem?.mediaId)
+            assertEquals(4567L, player.currentPosition)
+            assertFalse(player.playWhenReady)
+        } finally { player.release() }
+    }
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @Test fun playlistSnapshotRespectsShuffleTraversalAndRejectsPrivateQueue() {
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            player.setMediaItems(listOf(item("a"), item("b"), item("c")))
+            player.setShuffleOrder(androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(intArrayOf(2,0,1), 1L))
+            player.shuffleModeEnabled = true
+            player.repeatMode = androidx.media3.common.Player.REPEAT_MODE_ALL
+            assertEquals(listOf("c", "a", "b"), AudioQueuePlayback.playlistSnapshot(player).map { it.mediaId })
+            player.setMediaItems(listOf(item("a"), item("secret", true)))
+            assertTrue(runCatching { AudioQueuePlayback.playlistSnapshot(player) }.isFailure)
+            player.clearMediaItems()
+            assertTrue(runCatching { AudioQueuePlayback.playlistSnapshot(player) }.isFailure)
+        } finally { player.release() }
+    }
     @Test fun explicitResumeRestoresIndexAndPositionWithoutToggling() {
         val player=ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
         try {

@@ -5638,6 +5638,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.AudioQueuePlaybackTest#playlistSnapshotRespectsManualOrderAndDoesNotChangePlayback": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.AudioQueuePlaybackTest#playlistSnapshotRespectsShuffleTraversalAndRejectsPrivateQueue": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.AudioQueuePlaybackTest#previewOfCurrentTrackTogglesWithoutReplacingQueueOrPosition": {
     "skipped": false,
     "failed": false

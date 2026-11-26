@@ -75,6 +75,27 @@ internal object AudioQueuePlayback {
             player.play()
         } else if (player.playWhenReady) player.pause() else player.play()
     }
+    /** Capture actual playback traversal, including shuffle, ignoring repeat and position. */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun playlistSnapshot(player: Player): List<MediaItem> {
+        require(player.isCommandAvailable(Player.COMMAND_GET_TIMELINE))
+        val timeline = player.currentTimeline
+        val count = player.mediaItemCount
+        val shuffle = player.shuffleModeEnabled
+        require(count > 0 && timeline.windowCount == count)
+        val seen = HashSet<Int>()
+        val ordered = ArrayList<MediaItem>(count)
+        var index = timeline.getFirstWindowIndex(shuffle)
+        while (index in 0 until count && seen.add(index)) {
+            val item = player.getMediaItemAt(index)
+            require(!PrivatePlaybackPolicy.isPrivate(item) && item.mediaId.isNotBlank())
+            ordered.add(item)
+            index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, shuffle)
+        }
+        check(ordered.size == count && index == androidx.media3.common.C.INDEX_UNSET)
+        return ordered
+    }
+
     fun move(player: Player, from: Int, to: Int): Boolean {
         if (from !in 0 until player.mediaItemCount || to !in 0 until player.mediaItemCount) return false
         nextBatches.remove(player)

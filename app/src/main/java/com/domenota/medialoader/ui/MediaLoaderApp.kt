@@ -1575,14 +1575,14 @@ fun MediaLoaderApp(
             musicBrowse.ready,musicBrowse.usable,!musicBrowse.usable,phoneMusic.message!=null,
             musicBrowse.value.available.size,musicBrowseAccess!=null,musicAccessEpoch,collectionPrivacyGeneration)
     }
-    suspend fun validCollectionRefs(ids: List<String>, recent: Boolean = false, analytics: Boolean = false, selectedId: String? = null, folder: Boolean = false): List<LibraryMediaRef> {
+    suspend fun validCollectionRefs(ids: List<String>, recent: Boolean = false, analytics: Boolean = false, selectedId: String? = null, folder: Boolean = false, queueSave: Boolean = false): List<LibraryMediaRef> {
         val full = currentCollectionCatalog.byKey
         val scoped = currentScopedCatalog?.byKey.orEmpty()
         val music = currentRecentCatalog.byKey
         val audioEpoch = libraryModel.musicAccessEpoch.value
         val visualEpoch = libraryModel.galleryAccessEpoch.value
         val actionPrivacyEpoch = DuplicatePrivacyGuard.generation(context)
-        val candidates = ids.distinct().mapNotNull { id -> if (analytics) currentAudioRef(id) else if (recent || folder) music[id] else scoped[id] ?: full[id] }
+        val candidates = ids.distinct().mapNotNull { id -> if (queueSave) liveLibraryRefsByAlias[id] else if (analytics) currentAudioRef(id) else if (recent || folder) music[id] else scoped[id] ?: full[id] }
         val (checked, statuses) = withContext(Dispatchers.IO) {
             val statuses = mutableMapOf<String, Pair<String?, SavedFileStatus>>()
             val hiddenKeys = musicVisibilityPrefs.getStringSet("hidden_tracks", emptySet()).orEmpty()
@@ -1622,7 +1622,7 @@ fun MediaLoaderApp(
         val liveFull = currentCollectionCatalog.byKey
         val liveScoped = currentScopedCatalog?.byKey.orEmpty()
         val liveMusic = currentRecentCatalog.byKey
-        fun live(id: String) = if (analytics) currentAudioRef(id) else if (recent || folder) liveMusic[id] else liveScoped[id] ?: liveFull[id]
+        fun live(id: String) = if (queueSave) liveLibraryRefsByAlias[id] else if (analytics) currentAudioRef(id) else if (recent || folder) liveMusic[id] else liveScoped[id] ?: liveFull[id]
         val updates = statuses.filter { (id, result) -> live(id)?.item?.savedUri == result.first && id !in keys }
         if (updates.any { (id, result) -> fileStatusUris[id] != result.first || fileStatuses[id] != result.second }) {
             if (statusScanActive) statusOverrides.putAll(updates)
@@ -3523,6 +3523,30 @@ fun MediaLoaderApp(
                         } },
                         onAudioCurrentItemChanged = { entry.savedStateHandle["audio_current_id"] = it.id },
                         onPublicAudioToggle=::toggleLibraryPlayback,
+                        onSaveAudioQueue = if (visibilityScope == null && !item.isPrivate) ({ name, items ->
+                            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
+                            val epoch = DuplicatePrivacyGuard.generation(context)
+                            val permissionEpoch = libraryModel.musicAccessEpoch.value
+                            val ids = items.map { media ->
+                                val extra = media.mediaMetadata.extras
+                                val uri = extra?.getString(com.domenota.medialoader.data.playback.AudioPlaybackMetadata.PUBLIC_URI)
+                                    ?: media.localConfiguration?.uri?.toString()
+                                val keys = extra?.getStringArrayList(com.domenota.medialoader.data.playback.PublicMediaIdentity.EXTRA_KEYS).orEmpty()
+                                val ref = (listOf(media.mediaId) + keys).mapNotNull { liveLibraryRefsByAlias[it] }
+                                    .filter { it.item.savedUri == uri }.distinctBy { it.key }.singleOrNull()
+                                check(ref != null && !ref.item.isPrivate && !ref.item.hidden && ref.item.mediaType == MediaType.AUDIO &&
+                                    !com.domenota.medialoader.data.playback.PrivatePlaybackPolicy.isPrivate(media)) { "Часть треков недоступна" }
+                                ref.key
+                            }.distinct()
+                            val refs = validCollectionRefs(ids, queueSave = true)
+                            check(refs.isNotEmpty() && refs.map { it.key } == ids &&
+                                epoch == DuplicatePrivacyGuard.generation(context) &&
+                                permissionEpoch == libraryModel.musicAccessEpoch.value &&
+                                refs.all { it.item.mediaType == MediaType.AUDIO }) { "Состав очереди или доступ изменился" }
+                            val aliases = refs.flatMap { ref -> (ref.aliases + ref.key).map { it to ref.key } }.toMap()
+                            libraryModel.playlistRepository.createFromTracks(name, ids, aliases)
+                            Unit
+                        }) else null,
                         onAudioRecognize={selected,position->runRestoredAction(listOf(selected.id)){restored->
                             val current=restored[selected.id]?:selected;openTrackRecognition(current.id,position,current.savedUri)
                         }},
