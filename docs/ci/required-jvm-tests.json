@@ -7334,6 +7334,22 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#commandsRequireCurrentCapability": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#opaqueIdsAreStableAndOwnerScoped": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#sourceReplacementDoesNotDuplicateTasks": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#unknownProgressAndWaitingRemainDistinct": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.vk.VkWebCookieFileTest#onlyVkCookieRowsCanReturnToTheBrowser": {
     "skipped": false,
     "failed": false
