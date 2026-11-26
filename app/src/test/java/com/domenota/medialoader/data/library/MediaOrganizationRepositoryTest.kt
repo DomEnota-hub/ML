@@ -121,7 +121,7 @@ class MediaOrganizationRepositoryTest {
         assertNull(locked.parent)
     }
 
-    @Test fun passportRejectsAmbiguousAndCyclicIdentityMatches() {
+    @Test fun passportRejectsAmbiguousSelfAndReciprocalIdentityMatches() {
         val source=ref(row("source"))
         val copy=ref(row("copy",parent="source"))
         val conflict=ref(row("other")).copy(aliases=setOf("source"))
@@ -133,6 +133,7 @@ class MediaOrganizationRepositoryTest {
         assertTrue(MediaOrganizationPolicy.passport(self,listOf(self)).children.isEmpty())
         val a=ref(row("a",parent="b"))
         val b=ref(row("b",parent="a"))
+        assertNull(MediaOrganizationPolicy.passport(a,listOf(a,b)).parent)
         assertTrue(MediaOrganizationPolicy.passport(a,listOf(a,b)).children.isEmpty())
     }
 
