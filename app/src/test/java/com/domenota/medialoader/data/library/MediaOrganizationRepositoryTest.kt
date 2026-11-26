@@ -93,4 +93,47 @@ class MediaOrganizationRepositoryTest {
         assertEquals("a",MediaOrganizationPolicy.passport(ref(row("edit",parent="a")),listOf(ref(a))).parent?.key)
         assertTrue(runCatching{MediaOrganizationPolicy.link("file:///etc/passwd")}.isFailure)
     }
+
+    @Test fun passportShowsOnlyExplicitDirectPublicRelationships() {
+        val original=ref(row("source"))
+        val copy=ref(row("copy",parent="source"))
+        val later=ref(row("later",parent="copy"))
+        val unrelated=ref(row("unrelated").copy(originalName=original.item.originalName))
+        val all=listOf(original,copy,later,unrelated)
+        assertEquals(listOf("copy"),MediaOrganizationPolicy.passport(original,all).children.map{it.key})
+        val p=MediaOrganizationPolicy.passport(copy,all)
+        assertEquals("source",p.parent?.key)
+        assertEquals(listOf("later"),p.children.map{it.key})
+        assertNull(MediaOrganizationPolicy.passport(original,all).parent)
+    }
+
+    @Test fun passportNeverExposesHiddenPrivateMissingOrIncompleteRelations() {
+        val source=ref(row("source"))
+        val copy=ref(row("copy",parent="source"))
+        val privateCopy=ref(row("private",private=true,parent="source"))
+        val hiddenCopy=ref(row("hidden",parent="source").copy(hidden=true))
+        val missingCopy=ref(row("missing",parent="source").copy(savedUri=null))
+        val runningCopy=ref(row("running",state=DownloadState.RUNNING,parent="source"))
+        val all=listOf(source,copy,privateCopy,hiddenCopy,missingCopy,runningCopy)
+        assertEquals(listOf("copy"),MediaOrganizationPolicy.passport(source,all).children.map{it.key})
+        val locked=MediaOrganizationPolicy.passport(copy,listOf(source.copy(item=source.item.copy(isPrivate=true)),copy))
+        assertTrue(locked.parentKnown)
+        assertNull(locked.parent)
+    }
+
+    @Test fun passportRejectsAmbiguousAndCyclicIdentityMatches() {
+        val source=ref(row("source"))
+        val copy=ref(row("copy",parent="source"))
+        val conflict=ref(row("other")).copy(aliases=setOf("source"))
+        val all=listOf(source,copy,conflict)
+        assertNull(MediaOrganizationPolicy.passport(copy,all).parent)
+        assertTrue(MediaOrganizationPolicy.passport(source,all).children.isEmpty())
+        val self=ref(row("self",parent="self"))
+        assertNull(MediaOrganizationPolicy.passport(self,listOf(self)).parent)
+        assertTrue(MediaOrganizationPolicy.passport(self,listOf(self)).children.isEmpty())
+        val a=ref(row("a",parent="b"))
+        val b=ref(row("b",parent="a"))
+        assertTrue(MediaOrganizationPolicy.passport(a,listOf(a,b)).children.isEmpty())
+    }
+
 }
