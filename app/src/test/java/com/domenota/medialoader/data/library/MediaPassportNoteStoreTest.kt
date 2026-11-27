@@ -105,4 +105,25 @@ class MediaPassportNoteStoreTest {
         assertTrue(runCatching{store.save(catalog,a,epoch,"","new")}.isFailure)
         assertEquals("invalid-json",file.readText())
     }
+    @Test fun viewerAndSearchSharePublicNoteStorageWithoutOcr() = runBlocking {
+        val a=ref("public")
+        val b=ref("phone:visual:7",app=null,aliases=setOf("file-stat:phone7"),type=MediaType.VIDEO)
+        val catalog=MediaPassportNoteCatalog(listOf(a,b))
+        val store=MediaPassportNoteStore(context,filename())
+        var active=true
+        var available=listOf(a,b)
+        val notes=com.domenota.medialoader.ui.screens.organization.MediaPassportNotes(
+            Any(),Any(),store,catalog,epoch,{active},{ids->available.filter{it.key in ids}})
+        notes.save(a,"","Поезд на станции")
+        notes.save(b,"","Поезд")
+        assertEquals(setOf(a.item.id,b.item.id),notes.search("ПОЕЗ").ids)
+        assertFalse(notes.search("поезд").incomplete)
+        available=listOf(a)
+        assertEquals(setOf(a.item.id),notes.search("поезд").ids)
+        assertTrue(notes.search("поезд").incomplete)
+        notes.save(a,"Поезд на станции","")
+        assertTrue(notes.search("поезд").ids.isEmpty())
+        active=false
+        assertTrue(runCatching{notes.search("поезд")}.isFailure)
+    }
 }

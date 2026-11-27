@@ -226,12 +226,25 @@ internal fun GalleryModeScreen(
     }
     val noteQuery = search.trim()
     var noteMatches by remember(noteQuery, notes?.searchKey) { mutableStateOf(emptySet<String>()) }
+    var noteSearchNotice by remember(noteQuery, notes?.searchKey) {
+        mutableStateOf(if (noteQuery.isEmpty()) null else if (notes?.searchKey == null)
+            "Поиск заметок недоступен" else "Поиск по заметкам…")
+    }
     LaunchedEffect(noteQuery, notes?.searchKey) {
         if (noteQuery.isNotEmpty() && notes?.searchKey != null) {
-            kotlinx.coroutines.delay(160)
-            try { noteMatches = notes.search(noteQuery) }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { noteMatches = emptySet() }
+            delay(160)
+            try {
+                val result = notes.search(noteQuery)
+                noteMatches = result.ids
+                noteSearchNotice = if (result.incomplete) "Поиск заметок частично недоступен" else null
+                com.domenota.medialoader.core.logging.AppLog.d("MediaNotes",
+                    "NOTE_SEARCH status=" + if (result.incomplete) "partial" else "complete")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                noteMatches = emptySet()
+                noteSearchNotice = "Поиск заметок недоступен"
+                com.domenota.medialoader.core.logging.AppLog.d("MediaNotes","NOTE_SEARCH status=unavailable")
+            }
         }
     }
     var ocrMatches by remember(noteQuery,ocr?.address) { mutableStateOf(emptySet<String>()) }
@@ -568,6 +581,9 @@ internal fun GalleryModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
                         leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                    if (searchVisible == true && !detailOpen && noteQuery.isNotEmpty())
+                        noteSearchNotice?.let { Text(it,Modifier.padding(horizontal=17.dp,vertical=4.dp),
+                            style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
                     if (searchVisible == true && !detailOpen && ocr != null)
                         GalleryOcrControls(ocr,Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=4.dp))
                     if (searchVisible == true && !detailOpen && onOpenDuplicates != null)

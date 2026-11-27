@@ -680,7 +680,8 @@ internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>
                 if(operations.isEmpty())Text(if(passport.parentKnown)"Создан производный файл; точная операция не записана" else "Нет подтверждённых операций")
                 operations.forEach{Text("${date(it.occurredAt)}, ${it.operation}")}
             }
-            if(notes!=null)item(key="passport-note"){MediaPassportNoteEditor(ref,notes)}
+            // Audio has no gallery action menu. Preserve access to its existing notes.
+            if(notes!=null && row.mediaType==MediaType.AUDIO)item(key="passport-note"){MediaPassportNoteEditor(ref,notes)}
             if(passport.parentKnown)item{
                 Text("Оригинал",style=MaterialTheme.typography.titleMedium)
                 passport.parent?.let{parent->MediaLine(parent.item,{onOpen(parent.key,listOf(parent.key))})}

@@ -1530,8 +1530,15 @@ fun MediaLoaderApp(
             (ref.appDownloadId != null || ref.item.mediaType in allowedTypes) && (!(recent || analytics) ||
                 com.domenota.medialoader.ui.screens.music.MusicFolderRules.visible(ref.item,excluded,currentRecentFolders)) }
     }
-    val passportNotes = rememberMediaPassportNotes(organizationRefs,
-        organizationReadAccess.takeIf { organizationReady && organizationProjection.ready && !recoveryRunning },
+    // Notes use the already guarded public index, not the passport's status-driven
+    // secondary projection. Each read/write/search hit still requires fresh address,
+    // URI, visibility and privacy validation; no result is admitted by the UI alone.
+    val noteViewer = currentRoute == MEDIA_VIEWER_ROUTE &&
+        backStackEntry?.savedStateHandle?.get<Boolean>("private_viewer") != true &&
+        backStackEntry?.savedStateHandle?.get<String>("folder_visibility_scope") == null
+    val notesNeeded = organizationNeeded || noteViewer
+    val passportNotes = rememberMediaPassportNotes(publicLibraryRefs,
+        collectionReadAccess.takeIf { notesNeeded && publicIndexAllowed && organizationReady && !recoveryRunning },
         collectionPrivacyGeneration) { ids -> validCollectionRefs(ids, queueSave = true) }
     val galleryOcr = com.domenota.medialoader.ui.screens.gallery.rememberGalleryOcr(publicLibraryRefs,phoneGallery.fingerprints,
         collectionReadAccess.takeIf { organizationReady && libraryIndex.appComplete && !recoveryRunning &&
@@ -3332,6 +3339,14 @@ fun MediaLoaderApp(
                         },
                         allowNeighborOnQueueRemoval = !visualRoute && !privateViewer,
                         onPassport=if(item.isPrivate)null else { selected->openPassport(selected.id) },
+                        notes=passportNotes.takeIf { !privateViewer && visibilityScope == null },
+                        noteRef={ selected ->
+                            libraryRefsByAlias[selected.id]?.takeIf { ref ->
+                                !privateViewer && visibilityScope == null && !selected.isPrivate && !selected.hidden &&
+                                    !ref.item.isPrivate && !ref.item.hidden && ref.item.savedUri == selected.savedUri &&
+                                    ref.item.mediaType == selected.mediaType
+                            }
+                        },
                         onAddCollection=if(item.isPrivate)null else { selected->addToCollection(listOf(selected.id)) },
                         albumLinks = { selected ->
                             val ref = libraryRefsByAlias[selected.id]

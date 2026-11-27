@@ -5254,6 +5254,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.MediaPassportNoteStoreTest#viewerAndSearchSharePublicNoteStorageWithoutOcr": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.MediaWriteAccessTest#readinessRequiresAllGrantsAndSupportedSdk": {
     "skipped": false,
     "failed": false
@@ -9979,6 +9983,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.gallery.GalleryTimelineGeometryTest#touchesOutsideTrackAreClamped": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.gallery.GalleryV10ActionContractTest#notesAreAbsentWhenViewerHasNoPublicNoteAccess": {
     "skipped": false,
     "failed": false
   },
