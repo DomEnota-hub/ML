@@ -21,26 +21,25 @@ object LogExplanation {
         return forLine(line)
     }
 
-    /** Preserve the original log and add explanations using the following stack lines. */
-    fun annotate(raw: String): String {
-        val lines = raw.lines()
-        return buildString {
-            lines.forEachIndexed { index, line ->
-                if (index > 0) append('\n')
-                append(line)
-                if (!line.contains(" [") || line.startsWith("    ")) return@forEachIndexed
-                val stack = mutableListOf<String>()
-                var next = index + 1
-                while (next < lines.size && lines[next].startsWith("    ")) {
-                    stack += lines[next]
-                    next++
-                }
-                forRecord(line, stack)?.let { detail ->
-                    append("\n    ↳ Пояснение: ").append(detail.meaning)
-                    detail.advice?.let { append("\n    ↳ Совет: ").append(it) }
-                }
-            }
+    /** Annotate one record at a time, without discarding any original line. */
+    fun annotate(raw: String): String = buildString {
+        var current: DisplayLogEntry? = null
+        val stack = mutableListOf<String>()
+        fun flush() {
+            val entry = current ?: return
+            val detail = LogDisplay.specificDetail(entry.copy(stack = stack.toList())) ?: LogDisplay.fallback(entry)
+            append("\n    ↳ Пояснение: ").append(detail.meaning)
+            detail.advice?.let { append("\n    ↳ Совет: ").append(it) }
+            stack.clear()
         }
+        raw.splitToSequence('\n').forEachIndexed { index, line ->
+            val parsed = LogDisplay.parseHeader(line.removeSuffix("\r"))
+            if (parsed != null) { flush(); current = parsed }
+            else if (current != null) stack.add(line.removeSuffix("\r"))
+            if (index > 0) append('\n')
+            append(line)
+        }
+        flush()
     }
 
     /**

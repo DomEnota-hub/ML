@@ -30,36 +30,29 @@ object LogDisplay {
         """^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?) \[([A-Z]+)] \[([^]]+)] (.*)$""",
     )
 
+    internal fun parseHeader(line: String): DisplayLogEntry? {
+        val match = eventPattern.matchEntire(line) ?: return null
+        val (timestamp, level, tag, message) = match.destructured
+        val thread = if (message.startsWith("[thread=") && "] " in message)
+            message.substringAfter("[thread=").substringBefore("] ") else null
+        val payload = if (thread != null) message.substringAfter("] ") else message
+        val event = payload.substringBefore(" · ").trim()
+        return DisplayLogEntry(line, timestamp, level, tag, event,
+            payload.substringAfter(" · ", "").trim(), classify(level, tag, event, line), thread = thread)
+    }
     fun entries(raw: String): List<DisplayLogEntry> {
         val entries = mutableListOf<DisplayLogEntry>()
         var current:DisplayLogEntry?=null
         var stack=mutableListOf<String>()
         fun flush(){current?.let{entries.add(it.copy(stack=stack.toList()))};stack=mutableListOf()}
         for (line in raw.lineSequence()) {
-            if (line.isBlank()) continue
-            val matched = eventPattern.matchEntire(line)
-            if (matched == null) {
-                // Stack traces and multiline diagnostics belong to their original event.
-                if (current!=null) stack.add(line)
+            val parsed = parseHeader(line)
+            if (parsed == null) {
+                if (current != null) stack.add(line)
                 continue
             }
-            val (timestamp, technicalLevel, tag, message) = matched.destructured
-            val thread = if (message.startsWith("[thread=") && "] " in message)
-                message.substringAfter("[thread=").substringBefore("] ") else null
-            val payload = if (thread != null) message.substringAfter("] ") else message
-            val event = payload.substringBefore(" · ").trim()
-            val metadata = payload.substringAfter(" · ", "").trim()
             flush()
-            current=DisplayLogEntry(
-                original = line,
-                timestamp = timestamp,
-                technicalLevel = technicalLevel,
-                tag = tag,
-                event = event,
-                metadata = metadata,
-                tone = classify(technicalLevel, tag, event, line),
-                thread = thread,
-            )
+            current = parsed
         }
         flush()
         return entries
@@ -123,29 +116,28 @@ object LogDisplay {
         (if (entry.event.startsWith("Fetch")) "thumbnail-fetch-403" else "thumbnail-warning-403") +
             ":" + entry.technicalLevel
 
-    /** Never include private log fields, URLs or filenames in the readable event title. */
-    fun readable(entry: DisplayLogEntry): String =
-        TaskJournalDisplay.readable(entry) ?: StructuredLogExplanation.readable(entry) ?: legacyExplanation(entry)?.takeUnless { "пока нет точного пояснения" in it }
-            ?: CurrentLogExplanation.readable(entry)
-            ?: when (entry.tone) {
-                LogTone.ERROR -> "Зафиксирована ошибка. Подробности доступны в техническом журнале."
-                LogTone.WARN -> "Зафиксировано предупреждение. Подробности доступны в техническом журнале."
-                LogTone.OK -> "Операция завершилась успешно."
-                LogTone.INFO -> "Событие приложения. Подробности доступны в техническом журнале."
-                LogTone.DEBUG -> "Техническое диагностическое событие."
-            }
+    /** Single source of explanations for the journal, coverage and export. */
+    internal fun specificDetail(entry: DisplayLogEntry): LogExplanation.Detail? {
+        TaskJournalDisplay.readable(entry)?.let { return LogExplanation.Detail(it) }
+        StructuredLogExplanation.readable(entry)?.let { return LogExplanation.Detail(it) }
+        if (entry.tag in legacyTags) {
+            LogExplanation.forRecord(entry.original, entry.stack)
+                ?.takeUnless { "пока нет точного пояснения" in it.meaning }?.let { return it }
+        }
+        return CurrentLogExplanation.readable(entry)?.let { LogExplanation.Detail(it) }
+    }
+    internal fun fallback(entry: DisplayLogEntry): LogExplanation.Detail = LogExplanation.Detail(when (entry.tone) {
+        LogTone.ERROR -> "Зафиксирована ошибка. Подробности доступны в техническом журнале."
+        LogTone.WARN -> "Зафиксировано предупреждение. Подробности доступны в техническом журнале."
+        LogTone.OK -> "Операция завершилась успешно."
+        LogTone.INFO -> "Событие приложения. Подробности доступны в техническом журнале."
+        LogTone.DEBUG -> "Техническое диагностическое событие."
+    })
+    fun readable(entry: DisplayLogEntry): String = (specificDetail(entry) ?: fallback(entry)).meaning
 
-
-    // Old rules can inspect the stack for known crash/network events, but must
-    // not mistake arbitrary unknown tags or download filenames for event names.
     private val legacyTags = setOf("Muzmo", "HitMoz", "MusicSource", "MusicWebView", "MusicAds",
         "Recognition", "MusicArtwork", "Thumbnail", "App", "Crash", "Settings", "Logs",
         "Instagram", "InstagramProfile", "Diagnostics", "BrowserWebView", "MuzmoWebView", "Resolve")
-    private fun legacyExplanation(entry: DisplayLogEntry): String? {
-        if (entry.tag !in legacyTags) return null
-        if (entry.tag == "Crash") return LogExplanation.forRecord(entry.original, entry.stack)?.meaning
-        return LogExplanation.forRecord(entry.original, entry.stack)?.meaning
-    }
 
     /** A short safe grouping label; never contains filenames or remote hosts. */
     fun groupName(entry: DisplayLogEntry): String = when (entry.tag) {

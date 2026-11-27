@@ -181,8 +181,14 @@ internal object StructuredLogExplanation {
                 "Duplicate transfer not confirmed" to "Перенос дубликата не подтверждён.")
             "Gallery" -> if (event == "Permanently deleted") "Зарегистрировано окончательное удаление файла." else null
             "OldDownloads" -> join("Историческая запись инвентаризации старых загрузок", metric("size", "Размер", " байт"))
-            "History" -> exact("Open prevented" to "Открытие записи истории не разрешено.", "Deleted missing-file history record" to "Удалена запись истории об отсутствующем файле.",
+            "History" -> when (event) {
+                "Open aborted", "Share aborted" -> join(if (event == "Open aborted") "Открытие файла остановлено" else "Отправка файла остановлена",
+                    f.label("status", mapOf("MISSING" to "Файл отсутствует", "UNAVAILABLE" to "Доступ к файлу не подтверждён")))
+                "Open failed" -> "Не удалось открыть сохранённый файл."
+                "Share failed" -> "Не удалось отправить сохранённый файл."
+                else -> exact("Open prevented" to "Открытие записи истории не разрешено.", "Deleted missing-file history record" to "Удалена запись истории об отсутствующем файле.",
                 "Rename requested" to "Запрошено переименование файла.", "Rename failed" to "Переименование не выполнено.")
+            }
             "MissingRecovery" -> when (event) {
                 "Candidate verification" -> join("Проверка кандидата на восстановление", metric("candidates", "Кандидатов"), f.bool("matched", "Совпадение подтверждено", "Совпадение не подтверждено"))
                 "Restore failed" -> "Восстановление не выполнено."
@@ -254,7 +260,17 @@ internal object StructuredLogExplanation {
             }
             "VideoRecognition" -> exact("Saved video recognition started" to "Начато распознавание музыки из сохранённого видео.", "Audio decoded" to "Декодирован звук видео.", "Finished" to "Операция распознавания из видео завершена.")
             "GapiUsage" -> if (event == "method=gapi") join("Запрос к сервису извлечения медиа", metric("status", "Код HTTP"), metric("cost", "Стоимость в единицах лимита"), metric("remaining", "Остаток лимита")) else null
-            "Browser" -> if (event == "youtube") "Диагностика поиска карточек видео на странице YouTube." else null
+            "Browser" -> {
+                val source = mapOf("instagram" to "Instagram", "youtube" to "YouTube", "vk" to "VK", "rutube" to "RUTUBE")[event]
+                if (source == null) null else if (entry.metadata.startsWith("injection=")) {
+                    join("Подключение сценария встроенного браузера", source,
+                        when (entry.metadata.substringAfter("injection=")) {
+                            "true" -> "Сценарий подтвердил установку"
+                            "false" -> "Установка не подтверждена"
+                            else -> "Результат не расшифрован"
+                        })
+                } else join("Диагностическое сообщение сценария браузера", source)
+            }
             "BrowserWebView" -> if (event.startsWith("source=")) "Диагностическое сообщение сценария браузера." else exact("Page started" to "Начата загрузка страницы браузера.", "Page finished" to "Загрузка страницы браузера завершена; содержимое проверяется отдельно.")
             "HitMozWebView", "MuzmoWebView" -> when (event) {
                 "JS console" -> "Диагностическое сообщение сценария встроенного браузера."

@@ -21,13 +21,14 @@ class JournalSourceInventoryTest {
         val observed = linkedSetOf<String>()
         val missing = linkedSetOf<String>()
         var dynamic = 0
+        val dynamicSites = mutableListOf<String>()
         for (file in sourceFiles) {
             val source = file.readText()
             val direct = calls.findAll(source).map { it.destructured.toList() }
             val sampledCalls = sampled.findAll(source).map { listOf("verbose", it.groupValues[1], it.groupValues[2]) }
             for ((method, tag, prefix) in direct + sampledCalls) {
                 val message = prefix.replace("\\n", " ").trim().removeSuffix("·").trimEnd()
-                if (message.isBlank()) { dynamic++; continue }
+                if (message.isBlank()) { dynamic++; dynamicSites.add(file.name + ":" + tag); continue }
                 val level = when (method) {
                     "w" -> "WARN"; "e" -> "ERROR"; "ok" -> "OK"; "i" -> "INFO"; else -> "DEBUG"
                 }
@@ -42,6 +43,8 @@ class JournalSourceInventoryTest {
         }
         assertTrue("Expected a production tree, got only " + sourceFiles.size + " Kotlin files", sourceFiles.size > 500)
         assertTrue("Expected actual log emitters", observed.size > 100)
+        assertEquals(listOf("OpenFile.kt:History", "OpenFile.kt:History", "SourceBrowserScreen.kt:Browser", "SourceBrowserScreen.kt:Browser"), dynamicSites.sorted())
+        println("JOURNAL_DYNAMIC_SITES " + dynamicSites.sorted().joinToString())
         println("JOURNAL_SOURCE_INVENTORY files=" + sourceFiles.size + " prefixes=" + observed.size + " missing=" + missing.size + " dynamicEmptyPrefix=" + dynamic)
         assertTrue("Unexplained direct literal prefixes:\n" + missing.joinToString("\n"), missing.isEmpty())
     }

@@ -379,6 +379,26 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.JournalTimelineTest#allFourDynamicEmitterSitesHaveSafeBoundedMeaning": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.JournalTimelineTest#exportUsesSameSpecificInterpretationWithoutRemovingRawAndStack": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.JournalTimelineTest#groupsOnlyConsecutiveMonotonicSameOperationAndKeepsEveryOriginal": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.JournalTimelineTest#largeArchiveRepresentativesMeasureCoverageTimeAndHeapWithoutPersistingLogs": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.JournalTimelineTest#ocrStatusFailureAndUnknownProgressAreNeverCollapsed": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.logging.LibraryProjectionCountersTest#boundedCountersDistinguishReasonCompletionCancellationAndReuse": {
     "skipped": false,
     "failed": false
@@ -8991,6 +9011,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.AiPrismMotionTest#reverseTurnRestoresWhiteFaceWithoutGeometryJump": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.AppLogViewerTest#darkAndLightExposeSixFiltersAndFooterActions": {
     "skipped": false,
     "failed": false
   },

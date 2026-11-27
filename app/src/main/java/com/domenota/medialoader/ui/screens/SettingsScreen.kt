@@ -708,14 +708,12 @@ fun SettingsScreen(
             tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 6.dp,
         ) {
             Column(Modifier.fillMaxSize().padding(16.dp)) {
-                Text("Журнал приложения", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "События хранятся локально. Фильтры и режим просмотра не изменяют исходный журнал.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Rounded.Article, null, tint = MaterialTheme.colorScheme.primary)
+                    Text("Журнал приложения", style = MaterialTheme.typography.titleLarge)
+                }
+                Spacer(Modifier.height(4.dp))
                 AppLogViewer(
                     rawText = logText,
                     readable = explainLog,
@@ -724,6 +722,17 @@ fun SettingsScreen(
                         prefs.edit().putBoolean("log_explanations", value).apply()
                     },
                     modifier = Modifier.weight(1f),
+                    onCopy = { raw ->
+                        if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
+                            val clip = android.content.ClipData.newPlainText("Запись журнала", raw)
+                            clip.description.extras = android.os.PersistableBundle().apply {
+                                putBoolean("android.content.extra.IS_SENSITIVE", true)
+                            }
+                            if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
+                                context.getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(clip)
+                            }
+                        }
+                    },
                 )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("Пояснения в экспорт", modifier = Modifier.weight(1f),
@@ -733,24 +742,13 @@ fun SettingsScreen(
                         prefs.edit().putBoolean("log_export_explanations", value).apply()
                     })
                 }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    TextButton(onClick = ::refreshAppLog) { Text("Обновить") }
-                    TextButton(onClick = { confirmClearAppLog = true }) {
-                        Text("Очистить", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    TextButton(onClick = { logsDialog = false }) { Text("Закрыть") }
-                    TextButton(onClick = {
-                        logSaver.launch("MediaLoader_${versionName}_logs.md")
-                    }) { Text("Сохранить .md") }
-                }
+                JournalFooter(
+                    onRefresh = ::refreshAppLog,
+                    onClear = { confirmClearAppLog = true },
+                    onExport = { if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                        logSaver.launch("MediaLoader_" + versionName + "_logs.md") },
+                    onClose = { logsDialog = false },
+                )
             }
         }
     }

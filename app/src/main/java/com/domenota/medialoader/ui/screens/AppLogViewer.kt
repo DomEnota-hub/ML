@@ -1,200 +1,277 @@
 package com.domenota.medialoader.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.domenota.medialoader.core.logging.DisplayLogEntry
-import com.domenota.medialoader.core.logging.LogDisplay
-import com.domenota.medialoader.core.logging.LogExplanation
-import com.domenota.medialoader.core.logging.LogTone
+import com.domenota.medialoader.core.logging.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-/**
- * One journal, two representations. Raw mode does NOT collapse or translate data;
- * exported Markdown is untouched by the selected presentation/filter.
- */
+/** Presentation only; existing access and export operate on the original log. */
 @Composable
 internal fun AppLogViewer(
     rawText: String,
     readable: Boolean,
     onReadableChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
+    onCopy: ((String) -> Unit)? = null,
 ) {
-    var presentation by remember(rawText) { mutableStateOf<LogDisplay.Presentation?>(null) }
+    var snapshot by remember(rawText) { mutableStateOf<JournalTimeline.Snapshot?>(null) }
     LaunchedEffect(rawText) {
-        presentation=withContext(Dispatchers.Default){LogDisplay.prepare(rawText)}
+        snapshot = withContext(Dispatchers.Default) { JournalTimeline.prepare(rawText) }
     }
-    val events=presentation?.raw.orEmpty()
-    var selectedTone by remember { mutableStateOf<LogTone?>(null) }
-    val filtered=presentation?.entries(selectedTone,false).orEmpty()
-    val displayed=presentation?.entries(selectedTone,readable).orEmpty()
-    val tones = remember { LogTone.entries.toList() }
-    val name = if (readable) "Понятный" else "Технический"
-
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            FilterChip(
-                selected = readable,
-                onClick = { onReadableChange(true) },
-                label = { Text("Понятный") },
-                modifier = Modifier.weight(1f),
-            )
-            FilterChip(
-                selected = !readable,
-                onClick = { onReadableChange(false) },
-                label = { Text("Технический") },
-                modifier = Modifier.weight(1f),
-            )
+    var tone by rememberSaveable { mutableStateOf<String?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var newest by rememberSaveable { mutableStateOf(false) }
+    val selected = LogTone.entries.firstOrNull { it.name == tone }
+    var rows by remember(snapshot, tone, readable, query, newest) { mutableStateOf<List<JournalTimeline.Row>?>(null) }
+    LaunchedEffect(snapshot, tone, readable, query, newest) {
+        val s = snapshot ?: return@LaunchedEffect
+        rows = withContext(Dispatchers.Default) { s.select(selected, readable, query, newest) }
+    }
+    val listState = rememberLazyListState()
+    LaunchedEffect(tone, readable, query, newest) { listState.scrollToItem(0) }
+    val expanded = remember(snapshot) { mutableStateMapOf<Int, Boolean>() }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = readable, onClick = { onReadableChange(true) },
+                label = { Text("Понятный", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
+                modifier = Modifier.weight(1f))
+            FilterChip(selected = !readable, onClick = { onReadableChange(false) },
+                label = { Text("Технический", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
+                modifier = Modifier.weight(1f))
         }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(selected = selectedTone == null,
-                onClick = { selectedTone = null },
-                label = { Text("Все · ${events.size}") })
-            tones.forEach { tone ->
-                val count = presentation?.rawByTone?.get(tone)?.size ?: 0
-                FilterChip(
-                    selected = selectedTone == tone,
-                    onClick = { selectedTone = if (selectedTone == tone) null else tone },
-                    leadingIcon = {
-                        Spacer(Modifier.size(9.dp).background(tone.tint(), CircleShape))
-                    },
-                    label = { Text("${tone.label} · $count") },
-                )
+        val options = listOf<LogTone?>(null) + LogTone.entries
+        options.chunked(3).forEach { line ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                line.forEach { t ->
+                    val active = selected == t
+                    val color = t?.tint() ?: MaterialTheme.colorScheme.primary
+                    val count = if (t == null) snapshot?.raw?.size else snapshot?.counts?.get(t) ?: snapshot?.let { 0 }
+                    Surface(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            .clip(MaterialTheme.shapes.medium).clickable(role = Role.Button) { tone = t?.name },
+                        shape = MaterialTheme.shapes.medium,
+                        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                        border = if (active) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+                    ) {
+                        Column(Modifier.padding(horizontal = 3.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(count?.toString() ?: "—", color = color, style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold)
+                            Text(when (t) { LogTone.WARN -> "Внимание"; else -> t?.label ?: "Все" },
+                                style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
             }
         }
-        Text(
-            if (presentation==null) "Подготовка журнала…"
-            else if (selectedTone != null && filtered.isEmpty()) "По выбранному фильтру событий нет."
-            else "Режим «$name» · событий: ${filtered.size}",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        LazyColumn(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (displayed.isEmpty()) {
-                item {
-                    Text(if(presentation==null) "Подготовка журнала…" else "Журнал пока пуст или события не соответствуют фильтру.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
+                placeholder = { Text("Поиск по журналу") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Очистить поиск") } },
+                modifier = Modifier.weight(1f))
+            IconButton(onClick = { newest = !newest }) {
+                Icon(Icons.Rounded.Sort, if (newest) "Сначала новые. Изменить порядок" else "Сначала старые. Изменить порядок",
+                    tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+        val s = snapshot
+        val shown = rows
+        if (s != null && shown != null) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Записей: " + shown.sumOf { it.count }, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (newest) "Сначала новые" else "Сначала старые", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (readable && s.raw.isNotEmpty()) {
+                val perMille = s.genericCount * 1000L / s.raw.size
+                Text("Общие пояснения: " + s.genericCount + " из " + s.raw.size + " · " + perMille / 10 + "," + perMille % 10 + "%",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        LazyColumn(Modifier.fillMaxWidth().weight(1f), state = listState) {
+            if (s == null || shown == null) {
+                item { Text("Подготовка журнала…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             } else {
-                items(displayed) { entry ->
-                    if (readable) ReadableLogLine(entry) else TechnicalLogLine(entry)
+                val showPrefix = !readable && selected == null && s.prefix.isNotBlank() &&
+                    (query.isBlank() || s.prefix.contains(query.trim(), true))
+                if (showPrefix && !newest) item(key = "prefix") { OrphanLines(s.prefix) }
+                if (shown.isEmpty() && !showPrefix)
+                    item { Text("Нет записей по выбранным условиям.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                itemsIndexed(shown, key = { _, row -> row.start }) { index, row ->
+                    val e = s.raw[row.end]
+                    val date = e.timestamp.substringBefore(' ')
+                    if (index == 0 || s.raw[shown[index - 1].end].timestamp.substringBefore(' ') != date) {
+                        Text(date, Modifier.padding(vertical = 7.dp), style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (readable) TimelineLine(s, row, expanded[row.start] == true,
+                        onExpand = { expanded[row.start] = expanded[row.start] != true }, onCopy = onCopy)
+                    else TechnicalLine(s.recordText(row.start), e.tone, onCopy)
+                }
+                if (showPrefix && newest) item(key = "prefix") { OrphanLines(s.prefix) }
+            }
+        }
+    }
+}
+@Composable
+private fun OrphanLines(text: String) {
+    Text("Строки без заголовка события", style = MaterialTheme.typography.labelSmall)
+    Text(text, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+}
+@Composable
+private fun LogTone.tint(): Color {
+    val light = MaterialTheme.colorScheme.background.luminance() > 0.5f
+    return when (this) {
+        LogTone.ERROR -> if (light) Color(0xFFB82B41) else Color(0xFFF47784)
+        LogTone.WARN -> if (light) Color(0xFF986000) else Color(0xFFFFAB40)
+        LogTone.OK -> if (light) Color(0xFF177346) else Color(0xFF66D5A2)
+        LogTone.INFO -> if (light) Color(0xFF216BC0) else Color(0xFF479DF5)
+        LogTone.DEBUG -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+}
+private fun eventIcon(entry: DisplayLogEntry): ImageVector = when (entry.tag) {
+    "Download", "DownloadProgress", "Resolve", "Share" -> Icons.Rounded.Download
+    "Thumbnail", "Gallery", "GallerySearch", "PhotoCutout" -> Icons.Rounded.Image
+    "OCR", "PhotoOCR" -> Icons.Rounded.TextFields
+    "AudioWaveform", "MusicCompare" -> Icons.Rounded.GraphicEq
+    "TaskCenter" -> Icons.Rounded.ListAlt
+    "Library" -> Icons.Rounded.Folder
+    "Perf" -> Icons.Rounded.Speed
+    "ProcessExit", "Crash", "App" -> Icons.Rounded.Smartphone
+    "FolderVisibility", "NOMEDIA_SAF", "OldDownloads", "MissingRecovery", "History" -> Icons.Rounded.Archive
+    "Trash" -> Icons.Rounded.DeleteOutline
+    "MediaNotes" -> Icons.Rounded.Notes
+    "Duplicate", "DuplicateUI", "DuplicateScanMetrics", "MusicDuplicates", "MUSIC_REPORT_COMMIT" -> Icons.Rounded.ContentCopy
+    "DuplicatePrivacy" -> Icons.Rounded.Security
+    "VideoPlayer", "FloatingVideo", "VideoRecognition", "VideoEditorNav", "VideoPreview", "Viewer" -> Icons.Rounded.VideoLibrary
+    "AiOrtPerf" -> Icons.Rounded.Memory
+    "Editor" -> Icons.Rounded.Edit
+    "Settings" -> Icons.Rounded.Settings
+    "Logs" -> Icons.Rounded.Article
+    "Browser", "BrowserWebView", "VKAuth", "RutubeAuth", "YouTubeAuth", "InstagramLogin", "InstagramSession" -> Icons.Rounded.Language
+    "Muzmo", "HitMoz", "MusicSource", "MusicWebView", "Recognition", "MusicArtwork", "MusicAds", "Audio", "AudioRoute", "AudioReplace" -> Icons.Rounded.MusicNote
+    else -> Icons.Rounded.Info
+}
+
+@Composable
+private fun TimelineLine(snapshot: JournalTimeline.Snapshot, row: JournalTimeline.Row, expanded: Boolean,
+    onExpand: () -> Unit, onCopy: ((String) -> Unit)?) {
+    val entry = snapshot.raw[row.end]
+    val detail = snapshot.details[row.end]
+    val segments = remember(detail) { detail.meaning.split(" · ", limit = 2) }
+    val tint = entry.tone.tint()
+    val line = MaterialTheme.colorScheme.outlineVariant
+    Row(Modifier.fillMaxWidth().drawBehind {
+        val x = 17.dp.toPx()
+        drawLine(line, Offset(x, 32.dp.toPx()), Offset(x, size.height), 1.dp.toPx())
+    }.padding(bottom = 9.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.size(34.dp).background(tint.copy(alpha = .14f), RoundedCornerShape(9.dp)),
+            contentAlignment = Alignment.Center) { Icon(eventIcon(entry), null, tint = tint, modifier = Modifier.size(20.dp)) }
+        Column(Modifier.weight(1f)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                val time = if (row.count > 1) snapshot.raw[row.start].timestamp.substringAfter(' ').substringBefore('.') +
+                    "–" + entry.timestamp.substringAfter(' ').substringBefore('.') else entry.timestamp.substringAfter(' ').substringBefore('.')
+                Text(time, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.weight(1f))
+                Text(LogDisplay.groupName(entry), style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.End)
+            }
+            Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onExpand).padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(segments.first(), Modifier.weight(1f), color = tint,
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        if (expanded) "Свернуть подробности" else "Раскрыть подробности",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                segments.getOrNull(1)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                JournalTimeline.progress(entry)?.let { p ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LinearProgressIndicator(progress = { p.fraction }, modifier = Modifier.weight(1f).height(4.dp),
+                            color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.outlineVariant)
+                        Text((p.fraction * 100).toInt().toString() + "%", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                if (row.count > 1) Text(row.count.toString() + " связанных записей", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+            if (expanded) {
+                Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.medium)
+                    .padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    detail.advice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    Text("Исходные записи", style = MaterialTheme.typography.labelMedium)
+                    // Bound the preview; technical mode retains every record.
+                    val endPreview = minOf(row.end, row.start + 19)
+                    for (i in row.start..endPreview) TechnicalLine(snapshot.recordText(i), snapshot.raw[i].tone, onCopy)
+                    if (endPreview < row.end) Text("Ещё " + (row.end - endPreview) + " записей доступны в техническом режиме.",
+                        style = MaterialTheme.typography.labelSmall)
+                    if (row.count > 1 && onCopy != null) TextButton(onClick = { onCopy(snapshot.text(row)) }) {
+                        Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text("Копировать группу")
+                    }
                 }
             }
         }
     }
 }
-
 @Composable
-private fun LogTone.tint(): Color = when (this) {
-    LogTone.ERROR -> MaterialTheme.colorScheme.error
-    LogTone.WARN -> Color(0xFFF29A27)
-    LogTone.OK -> if (MaterialTheme.colorScheme.background.luminance() > 0.5f)
-        Color(0xFF15964A) else Color(0xFF65D49A)
-    LogTone.INFO -> Color(0xFF2588E8)
-    LogTone.DEBUG -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
-@Composable
-private fun ReadableLogLine(entry: DisplayLogEntry) {
-    val tint = entry.tone.tint()
-    val detail = LogExplanation.forLine(entry.original)
-    Column(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(
-            "${entry.timestamp.substringAfter(' ')} · ${LogDisplay.groupName(entry)}" +
-                (if (entry.repeats > 1) " · повторов: ${entry.repeats}" else ""),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            buildAnnotatedString {
-                withStyle(SpanStyle(color = tint, fontWeight = FontWeight.Bold)) {
-                    append(entry.tone.label.substringBefore(' '))
-                    append(" · ")
-                }
-                append(LogDisplay.readable(entry))
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        detail?.advice?.let {
-            Text(
-                "Что можно сделать: $it",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+private fun TechnicalLine(raw: String, tone: LogTone, onCopy: ((String) -> Unit)?) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+        Box(Modifier.width(3.dp).height(24.dp).background(tone.tint(), RoundedCornerShape(2.dp)))
+        Text(raw, Modifier.weight(1f).padding(start = 6.dp), fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+        if (onCopy != null) IconButton(onClick = { onCopy(raw) }) {
+            Icon(Icons.Rounded.ContentCopy, "Копировать запись", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
-
 @Composable
-private fun TechnicalLogLine(entry: DisplayLogEntry) {
-    val tint = entry.tone.tint()
-    // Dynamic hostnames, file paths and IDs must not be highlighted as actions.
-    val key = entry.event
-        .substringBefore(" host=")
-        .substringBefore(" id=")
-        .substringBefore(" url=")
-        .substringBefore(" op=")
-        .substringBefore(" path=")
-        .let { if ('=' in it) "" else it }
-    Text(
-        buildAnnotatedString {
-            append(entry.timestamp)
-            append(" ")
-            withStyle(SpanStyle(color = tint, fontWeight = FontWeight.Bold)) {
-                append("[${entry.technicalLevel}] [${entry.tag}]")
-                if (key.isNotEmpty()) append(" $key")
+internal fun JournalFooter(onRefresh: () -> Unit, onClear: () -> Unit, onExport: () -> Unit, onClose: () -> Unit) {
+    Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.large),
+        horizontalArrangement = Arrangement.SpaceEvenly) {
+        val items = listOf(
+            Triple("Обновить", Icons.Rounded.Refresh, onRefresh),
+            Triple("Очистить", Icons.Rounded.DeleteOutline, onClear),
+            Triple("Экспорт", Icons.Rounded.FileDownload, onExport),
+            Triple("Закрыть", Icons.Rounded.Close, onClose),
+        )
+        items.forEachIndexed { i, (label, icon, action) ->
+            val color = when (i) {
+                1 -> MaterialTheme.colorScheme.error
+                3 -> MaterialTheme.colorScheme.onSurfaceVariant
+                else -> MaterialTheme.colorScheme.primary
             }
-            append(if (key.isNotEmpty()) entry.event.removePrefix(key) else " ${entry.event}")
-            if (entry.metadata.isNotEmpty()) {
-                append(" · ")
-                append(entry.metadata)
+            Column(Modifier.weight(1f).heightIn(min = 48.dp).clip(MaterialTheme.shapes.medium)
+                .clickable(role = Role.Button, onClick = action).padding(vertical = 7.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Icon(icon, null, tint = color)
+                Text(label, color = color, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
             }
-            for (stackLine in entry.stack) {
-                append("\n")
-                append(stackLine)
-            }
-        },
-        style = MaterialTheme.typography.bodySmall,
-        fontFamily = FontFamily.Monospace,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+        }
+    }
 }

@@ -1,0 +1,49 @@
+package com.domenota.medialoader.ui.screens
+
+import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import org.junit.Assert.*
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk=[34])
+@LooperMode(LooperMode.Mode.PAUSED)
+class AppLogViewerTest {
+    @get:Rule val compose=createAndroidComposeRule<ComponentActivity>()
+    @Test fun darkAndLightExposeSixFiltersAndFooterActions() {
+        var dark by mutableStateOf(true)
+        val actions=mutableListOf<String>()
+        compose.setContent {
+            MaterialTheme(colorScheme=if(dark)darkColorScheme() else lightColorScheme()) {
+                Column(Modifier.fillMaxSize()) {
+                    AppLogViewer("",true,{},Modifier.weight(1f))
+                    JournalFooter({actions.add("refresh")},{actions.add("clear")},{actions.add("export")},{actions.add("close")})
+                }
+            }
+        }
+        for (theme in listOf(true,false)) {
+            compose.runOnIdle { dark=theme }
+            for (name in listOf("Все","Ошибки","Внимание","Успешные","Информация","Отладка"))
+                compose.onNodeWithText(name).assertExists()
+            compose.onNodeWithText("Понятный").assertExists()
+            compose.onNodeWithText("Технический").assertExists()
+            compose.onNodeWithText("Обновить").performClick()
+            compose.onNodeWithText("Очистить").performClick()
+            compose.onNodeWithText("Экспорт").performClick()
+            compose.onNodeWithText("Закрыть").performClick()
+        }
+        assertEquals(listOf("refresh","clear","export","close","refresh","clear","export","close"),actions)
+    }
+}

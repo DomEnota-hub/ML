@@ -25,7 +25,7 @@ PROFILES = {
     'editors': 'data.editor. ui.components.Editor ui.screens.Photo ui.screens.Video ui.screens.BatchPhoto ui.screens.Ai ui.screens.gallery.Cutout ui.screens.gallery.Magnetic ui.screens.gallery.U2Net ui.navigation.VideoEditorRouteAdmission data.storage. data.playback.',
     'download': 'core.provider. data.download. data.gapi. data.youtube. data.vk. data.vkcommunity. data.instagramprofile. data.share. data.search. data.recognition. data.storage. ui.screens.Downloads ui.components.Download ui.model. ui.screens.SourceBrowser ui.RutubeAuthNavigation data.MusicDurationBackfillTest data.tasks. ui.screens.DownloadErrorGridPolicyTest',
     'storage': 'data.storage. data.privatevault. data.archive. data.catalog. data.library. data.playback. data.PermanentMediaDeletion ui.components.MediaDeletion ui.components.Private ui.components.LibraryMediaDelete ui.screens.Private ui.screens.GridViewerUiTest ui.screens.Archive ui.FolderVisibility ui.Library ui.Collection data.MusicDurationBackfillTest',
-    'diagnostics': 'core.diagnostics. core.logging. data.diagnostics. ui.navigation.JournalAccess ui.components.PrivateAccessGate',
+    'diagnostics': 'core.diagnostics. core.logging. data.diagnostics. ui.navigation.JournalAccess ui.components.PrivateAccessGate ui.screens.AppLogViewerTest',
 }
 RISK_LINT = {'archive', 'privacy', 'storage'}
 GUARDED_PROFILES = {'archive', 'privacy', 'storage', 'library', 'navigation', 'playback', 'collections'}
