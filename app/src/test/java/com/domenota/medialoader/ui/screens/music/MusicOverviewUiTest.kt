@@ -92,8 +92,8 @@ class MusicOverviewUiTest {
                 searchVisible=false,tabOverride=1,onFolderPlayExact={ids->requests+=ids;accepted})
         }}
         fun openFolder(){
-            compose.onNodeWithTag("music-library").performScrollToNode(hasText("TestFolder:",substring=true))
-            compose.onNodeWithText("TestFolder:",substring=true).performClick()
+            compose.onNodeWithTag("music-library").performScrollToNode(hasText("TestFolder"))
+            compose.onNodeWithText("TestFolder").performClick()
         }
         fun visibleOrder()=listOf("a","b","c").sortedBy{
             compose.onNodeWithTag("music-track-$it").fetchSemanticsNode().boundsInRoot.top
