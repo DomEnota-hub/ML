@@ -230,4 +230,19 @@ class MediaNavigationDrawerTest{
         compose.runOnIdle{advanced=false;assertEquals(initial,configuration)}
         compose.onNodeWithTag("drawer-config-VK_IMAGES").assertDoesNotExist()
     }
+
+    @Test fun dividerEditorAddsMovesAndRemovesUsingExistingHandle(){
+        var configuration by mutableStateOf(DrawerConfiguration.DEFAULT)
+        compose.setContent { MaterialTheme {
+            DrawerSettingsScreen(configuration,true,{configuration=it},{})
+        } }
+        compose.onNodeWithTag("drawer-config-add-divider").performClick()
+        compose.runOnIdle{assertTrue("DIVIDER_3" in configuration.layout)}
+        val handle=compose.onNodeWithTag("drawer-config-handle-DIVIDER_3").performScrollTo()
+        val old=configuration.layout.indexOf("DIVIDER_3")
+        val action=handle.fetchSemanticsNode().config[SemanticsActions.CustomActions].first{it.label=="Выше"}
+        compose.runOnIdle{assertTrue(action.action());assertTrue(configuration.layout.indexOf("DIVIDER_3")<old)}
+        compose.onNodeWithTag("drawer-config-reset").performClick()
+        compose.runOnIdle{assertEquals(DrawerConfiguration.DEFAULT,configuration)}
+    }
 }
