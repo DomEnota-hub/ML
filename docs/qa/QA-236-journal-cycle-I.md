@@ -7,3 +7,6 @@ Every timestamped record was classified locally into one of 254 sanitized repres
 
 ## Additional current-source inventory
 Exact working-tree source inspection of logging call sites identified 227 additional literal event prefixes in 41 categories, including login, VK/RUTUBE, queue, recovery, editor and storage diagnostics. CurrentLogExplanation covers these separately, preserving existing specific network/crash explanations. A complete automated enumeration of every dynamic emitter remains a separate verification requirement. This is presentation-only; no data flow changes.
+
+## Full-tree literal-prefix audit
+CI #278 walked 852 production Kotlin files, extracted 508 distinct direct literal prefixes and reported 37 unresolved representatives (four empty interpolation prefixes excluded). Its other 161 diagnostics tests passed. The follow-up rules address those concrete findings; the audit normalizes a trailing metadata separator and additionally includes direct sampled logging calls. Dynamic expressions and parameter-dependent values remain subject to conservative interpretation, not claimed as complete runtime replay.

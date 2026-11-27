@@ -19,6 +19,13 @@ internal object CurrentLogExplanation {
     )
     fun group(tag: String): String? = groups[tag]
     private val rules: Map<String, List<Pair<String, String>>> = mapOf(
+        "Audio" to listOf(
+            "Resume membership preparation failed" to "Не удалось подготовить состав очереди для продолжения прослушивания."
+        ),
+        "Listening" to listOf(
+            "Unable to save listening statistics" to "Не удалось сохранить статистику прослушивания.",
+            "Unable to start listening statistics" to "Не удалось начать запись статистики прослушивания."
+        ),
         "TaskCenter" to listOf(
             "History unavailable" to "История задач недоступна; прежние данные сохранены.",
             "History write failed" to "Не удалось записать историю задач.",
@@ -107,6 +114,8 @@ internal object CurrentLogExplanation {
             "stage=" to "Не удалось сохранить отчёт поиска дубликатов; стадия и диагностика сохранены в технической записи."
         ),
         "AudioWaveform" to listOf(
+            "Editor waveform failed" to "Не удалось построить звуковую волну редактора.",
+            "Audio lane waveform failed" to "Не удалось построить звуковую волну звуковой дорожки видео.",
             "Editor detail failed" to "Не удалось построить подробную звуковую волну редактора.",
             "Background scan deferred:" to "Фоновая проверка звуковых волн отложена; условие указано в технической записи.",
             "Could not read frames" to "Не удалось прочитать аудиофрагменты для звуковой волны."
@@ -171,6 +180,7 @@ internal object CurrentLogExplanation {
             "Phone scan failed" to "Сканирование файлов телефона завершилось ошибкой."
         ),
         "Diagnostics" to listOf(
+            "Session probe" to "Выполняется проверка сессии источника; вход и доступность операций подтверждаются отдельно.",
             "Instagram account probe" to "Проверяются сведения о сеансе Instagram.",
             "Reserve music probe" to "Выполняется резервная проверка музыкального источника.",
             "QuickJS probe" to "Выполняется проверка механизма JavaScript."
@@ -209,6 +219,7 @@ internal object CurrentLogExplanation {
             "Caption source" to "Определён источник подписи публикации."
         ),
         "VideoRecognition" to listOf(
+            "Could not start recognition" to "Не удалось запустить распознавание музыки в видео.",
             "Failed" to "Распознавание музыки из видео не выполнено."
         ),
         "MusicArtwork" to listOf(
@@ -298,6 +309,7 @@ internal object CurrentLogExplanation {
             "Selected visual address check failed" to "Не удалось подтвердить доступность выбранного медиафайла."
         ),
         "VideoPlayer" to listOf(
+            "Deferred watch progress write failed" to "Не удалось сохранить отложенный прогресс просмотра видео.",
             "Temporary speed restore failed" to "Не удалось восстановить скорость воспроизведения.",
             "Temporary speed start failed" to "Не удалось включить временное изменение скорости.",
             "PLAYER_ERROR" to "Видеоплеер зарегистрировал ошибку воспроизведения."

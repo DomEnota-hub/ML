@@ -83,7 +83,9 @@ internal object StructuredLogExplanation {
         "Browser" to "Браузер", "BrowserWebView" to "Браузер", "HitMozWebView" to "Поиск музыки",
         "MuzmoWebView" to "Поиск музыки", "YouTube" to "YouTube", "Instagram" to "Instagram",
         "InstagramProfile" to "Instagram", "GapiUsage" to "Сетевой запрос", "Resolve" to "Обработка ссылки",
-        "Share" to "Получение ссылки", "Diagnostics" to "Диагностика")
+        "Share" to "Получение ссылки", "Diagnostics" to "Диагностика",
+        "GalleryWallpaper" to "Галерея", "VideoEditor" to "Редактор видео", "PhotoEditor" to "Редактор фото",
+        "Listening" to "Музыка", "AudioPreview" to "Редактор видео", "AudioSync" to "Редактор видео")
     fun group(tag: String): String = groups[tag] ?: "Другие события"
 
     fun readable(entry: DisplayLogEntry): String? {
@@ -173,6 +175,7 @@ internal object StructuredLogExplanation {
                 "INVENTORY_START" to "Начата инвентаризация папки", "INVENTORY_READ" to "Прочитан список файлов папки",
                 "VISIBILITY_ACTION_FAILED" to "Изменение видимости не выполнено", "MANAGED_LOCAL_ACCESS" to "Проверен локальный доступ",
                 "EXACT_GRANT_REUSED" to "Использовано существующее разрешение на папку"))
+                ?: if (event.startsWith("stage=")) "Этап исторического механизма доступа к папке; точный код сохранён в технической записи." else null
             "Trash" -> exact("Move requested" to "Запрошен перенос файла в корзину.", "Move completed" to "Перенос в корзину завершён.",
                 "Duplicate transfer confirmed" to "Перенос дубликата в корзину подтверждён.", "Verified move completed" to "Проверенный перенос в корзину завершён.",
                 "Duplicate transfer not confirmed" to "Перенос дубликата не подтверждён.")
@@ -202,6 +205,10 @@ internal object StructuredLogExplanation {
             "AudioReplace" -> if (event.startsWith("MediaStore metadata not confirmed;")) "Метаданные Android не подтверждены; проверенные данные распознавания и история сохранены." else null
             "Editor" -> exact("Audio edit failed" to "Обработка аудио в редакторе не выполнена.")
             "PhotoCutout" -> when {
+                event == "Module missing; requesting subject segmentation module" -> "Модуль выделения объекта отсутствует; запрошена установка."
+                event == "Subject segmentation module ready" -> "Модуль выделения объекта готов."
+                event.startsWith("Module preparation failed:") -> "Не удалось подготовить модуль выделения объекта."
+                event == "Cancellation requested; native task remains alive until completion" -> "Запрошена отмена выделения объекта; нативная операция ещё выполняется."
                 event.startsWith("ONNX CPU cutout started,") -> join("Начато выделение объекта на фото", metric("width", "Ширина"), metric("height", "Высота"))
                 event.startsWith("ONNX CPU cutout completed,") -> join("Выделение объекта на фото завершено", ms())
                 else -> null
@@ -223,12 +230,37 @@ internal object StructuredLogExplanation {
                 "EDITOR_ENTRY_AUTHORIZED" -> "Вход в видеоредактор разрешён."
                 else -> null
             }
-            "VideoPreview" -> if (key == "EDITOR_FIRST_FRAME") "Отображён первый кадр в видеоредакторе." else null
+            "VideoPreview" -> when {
+                key == "EDITOR_FIRST_FRAME" -> "Отображён первый кадр в видеоредакторе."
+                event == "Player failure" -> join("Ошибка предварительного просмотра видео", metric("positionMs", "Позиция", " мс"), metric("durationMs", "Длительность", " мс"))
+                else -> null
+            }
+            "VideoEditor" -> if (event == "Operation failed") "Операция видеоредактора не выполнена; причина в технической записи." else null
+            "PhotoEditor" -> if (event.startsWith("Preview render failed:")) "Не удалось отобразить предварительный результат фоторедактора." else null
+            "AudioPreview" -> if (event == "Player failure") "Ошибка предварительного воспроизведения звука видеоредактора." else null
+            "AudioSync" -> when (event) {
+                "Drift correction" -> join("Коррекция рассинхронизации звука и видео", metric("projectMs", "Позиция проекта", " мс"), metric("expectedSourceMs", "Ожидаемая позиция аудио", " мс"), metric("actualSourceMs", "Фактическая позиция аудио", " мс"))
+                "Audio seek" -> join("Изменена позиция аудио для синхронизации", f.bool("jump", "Переход по шкале", nullText), f.bool("playing", "Воспроизводится", "Не воспроизводится"))
+                else -> null
+            }
+            "GalleryWallpaper" -> when (event) {
+                "Wallpaper prepared" -> join("Изображение подготовлено для установки обоев", metric("bytes", "Размер", " байт"))
+                "Wallpaper preparation failed" -> "Не удалось подготовить изображение для обоев."
+                "System crop intent unavailable, using ACTION_ATTACH_DATA" -> "Системная обрезка обоев недоступна; выбран альтернативный способ открытия изображения."
+                "Wallpaper crop activity unavailable; opening image chooser" -> "Системный экран обрезки недоступен; открыт выбор приложения для изображения."
+                "Applied directly" -> join("Обои установлены напрямую", f.label("which", mapOf("1" to "Главный экран", "2" to "Экран блокировки", "3" to "Оба экрана")))
+                "Direct wallpaper apply failed" -> "Не удалось установить обои напрямую."
+                else -> null
+            }
             "VideoRecognition" -> exact("Saved video recognition started" to "Начато распознавание музыки из сохранённого видео.", "Audio decoded" to "Декодирован звук видео.", "Finished" to "Операция распознавания из видео завершена.")
             "GapiUsage" -> if (event == "method=gapi") join("Запрос к сервису извлечения медиа", metric("status", "Код HTTP"), metric("cost", "Стоимость в единицах лимита"), metric("remaining", "Остаток лимита")) else null
             "Browser" -> if (event == "youtube") "Диагностика поиска карточек видео на странице YouTube." else null
-            "BrowserWebView" -> if (event.startsWith("source=") && entry.metadata.startsWith("JS console")) "Диагностическое сообщение сценария браузера." else exact("Page started" to "Начата загрузка страницы браузера.", "Page finished" to "Загрузка страницы браузера завершена; содержимое проверяется отдельно.")
-            "HitMozWebView", "MuzmoWebView" -> if (event == "JS console") "Диагностическое сообщение сценария встроенного браузера." else null
+            "BrowserWebView" -> if (event.startsWith("source=")) "Диагностическое сообщение сценария браузера." else exact("Page started" to "Начата загрузка страницы браузера.", "Page finished" to "Загрузка страницы браузера завершена; содержимое проверяется отдельно.")
+            "HitMozWebView", "MuzmoWebView" -> when (event) {
+                "JS console" -> "Диагностическое сообщение сценария встроенного браузера."
+                "HTTP error" -> join("Сервер отклонил запрос встроенного браузера музыкального поиска", metric("status", "Код HTTP"), f.bool("mainFrame", "Основная страница", "Вспомогательный ресурс; отказ всей операции не подтверждён"))
+                else -> null
+            }
             "Instagram" -> exact("Media resolved" to "Получены сведения о материалах Instagram.", "GAPI unavailable" to "Сервис извлечения Instagram недоступен.", "Using existing extractor for this request" to "Для запроса выбран имеющийся механизм извлечения.")
             "Resolve" -> exact("Begin" to "Начата обработка ссылки.", "Provider error" to "Источник вернул ошибку при обработке ссылки.")
             "Share" -> exact("Share route" to "Определён способ обработки полученной ссылки.", "Instagram visual auto-download scheduled" to "Запланирована автоматическая загрузка материалов Instagram.", "Instagram auto-download queued" to "Автоматическая загрузка Instagram поставлена в очередь.", "Instagram automatic share done" to "Завершена обработка автоматически полученной ссылки Instagram.")
@@ -284,6 +316,7 @@ internal object StructuredLogExplanation {
                 else -> null
             }
             "Recognition" -> when {
+                event == "Applied" -> "Результат распознавания музыки применён к записи."
                 event == "MP3 metadata saved" -> "Метаданные MP3 сохранены."
                 event == "Preview music result" -> "Получен предварительный результат распознавания музыки."
                 event.startsWith("Direct ID") && event.contains("unavailable; trying MP3 remux") -> "Прямое распознавание недоступно; выбран резервный способ подготовки аудио."
@@ -334,7 +367,9 @@ internal object StructuredLogExplanation {
         event.startsWith("MP3 request recovered on attempt ") -> "Повторная попытка сетевого запроса восстановила получение аудиоданных; сохранение ещё не подтверждено."
         event.startsWith("DOM scan found no usable songs") || event.startsWith("DOM yielded no song rows") -> "Не удалось извлечь пригодный список песен; это не доказывает их отсутствие."
         event == "Native music results parsed" || event == "DOM search rows parsed" -> join("Получен список композиций со страницы", f.metric("count", "Записей"))
-        event == "MP3 response" && f.number("status") != null -> join("Получен ответ на запрос аудиофайла", f.metric("status", "Код HTTP"), f.metric("length", "Размер ответа", " байт"), f.metric("elapsedMs", "Ожидание", " мс"))
+        event == "MP3 response" -> join("Получен ответ на запрос аудиофайла", f.metric("status", "Код HTTP"), f.metric("length", "Размер ответа", " байт"), f.metric("elapsedMs", "Ожидание", " мс"))
+        event == "MP3 transport" -> join("Выбран сетевой механизм получения аудио", f.label("client", mapOf("cronet" to "Cronet", "platform" to "Системный HTTP Android", "platform-retry" to "Повтор через системный HTTP Android")))
+        event == "MP3 network attempt" || event.startsWith("MP3 network attempt ") -> "Попытка получения аудиофайла завершилась сетевой ошибкой."
         event == "MP3 stream verified" -> join("Аудиопоток прошёл проверку формата; сохранение подтверждается отдельно", f.metric("bytes", "Размер", " байт"))
         event.startsWith("MP3 HTTP attempt ") -> {
             val m = Regex("""^MP3 HTTP attempt (\d{1,3})/(\d{1,3})$""").matchEntire(event)
@@ -419,6 +454,10 @@ internal object StructuredLogExplanation {
             "PAUSE_REQUESTED" -> "Запрошена безопасная пауза файловой операции."
             "PAUSE_CHECKPOINT" -> join("Контрольная точка паузы", f.countProgress("confirmed", "total", "Подтверждено"), f.bool("journalDurable", "Журнал сохранён", "Сохранение журнала не подтверждено"))
             "RECOVERY_PLAN" -> join("План восстановления файловой операции", direction, f.bool("verified", "Проверен", "Не проверен"))
+            "RESTORE_METADATA_PENDING" -> "Дата или размер восстановленного файла ещё не подтверждены; исходник сохранён."
+            "PROOF_GUARD" -> "Не подтверждена привязка файлового хранилища; операция ограничена проверкой безопасности."
+            "ROOT_GUARD" -> join("Не пройдена проверка корневого хранилища", f.bool("ownerVerified", "Принадлежность хранилища подтверждена", "Принадлежность хранилища не подтверждена"))
+            "ROOT_DETAIL" -> "Записаны подробности проверки корневого хранилища."
             "ROOT_PREFLIGHT" -> "Предварительная проверка корневой папки."
             "MOVE_BATCH_LATENCY" -> join("Измерена длительность пакета файлов", f.metric("samples", "Измерений"), f.metric("p50Ms", "Медиана", " мс"), f.metric("p95Ms", "95-й процентиль", " мс"))
             else -> null

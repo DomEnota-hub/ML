@@ -12,6 +12,7 @@ class JournalSourceInventoryTest {
         val root = listOf(File("src/main/java"), File("app/src/main/java"))
             .firstOrNull { it.isDirectory } ?: error("Production source root missing")
         val calls = Regex("""\bAppLog\.(i|w|e|d|ok|verbose)\s*\(\s*"([^"\n]+)"\s*,\s*"([^"$\n]*)""")
+        val sampled = Regex("""\bAppLog\.verboseSampled\s*\(\s*"([^"\n]+)"\s*,\s*"[^"\n]*"\s*,\s*"([^"$\n]*)""")
         val generic = setOf("Зафиксирована ошибка. Подробности доступны в техническом журнале.",
             "Зафиксировано предупреждение. Подробности доступны в техническом журнале.",
             "Операция завершилась успешно.", "Событие приложения. Подробности доступны в техническом журнале.",
@@ -21,9 +22,11 @@ class JournalSourceInventoryTest {
         val missing = linkedSetOf<String>()
         var dynamic = 0
         for (file in sourceFiles) {
-            for (call in calls.findAll(file.readText())) {
-                val (method, tag, prefix) = call.destructured
-                val message = prefix.replace("\\n", " ").trim()
+            val source = file.readText()
+            val direct = calls.findAll(source).map { it.destructured.toList() }
+            val sampledCalls = sampled.findAll(source).map { listOf("verbose", it.groupValues[1], it.groupValues[2]) }
+            for ((method, tag, prefix) in direct + sampledCalls) {
+                val message = prefix.replace("\\n", " ").trim().removeSuffix("·").trimEnd()
                 if (message.isBlank()) { dynamic++; continue }
                 val level = when (method) {
                     "w" -> "WARN"; "e" -> "ERROR"; "ok" -> "OK"; "i" -> "INFO"; else -> "DEBUG"

@@ -363,6 +363,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.CurrentLogExplanationTest#additionalSourceFamiliesPreserveSemanticsAndNumericFields": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.logging.CurrentLogExplanationTest#directSourceEventsHaveSafeExplanations": {
     "skipped": false,
     "failed": false
