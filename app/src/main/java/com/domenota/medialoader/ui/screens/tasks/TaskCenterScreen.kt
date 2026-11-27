@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens.tasks
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -22,6 +23,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.domenota.medialoader.data.tasks.*
+import com.domenota.medialoader.core.logging.AppLog
+import com.domenota.medialoader.core.logging.TaskJournalDisplay
+import com.domenota.medialoader.ui.screens.AppLogViewer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.domenota.medialoader.ui.components.ReportDrawerScreen
 import com.domenota.medialoader.ui.components.BrainCircuitOutline
 import kotlinx.coroutines.flow.map
@@ -84,20 +90,25 @@ private fun kindIcon(kind:TaskKind):ImageVector=when(kind) {
     }
 }
 @Composable
-internal fun TaskCenterScreen(onBack: () -> Unit) {
+internal fun TaskCenterScreen(journalAllowed:Boolean=false,canReadJournal:()->Boolean={false},onBack: () -> Unit) {
     ReportDrawerScreen(true)
     val tasks by TaskCenter.registry.tasks.collectAsStateWithLifecycle()
     val live by TaskCenter.registry.liveTasks.collectAsStateWithLifecycle()
     val known by TaskCenter.registry.registeredOwners.collectAsStateWithLifecycle()
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    if(settingsOpen)TaskSettingsDialog{settingsOpen=false}
-    TaskCenterContent(tasks,live,known,onBack,{settingsOpen=true},TaskCenter.registry::dispatch)
+    var related by remember { mutableStateOf<TaskCorrelation?>(null) }
+    LaunchedEffect(journalAllowed){if(!journalAllowed)related=null}
+    BackHandler(enabled=settingsOpen){settingsOpen=false}
+    if(settingsOpen)TaskSettingsScreen{settingsOpen=false}
+    else TaskCenterContent(tasks,live,known,onBack,{settingsOpen=true},TaskCenter.registry::dispatch,
+        onJournal=if(journalAllowed){{token->if(canReadJournal())related=token}}else null)
+    related?.takeIf{journalAllowed}?.let{token->RelatedTaskJournal(token,canReadJournal){related=null}}
 }
 
 /** One real task projection; cards never start or infer executor actions. */
 @Composable
 internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,known:Set<TaskOwner>,
-    onBack:()->Unit,onSettings:()->Unit,dispatch:(String,TaskCommand)->Boolean) {
+    onBack:()->Unit,onSettings:()->Unit,dispatch:(String,TaskCommand)->Boolean,onJournal:((TaskCorrelation)->Unit)?=null) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var errorsOnly by rememberSaveable { mutableStateOf(false) }
@@ -221,7 +232,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                 if(visible.isEmpty())item("empty"){
                     Text("Нет задач",Modifier.padding(16.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                items(visible,key={it.id}){row->TaskCard(row,focus==row.id,command)}
+                items(visible,key={it.id}){row->TaskCard(row,focus==row.id,command,onJournal)}
             }
         }
         SnackbarHost(snackbar)
@@ -233,7 +244,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         Text(label,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-@Composable private fun TaskCard(row:TaskSnapshot,focused:Boolean,command:(String,TaskCommand)->Unit){
+@Composable private fun TaskCard(row:TaskSnapshot,focused:Boolean,command:(String,TaskCommand)->Unit,onJournal:((TaskCorrelation)->Unit)?){
     var expanded by rememberSaveable(row.id,focused){mutableStateOf(focused)}
     var limit by rememberSaveable(row.id){mutableIntStateOf(10)}
     val canExpand=TaskCenterPresentation.expandable(row)
@@ -251,8 +262,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
             }
             TaskRowContent(row,false,command)
             if(expanded&&canExpand){
-                row.stage?.let{Text(it.label,style=MaterialTheme.typography.bodySmall)}
-                if(row.errors>0)Text("Ошибки: ${row.errors}",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)
+                TaskResultDetails(row,onJournal)
                 row.children.take(limit).forEachIndexed{index,child->
                     HorizontalDivider()
                     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
@@ -291,34 +301,146 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
     FlowRow(horizontalArrangement=Arrangement.spacedBy(3.dp)){
         row.commands.forEach{action->
             TextButton({command(row.id,action)}){
-                Text(when{row.idle&&action==TaskCommand.RESUME->"Начать";action==TaskCommand.RETRY&&row.children.isEmpty()&&row.files==null->"Повторить загрузку";else->action.label})
+                Text(when{row.idle&&action==TaskCommand.RESUME->"Начать";action==TaskCommand.RETRY&&row.kind==TaskKind.DOWNLOAD&&row.children.isEmpty()&&row.files==null->"Повторить загрузку";else->action.label})
             }
         }
     }
 }
 
-@Composable
-private fun TaskSettingsDialog(onClose:()->Unit) {
+@Composable private fun TaskResultDetails(row:TaskSnapshot,onJournal:((TaskCorrelation)->Unit)?){
+    val details=row.details
+    HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant)
+    if(details==null&&row.status.terminal)Text("Подробности не сохранены",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    details?.startedAt?.let{start->
+        DetailLine("Начало",DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(start)))
+        if(row.status.terminal&&row.updatedAt>=start)DetailLine("Продолжительность",TaskCenterPresentation.duration(row.updatedAt-start))
+    }
+    if(row.status.terminal&&row.updatedAt>0)DetailLine("Завершение",DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(row.updatedAt)))
+    details?.trigger?.let{DetailLine("Запуск",TaskCenterPresentation.triggerLabel(it))}
+    row.source?.let{DetailLine("Источник",it.label)}
+    row.stage?.let{DetailLine("Этап",it.label)}
+    row.wait?.let{DetailLine("Условие ожидания",it.label)}
+    if(details?.recovered==true)Text("Продолжено с контрольной точки",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    details?.outcomes?.let{outcomes->
+        Text("Результат обработки",style=MaterialTheme.typography.titleSmall)
+        DetailLine("Проверено",outcomes.checked.toString())
+        DetailLine("Создано",outcomes.generated.toString())
+        DetailLine("Уже в кэше",outcomes.cached.toString())
+        DetailLine("Пропущено",outcomes.skipped.toString())
+        if(row.kind==TaskKind.WAVEFORM&&outcomes.skipped>0)Text("Нет подтверждённой длительности",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        DetailLine("Ошибки",outcomes.failed.toString())
+    }
+    if(row.errors>0||row.status==TaskStatus.FAILED){
+        val failure=details?.failure
+        Text(failure?.label?:"Причина не сохранена",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)
+        if(details?.outcomes==null&&row.errors>0)DetailLine("Ошибки",row.errors.toString())
+        failure?.let{TaskCenterPresentation.advice(it)}?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+    }
+    details?.checkpoints?.let{summary->
+        var expanded by rememberSaveable(row.id){mutableStateOf(false)}
+        Row(Modifier.fillMaxWidth().clickable{expanded=!expanded}.heightIn(min=44.dp),verticalAlignment=Alignment.CenterVertically){
+            Text("Пакеты (${summary.count})",Modifier.weight(1f),style=MaterialTheme.typography.titleSmall)
+            Icon(if(expanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(expanded)"Свернуть пакеты" else "Раскрыть пакеты")
+        }
+        if(expanded){
+            if(summary.count>summary.recent.size)Text("Последние ${summary.recent.size} из ${summary.count}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            summary.recent.forEach{batch->
+                HorizontalDivider()
+                Text("Пакет ${batch.ordinal} · проверено ${batch.outcomes.checked}",style=MaterialTheme.typography.bodySmall)
+                Text("Создано ${batch.outcomes.generated} · в кэше ${batch.outcomes.cached} · пропущено ${batch.outcomes.skipped} · ошибок ${batch.outcomes.failed}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+    if(onJournal!=null)details?.correlation?.let{token->TextButton({onJournal(token)}){Text("Связанные события журнала")}}
+}
+@Composable private fun DetailLine(label:String,value:String){
+    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.Top){
+        Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
+    }
+}
+@Composable private fun RelatedTaskJournal(token:TaskCorrelation,allowed:()->Boolean,onClose:()->Unit){
+    var text by remember(token){mutableStateOf<String?>(null)}
+    var readable by rememberSaveable{mutableStateOf(true)}
+    val latestAllowed by rememberUpdatedState(allowed)
+    LaunchedEffect(token){
+        if(!latestAllowed()){onClose();return@LaunchedEffect}
+        val related=withContext(Dispatchers.IO){TaskJournalDisplay.related(AppLog.readText(),token)}
+        if(!latestAllowed()){onClose();return@LaunchedEffect}
+        text=related
+    }
+    AlertDialog(onDismissRequest=onClose,title={Text("События задачи")},text={
+        when{
+            text==null->Text("Подготовка журнала…")
+            text.isNullOrBlank()->Text("Связанные события не сохранились в журнале")
+            else->AppLogViewer(text.orEmpty(),readable,{readable=it},Modifier.fillMaxWidth().height(420.dp))
+        }
+    },confirmButton={TextButton(onClose){Text("Закрыть")}})
+}
+@Composable private fun TaskSettingsScreen(onClose:()->Unit){
     val value by TaskHistoryStore.settings.collectAsStateWithLifecycle()
-    var confirm by remember { mutableStateOf(false) }
-    if(confirm) AlertDialog(onDismissRequest={confirm=false},title={Text("Очистить историю задач?")},
+    var confirm by remember{mutableStateOf(false)}
+    var retentionMenu by remember{mutableStateOf(false)}
+    if(confirm)AlertDialog(onDismissRequest={confirm=false},title={Text("Очистить историю задач?")},
         text={Text("Файлы, результаты и история загрузок сохранятся.")},
-        confirmButton={TextButton({TaskCenter.registry.clearHistory();confirm=false}){Text("Очистить")}},
+        confirmButton={TextButton({TaskCenter.registry.clearHistory();confirm=false}){Text("Очистить",color=MaterialTheme.colorScheme.error)}},
         dismissButton={TextButton({confirm=false}){Text("Отмена")}})
-    else AlertDialog(onDismissRequest=onClose,title={Text("Настройки Центра задач")},
-        text={
-            Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                Text("Хранение истории")
-                TaskSettings.RETENTION.forEach { days ->
-                    Row(Modifier.fillMaxWidth().clickable { TaskHistoryStore.update(value.copy(retention=days)) },verticalAlignment=Alignment.CenterVertically) {
-                        RadioButton(selected=value.retention==days,onClick={TaskHistoryStore.update(value.copy(retention=days))})
-                        Text(if(days==0) "Без ограничений" else "$days дн.")
+    Column(Modifier.fillMaxSize()){
+        Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically){
+            IconButton(onClose){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
+            Text("Настройки Центра задач",Modifier.weight(1f),style=MaterialTheme.typography.headlineSmall)
+        }
+        LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+            item{
+                Text("Фоновые процессы",style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Card(Modifier.fillMaxWidth().padding(top=6.dp),shape=RoundedCornerShape(16.dp)){
+                    Column(Modifier.padding(12.dp)){
+                        TaskSettingSwitch("Тяжёлая индексация при зарядке","Учитывать питание устройства",value.charging){TaskHistoryStore.update(value.copy(charging=it))}
+                        HorizontalDivider()
+                        TaskSettingSwitch("Учитывать энергосбережение","Ожидать подходящих условий",value.batterySaver){TaskHistoryStore.update(value.copy(batterySaver=it))}
                     }
                 }
-                Row(verticalAlignment=Alignment.CenterVertically) { Text("Тяжёлая индексация при зарядке",Modifier.weight(1f)); Switch(value.charging,{TaskHistoryStore.update(value.copy(charging=it))}) }
-                Row(verticalAlignment=Alignment.CenterVertically) { Text("Учитывать энергосбережение",Modifier.weight(1f)); Switch(value.batterySaver,{TaskHistoryStore.update(value.copy(batterySaver=it))}) }
-                Row(verticalAlignment=Alignment.CenterVertically) { Text("Уведомления о завершении",Modifier.weight(1f)); Switch(value.notifications,{TaskHistoryStore.update(value.copy(notifications=it))}) }
-                TextButton({confirm=true}){Text("Очистить историю задач")}
             }
-        },confirmButton={TextButton(onClose){Text("Готово")}})
+            item{
+                Text("Уведомления",style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Card(Modifier.fillMaxWidth().padding(top=6.dp),shape=RoundedCornerShape(16.dp)){
+                    Column(Modifier.padding(12.dp)){
+                        TaskSettingSwitch("О завершении задач","Для поддерживаемых фоновых операций",value.notifications){TaskHistoryStore.update(value.copy(notifications=it))}
+                    }
+                }
+            }
+            item{
+                Text("История",style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Card(Modifier.fillMaxWidth().padding(top=6.dp),shape=RoundedCornerShape(16.dp)){
+                    Column(Modifier.padding(12.dp)){
+                        Box{
+                            Row(Modifier.fillMaxWidth().clickable{retentionMenu=true}.heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically){
+                                Column(Modifier.weight(1f)){
+                                    Text("Хранение истории",style=MaterialTheme.typography.bodyLarge)
+                                    Text(if(value.retention==0)"Без ограничений" else "${value.retention} дн.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                Icon(Icons.Rounded.ExpandMore,"Выбрать срок")
+                            }
+                            DropdownMenu(expanded=retentionMenu,onDismissRequest={retentionMenu=false}){
+                                TaskSettings.RETENTION.forEach{days->DropdownMenuItem(text={Text(if(days==0)"Без ограничений" else "$days дн.")},
+                                    onClick={retentionMenu=false;TaskHistoryStore.update(value.copy(retention=days))})}
+                            }
+                        }
+                        HorizontalDivider()
+                        TextButton({confirm=true}){Text("Очистить историю задач",color=MaterialTheme.colorScheme.error)}
+                    }
+                }
+            }
+        }
+    }
+}
+@Composable private fun TaskSettingSwitch(title:String,description:String,checked:Boolean,onChange:(Boolean)->Unit){
+    Row(Modifier.fillMaxWidth().padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+        Column(Modifier.weight(1f)){
+            Text(title,style=MaterialTheme.typography.bodyLarge)
+            Text(description,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked,onChange,colors=SwitchDefaults.colors(uncheckedThumbColor=MaterialTheme.colorScheme.onSurfaceVariant,
+            uncheckedTrackColor=MaterialTheme.colorScheme.surfaceVariant,uncheckedBorderColor=MaterialTheme.colorScheme.outline))
+    }
 }

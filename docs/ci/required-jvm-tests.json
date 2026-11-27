@@ -491,6 +491,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.TaskJournalDisplayTest#readableTaskEventsNeverEchoUnknownFieldsOrCorrelation": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.TaskJournalDisplayTest#relatedFilterMatchesExactTypedTokenAndTag": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.model.FileSizeFormatterTest#formatsAtMegabyteBoundary": {
     "skipped": false,
     "failed": false
@@ -10615,6 +10623,14 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest#usableEmptyCollectionDoesNotShowBackgroundProgressAndPrivacyInvalidationDoes": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.tasks.TaskCenterUiTest#darkOverviewActiveCounterOpensWholeSweep": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.tasks.TaskCenterUiTest#lightHistoryShowsKnownCountsAfterExpansion": {
     "skipped": false,
     "failed": false
   },

@@ -121,7 +121,7 @@ object LogDisplay {
 
     /** Never include private log fields, URLs or filenames in the readable event title. */
     fun readable(entry: DisplayLogEntry): String =
-        LogExplanation.forRecord(entry.original, entry.stack)?.meaning
+        TaskJournalDisplay.readable(entry) ?: LogExplanation.forRecord(entry.original, entry.stack)?.meaning
             ?: when (entry.tone) {
                 LogTone.ERROR -> "Зафиксирована ошибка. Подробности доступны в техническом журнале."
                 LogTone.WARN -> "Зафиксировано предупреждение. Подробности доступны в техническом журнале."
@@ -135,6 +135,7 @@ object LogDisplay {
         "Muzmo", "HitMoz", "MusicSource", "MusicWebView", "MusicAds" -> "Поиск музыки"
         "Recognition", "MusicArtwork" -> "Распознавание музыки"
         "Download", "DownloadProgress" -> "Загрузки"
+        "TaskCenter" -> "Центр задач"
         "Thumbnail" -> "Миниатюры"
         "App" -> "Приложение"
         "Crash" -> "Сбой приложения"

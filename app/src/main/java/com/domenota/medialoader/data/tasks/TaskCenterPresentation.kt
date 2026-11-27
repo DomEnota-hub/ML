@@ -21,6 +21,23 @@ internal object TaskCenterPresentation {
     fun focusFirst(rows:List<TaskSnapshot>,id:String?)=if(id==null)rows else rows.sortedBy{it.id!=id}
     fun history(rows:List<TaskSnapshot>)=rows.filter{it.status.terminal}.sortedByDescending{it.updatedAt}
     fun errors(rows:List<TaskSnapshot>)=history(rows).filter{it.status==TaskStatus.FAILED||it.errors>0}
+    fun duration(ms:Long):String {
+        val seconds=ms.coerceAtLeast(0)/1000
+        return if(seconds>=3600)"${seconds/3600} ч ${seconds/60%60} мин" else if(seconds>=60)"${seconds/60} мин ${seconds%60} с" else "$seconds с"
+    }
+    fun triggerLabel(trigger:TaskTrigger)=when(trigger){
+        TaskTrigger.USER->"Вручную";TaskTrigger.BACKGROUND->"Фоновая проверка";TaskTrigger.PERIODIC->"Периодическая проверка"
+        TaskTrigger.MEDIA_CHANGED->"Изменение медиатеки";TaskTrigger.RECOVERY->"Восстановление"
+    }
+    fun advice(failure:TaskFailure):String?=when(failure){
+        TaskFailure.NETWORK->"Проверить подключение и повторить операцию"
+        TaskFailure.PERMISSION->"Проверить разрешения приложения"
+        TaskFailure.STORAGE->"Проверить свободное место"
+        TaskFailure.DECODE->"Проверить доступность и формат файла"
+        TaskFailure.CACHE_WRITE,TaskFailure.IO->"Проверить доступ к файлу и свободное место"
+        TaskFailure.INTERRUPTED->"Повторить операцию"
+        TaskFailure.UNKNOWN->null
+    }
     fun bytes(value:Long):String {
         if(value<1024)return "$value Б"
         val units=listOf("КБ","МБ","ГБ","ТБ")
@@ -30,8 +47,7 @@ internal object TaskCenterPresentation {
         return String.format(java.util.Locale.forLanguageTag("ru"),"%.1f %s",size,units[index])
     }
     fun title(row:TaskSnapshot):String = if(row.kind==TaskKind.DOWNLOAD) {
-        listOfNotNull(row.source?.label, if(row.children.isNotEmpty()||row.files!=null) "Группа файлов" else row.media?.label)
-            .joinToString(" · ").ifBlank{row.kind.label}
+        if(row.children.isNotEmpty()||row.files!=null)"Загрузка группы" else when(row.media){TaskMedia.AUDIO->"Загрузка аудио";TaskMedia.VIDEO->"Загрузка видео";TaskMedia.PHOTO->"Загрузка фото";null->row.kind.label}
     } else if(row.kind==TaskKind.WAVEFORM)"Генерация звуковых волн" else row.kind.label
     fun progressText(row:TaskSnapshot):String? = row.files?.let {
         val unit=when(row.kind){TaskKind.WAVEFORM,TaskKind.LOUDNESS,TaskKind.AUDIO_DUPLICATES->"треков";TaskKind.OCR->"фото";else->"файлов"}

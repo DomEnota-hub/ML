@@ -2218,7 +2218,7 @@ fun MediaLoaderApp(
     // the 1.7.211 DEX had invoke-direct/range constructors with 256/257 register words.
     // StableLibraryNavHost still observes the latest callbacks; only their ownership changes.
     val libraryRoutes = listOf(
-            LibraryRouteContent("task-center") { com.domenota.medialoader.ui.screens.tasks.TaskCenterScreen { navController.popBackStack() } },
+            LibraryRouteContent("task-center") { com.domenota.medialoader.ui.screens.tasks.TaskCenterScreen(journalAllowed=journalUnlocked,canReadJournal={JournalAccess.allowed(uiPrefs)}) { navController.popBackStack() } },
             LibraryRouteContent(AppDestination.Home.route) {
                 CompositionLocalProvider(LocalDrawerAdmission provides drawerAdmission.takeIf{currentRoute==AppDestination.Home.route}){
                 modeStates.SaveableStateProvider(appMode.name) {
