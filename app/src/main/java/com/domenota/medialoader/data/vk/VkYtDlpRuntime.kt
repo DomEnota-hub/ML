@@ -288,13 +288,13 @@ class VkYtDlpRuntime(context: Context) : StreamExtractor, YtDlpDownloader {
     private fun failureMessage(error: YoutubeDLException): String {
         val text = error.message.orEmpty()
         if (AUTH_MARKERS.any { text.contains(it, ignoreCase = true) }) {
-            return if (hasCookies) "VK не принял сохранённую сессию для этого видео. Повторите вход в аккаунт VK."
-                else "VK требует вход в аккаунт. Откройте Настройки → Аккаунт VK."
+            return if (hasCookies) "VK не принял сохранённую сессию для этого видео. Повтори вход в аккаунт VK."
+                else "VK требует вход в аккаунт. Открой Настройки → Аккаунт VK."
         }
         return when {
             text.contains("badbrowser.php", ignoreCase = true) ->
-                "VK отклонил страницу в браузере. Повторите попытку с прямой ссылкой на видео."
-            text.contains("403", ignoreCase = true) -> "VK не дал доступ к потоку. Обновите yt-dlp и повторите."
+                "VK отклонил страницу в браузере. Повтори попытку с прямой ссылкой на видео."
+            text.contains("403", ignoreCase = true) -> "VK не дал доступ к потоку. Обнови yt-dlp и повтори попытку."
             else -> "Не удалось получить видео из VK."
         }
     }

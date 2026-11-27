@@ -26,7 +26,7 @@ class PrivateMediaOperations(
         requireConfigured()
         val row = read(id) ?: error("Запись не найдена")
         if (row.isPrivate) { finishMove(id); return }
-        require(!row.hidden && row.state == DownloadState.COMPLETED) { "Дождитесь завершения загрузки" }
+        require(!row.hidden && row.state == DownloadState.COMPLETED) { "Дождись завершения загрузки" }
         val source = requireNotNull(row.savedUri) { "Файл отсутствует" }
         val extension = row.originalName.substringAfterLast('.', "bin").takeIf { it.matches(Regex("[A-Za-z0-9]{1,10}")) } ?: "bin"
         val uri = importCopy("${UUID.randomUUID()}.$extension", source)
@@ -49,7 +49,7 @@ class PrivateMediaOperations(
     private suspend fun cleanupPublicSource(row: DownloadEntity) {
         val source = row.privateSourceUri ?: return
         withContext(NonCancellable) {
-            if (!removePublic(source)) throw IOException("Приватная копия сохранена, но публичный файл не удалён. Повторите завершение переноса.")
+            if (!removePublic(source)) throw IOException("Приватная копия сохранена, но публичный файл не удалён. Повтори завершение переноса.")
             save(row.copy(privateSourceUri = null))
         }
     }
@@ -58,7 +58,7 @@ class PrivateMediaOperations(
         requireUnlocked()
         val row = read(id) ?: error("Запись не найдена")
         require(row.isPrivate)
-        require(row.privateSourceUri == null) { "Сначала завершите перенос: публичная копия ещё существует" }
+        require(row.privateSourceUri == null) { "Сначала необходимо завершить перенос: публичная копия ещё существует" }
         withContext(NonCancellable) {
             val (name, uri) = publish(row)
             try { save(row.copy(originalName = name, savedUri = uri, isPrivate = false, privateSourceUri = null,
@@ -72,7 +72,7 @@ class PrivateMediaOperations(
         requireUnlocked()
         val row = read(id) ?: return
         require(row.isPrivate)
-        require(row.privateSourceUri == null) { "Сначала завершите перенос: публичная копия ещё существует" }
+        require(row.privateSourceUri == null) { "Сначала необходимо завершить перенос: публичная копия ещё существует" }
         withContext(NonCancellable) {
             if (!removePrivate(requireNotNull(row.savedUri))) throw IOException("Не удалось удалить приватный файл")
             deleteRow(id)

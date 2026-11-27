@@ -112,7 +112,7 @@ internal fun ResumeMusicScreen(sessions:List<ResolvedResumeQueue>,rows:Map<Strin
                         Icon(Icons.Rounded.Bookmark,null,tint=MaterialTheme.colorScheme.primary,modifier=Modifier.size(18.dp))
                         Text("Сохранённая позиция",fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.bodyMedium)
                     }
-                    Text(current?.let(::displayAudioTitle)?:if(loading)"Проверка доступности…" else "Трек недоступен",
+                    Text(if(current!=null)displayAudioTitle(current) else if(loading)"Проверка доступности…" else "Трек недоступен",
                         maxLines=2,overflow=TextOverflow.Ellipsis,color=if(current==null&&!loading)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
                     Text("Трек ${saved.index+1} из ${saved.entries.size} · ${position(saved.positionMs)}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     if(saved.durationMs>0)LinearProgressIndicator(progress={(saved.positionMs.toDouble()/saved.durationMs).coerceIn(0.0,1.0).toFloat()},

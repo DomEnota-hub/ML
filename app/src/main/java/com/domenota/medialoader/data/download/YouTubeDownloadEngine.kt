@@ -49,7 +49,7 @@ class YouTubeDownloadEngine(
         } catch (failure: DownloadFailure) {
             throw failure
         } catch (error: Exception) {
-            throw DownloadFailure("Не удалось сохранить файл с YouTube. Повторите попытку.", error)
+            throw DownloadFailure("Не удалось сохранить файл с YouTube. Повтори попытку.", error)
         } finally {
             workDir.deleteRecursively()
         }

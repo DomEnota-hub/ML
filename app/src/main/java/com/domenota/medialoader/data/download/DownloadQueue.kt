@@ -200,7 +200,7 @@ class DownloadQueue(
         val job = kotlinx.coroutines.currentCoroutineContext()[Job] ?: error("Нет операции восстановления")
         val name = enqueueLock.withLock {
             check(history.byId(previous.id) == previous && MissingFileRecoveryPolicy.eligible(previous)) {
-                "Запись изменилась. Откройте восстановление заново"
+                "Запись изменилась. Открой восстановление заново"
             }
             check(running.putIfAbsent(previous.id, job) == null) { "Восстановление уже выполняется" }
             try { StorageNaming.availableName(previous.originalName, existingNames() + history.reservedNames()) }
@@ -222,7 +222,7 @@ class DownloadQueue(
                     onProgress(RecoveryTransferProgress(attempt,phase=RecoveryTransferPhase.RETRY_WAIT))
                     kotlinx.coroutines.delay(350L*(attempt-1))
                     check(history.byId(previous.id)==previous&&MissingFileRecoveryPolicy.eligible(previous)){
-                        "Запись изменилась. Откройте восстановление заново"
+                        "Запись изменилась. Открой восстановление заново"
                     }
                     beforeRetry()
                     if(error.refreshUrl){
@@ -532,7 +532,7 @@ class DownloadQueue(
         const val MAX_PHOTO_TRANSFERS = 3
         const val MAX_HITMOZ_TRANSFERS = 2
         const val MAX_RUTUBE_TRANSFERS = 2
-        const val INTERRUPTED = "Загрузка прервана. Повторите."
-        const val GENERIC_FAILURE = "Не удалось сохранить файл. Повторите попытку."
+        const val INTERRUPTED = "Загрузка прервана. Повтори попытку."
+        const val GENERIC_FAILURE = "Не удалось сохранить файл. Повтори попытку."
     }
 }
