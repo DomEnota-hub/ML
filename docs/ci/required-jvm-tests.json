@@ -6238,6 +6238,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.LrclibLyricsProviderTest#sequentialRequestsRespectMinimumSpacing": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.LrclibLyricsProviderTest#strictMatchingAndSyncedLyrics": {
     "skipped": false,
     "failed": false

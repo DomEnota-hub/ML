@@ -38,6 +38,14 @@ class LrclibLyricsProviderTest {
         assertTrue(provider.search(track){true} is LyricsLookup.RetryLater)
         assertEquals(1,requests)
     }
+    @Test fun sequentialRequestsRespectMinimumSpacing()=runBlocking {
+        var now=1000L
+        val sent=mutableListOf<Long>()
+        val provider=LrclibLyricsProvider({_,_->sent.add(now);LyricsHttpResponse(200,"application/json",null,"[]")},{now},{now+=it})
+        assertTrue(provider.search(track){true} is LyricsLookup.Matches)
+        assertTrue(provider.search(track){true} is LyricsLookup.Matches)
+        assertEquals(listOf(1000L,2000L),sent)
+    }
     @Test fun nonJsonAndMalformedPayloadAreNotNotFound()=runBlocking {
         val bad=LrclibLyricsProvider({_,_->LyricsHttpResponse(200,"text/html",null,"[]")},{1000L},{})
         assertEquals(LyricsLookup.Unavailable,bad.search(track){true})

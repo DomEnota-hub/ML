@@ -85,7 +85,7 @@ internal class LocalTrackLyrics(private val context:Context) {
         return persist(access,version,lyrics,allowed)
     }
     /** Extract only tag/recognition metadata from an admitted public source; never a filename or URI. */
-    fun networkTarget(access:AudioBookmarkAdmission,allowed:()->Boolean):NetworkLyricsTarget? {
+    fun networkTarget(access:AudioBookmarkAdmission,manual:Pair<String,String>?=null,allowed:()->Boolean):NetworkLyricsTarget? {
         if(!admitted(access,allowed)) return null
         val uri=source(access)
         val version=key(uri) ?: return null
@@ -102,8 +102,9 @@ internal class LocalTrackLyrics(private val context:Context) {
                     retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L)
             } finally { retriever.release() }
         }.getOrNull() ?: return null
-        return NetworkLyricsTarget(version,metadata).takeIf {
-            metadata.eligible && networkCurrent(access,it,allowed)
+        val signature=manual?.let{metadata.copy(title=it.first.trim(),artist=it.second.trim(),album=null)} ?: metadata
+        return NetworkLyricsTarget(version,signature).takeIf {
+            signature.eligible && networkCurrent(access,it,allowed)
         }
     }
     fun networkCurrent(access:AudioBookmarkAdmission,target:NetworkLyricsTarget,allowed:()->Boolean):Boolean {

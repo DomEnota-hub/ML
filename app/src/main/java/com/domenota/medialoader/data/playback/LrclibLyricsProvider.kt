@@ -99,7 +99,7 @@ internal class LrclibLyricsProvider(
                 }
             } catch(cancelled:CancellationException){throw cancelled}
             catch(_:Exception){if(allowed()) LyricsLookup.Unavailable else LyricsLookup.Revoked}
-            finally {next=clock()+500L}
+            finally {next=clock()+1000L}
         }
     }
     companion object {

@@ -58,6 +58,9 @@ internal fun TrackLyricsSheet(
     var follow by remember(key){mutableStateOf(true)}
     var networkTarget by remember(key){mutableStateOf<NetworkLyricsTarget?>(null)}
     var candidates by remember(key){mutableStateOf<List<NetworkLyricsHit>>(emptyList())}
+    var manualOpen by remember(key){mutableStateOf(false)}
+    var manualTitle by remember(key){mutableStateOf("")}
+    var manualArtist by remember(key){mutableStateOf("")}
     // Deliberately keep the pending request outside the identity-keyed state.
     // A returned SAF result can never be rebound to a different track.
     var pending by remember {mutableStateOf<Any?>(null)}
@@ -80,12 +83,14 @@ internal fun TrackLyricsSheet(
             if(document==null) store.read(verified,allowed) else store.importDocument(verified,document,allowed)
         }
     }
-    suspend fun lookup(verified:AudioBookmarkAdmission) {
+    suspend fun lookup(verified:AudioBookmarkAdmission,manual:Pair<String,String>?=null) {
         val job=currentCoroutineContext()[Job]
         val allowed={alive.get() && job?.isActive!=false}
-        val target=withContext(Dispatchers.IO){store.networkTarget(verified,allowed)}
+        val target=withContext(Dispatchers.IO){store.networkTarget(verified,manual,allowed)}
         if(key!==latestKey || currentMedia()==null)return
-        if(target==null){message="Недостаточно подтверждённых метаданных для поиска";return}
+        if(target==null){message="Недостаточно подтверждённых метаданных для поиска";manualOpen=true;return}
+        if(manual==null){manualTitle=target.signature.title;manualArtist=target.signature.artist}
+        manualOpen=false
         networkTarget=target
         val result=LrclibLyricsProvider.shared.search(target.signature){
             store.networkCurrent(verified,target,allowed)
@@ -93,7 +98,7 @@ internal fun TrackLyricsSheet(
         if(key!==latestKey || currentMedia()==null)return
         when(result) {
             is LyricsLookup.Matches -> {
-                val exact=LrclibProtocol.automatic(target.signature,result.hits)
+                val exact=if(manual==null)LrclibProtocol.automatic(target.signature,result.hits) else null
                 if(exact?.candidate?.instrumental==true){message="Инструментальная композиция";return}
                 val found=exact?.lyrics
                 if(found!=null) {
@@ -204,7 +209,7 @@ internal fun TrackLyricsSheet(
                 } else LazyColumn(Modifier.fillMaxWidth().heightIn(max=360.dp)) {
                     itemsIndexed(plainLines){_,line->Text(line,Modifier.padding(vertical=3.dp),style=MaterialTheme.typography.bodyLarge)}
                 }
-            } else if(!loading && !busy) Text(if(ready)"Текст песни не найден" else "Нет подтверждённого доступа к треку.",
+            } else if(!loading && !busy && candidates.isEmpty() && message==null) Text(if(ready)"Текст песни не найден" else "Нет подтверждённого доступа к треку.",
                 color=MaterialTheme.colorScheme.onSurfaceVariant)
             if(candidates.isNotEmpty() && ready && !busy && data==null) {
                 Text("Выбрать совпадение",style=MaterialTheme.typography.titleSmall)
@@ -238,15 +243,28 @@ internal fun TrackLyricsSheet(
                     }
                 }
             }
-            if(ready && !busy && data==null) OutlinedButton(onClick={
-                busy=true;message=null;candidates=emptyList()
-                scope.launch {
-                    try{lookup(authorize())}
-                    catch(cancelled:CancellationException){throw cancelled}
-                    catch(_:Exception){if(key===latestKey)message="Поиск недоступен"}
-                    finally{if(key===latestKey)busy=false}
+            if(ready && !busy && data==null) {
+                TextButton(onClick={manualOpen=!manualOpen},modifier=Modifier.fillMaxWidth()){
+                    Text(if(manualOpen)"Свернуть поиск" else "Найти в LRCLIB")
                 }
-            },modifier=Modifier.fillMaxWidth()){Text("Найти в LRCLIB")}
+                if(manualOpen){
+                    OutlinedTextField(value=manualTitle,onValueChange={if(it.length<=512)manualTitle=it},
+                        label={Text("Название")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedTextField(value=manualArtist,onValueChange={if(it.length<=512)manualArtist=it},
+                        label={Text("Исполнитель")},singleLine=true,modifier=Modifier.fillMaxWidth())
+                    OutlinedButton(onClick={
+                        val query=manualTitle to manualArtist
+                        busy=true;message=null;candidates=emptyList()
+                        scope.launch {
+                            try{lookup(authorize(),query)}
+                            catch(cancelled:CancellationException){throw cancelled}
+                            catch(_:Exception){if(key===latestKey)message="Поиск недоступен"}
+                            finally{if(key===latestKey)busy=false}
+                        }
+                    },enabled=manualTitle.isNotBlank() && manualArtist.isNotBlank(),
+                        modifier=Modifier.fillMaxWidth()){Text("Поиск")}
+                }
+            }
             message?.let{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
             OutlinedButton(onClick={pending=key;picker.launch(arrayOf("*/*"))},
                 enabled=ready && !busy && pending==null,modifier=Modifier.fillMaxWidth()){Text("Импортировать текст")}
