@@ -1,6 +1,8 @@
 package com.domenota.medialoader.ui.screens.gallery
 
 import android.content.Context
+import android.os.SystemClock
+import com.domenota.medialoader.core.logging.AppLog
 import com.domenota.medialoader.data.tasks.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -18,6 +20,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 internal enum class GalleryOcrPhase { WAITING_ACCESS, PAUSED, WAITING_CHARGE, RUNNING, COMPLETE, PARTIAL, ERROR }
+internal enum class OcrSearchStatus { COMPLETE, PARTIAL, NOT_READY, BLOCKED }
+internal data class OcrSearchResult(val ids:Set<String>,val status:OcrSearchStatus)
 internal data class GalleryOcrProgress(val phase: GalleryOcrPhase = GalleryOcrPhase.WAITING_ACCESS,
     val done: Int = 0, val total: Int = 0, val failed: Int = 0, val unverified: Int = 0)
 
@@ -32,16 +36,19 @@ internal class GalleryOcrController(context: Context) {
         internal set
     internal var revision by mutableLongStateOf(0L)
     internal var address by mutableStateOf<Any?>(null)
-    internal var read: suspend (String) -> Set<String> = { emptySet() }
+    internal var read: suspend (String) -> OcrSearchResult = { OcrSearchResult(emptySet(),OcrSearchStatus.NOT_READY) }
     val searchKey: Any? get() = address?.let { it to revision }
-    suspend fun search(query: String): Set<String> = read(query)
+    suspend fun search(query: String): OcrSearchResult = read(query)
     fun toggle() {
         enabled = !enabled
         prefs.edit().putBoolean("enabled", enabled).apply()
+        AppLog.d("Settings","OCR_ENABLED value=$enabled")
     }
     fun updateChargeOnly(value: Boolean) {
+        if(chargeOnly==value)return
         chargeOnly = value
         prefs.edit().putBoolean("charge_only", value).apply()
+        AppLog.d("Settings","OCR_CHARGE_ONLY value=$value")
     }
     fun retry() { revision++; if (!enabled) toggle() else retryNonce++ }
     internal var retryNonce by mutableLongStateOf(0L)
@@ -68,14 +75,15 @@ internal fun rememberGalleryOcr(
     SideEffect {
         controller.address = token
         controller.read = read@{ query ->
-            val current = catalog ?: return@read emptySet()
+            val current = catalog ?: return@read OcrSearchResult(emptySet(),OcrSearchStatus.NOT_READY)
             fun active() = token != null && liveToken === token && GalleryOcrIndex.invalidations.value == invalidation
-            if (!active()) return@read emptySet()
+            if (!active()) return@read OcrSearchResult(emptySet(),OcrSearchStatus.BLOCKED)
+            if(!withContext(Dispatchers.IO){store.exists()})return@read OcrSearchResult(emptySet(),OcrSearchStatus.NOT_READY)
             val hits = store.search(current,query,epoch,::active)
-            if (hits.isEmpty() || !active()) return@read emptySet()
+            if (!active()) return@read OcrSearchResult(emptySet(),OcrSearchStatus.BLOCKED)
             val result = linkedSetOf<String>()
             for (batch in hits.chunked(GalleryOcrPolicy.BATCH * 4)) {
-                if (!active()) return@read emptySet()
+                if (!active()) return@read OcrSearchResult(emptySet(),OcrSearchStatus.BLOCKED)
                 val verified = liveValidate(batch.map { it.ref.key }).associateBy { it.key }
                 for (candidate in batch) {
                     if (verified[candidate.ref.key]?.let(candidate::same) == true &&
@@ -83,7 +91,11 @@ internal fun rememberGalleryOcr(
                         result += candidate.ref.item.id
                 }
             }
-            if (active() && DuplicatePrivacyGuard.generation(context) == epoch) result else emptySet()
+            if(!active()||DuplicatePrivacyGuard.generation(context)!=epoch) return@read OcrSearchResult(emptySet(),OcrSearchStatus.BLOCKED)
+            val p=controller.progress
+            val complete=p.total==current.candidates.size&&p.done==p.total&&p.failed==0&&p.unverified==0&&
+                current.unverified==0&&result.size==hits.size
+            OcrSearchResult(result,if(complete)OcrSearchStatus.COMPLETE else OcrSearchStatus.PARTIAL)
         }
     }
     val reporter = remember(controller) { TaskReporter.create(TaskOwner.OCR, TaskKind.OCR) }
@@ -120,8 +132,18 @@ internal fun rememberGalleryOcr(
         val total = current.candidates.size
         val failed = linkedSetOf<String>()
         val ready = linkedSetOf<String>()
+        val run=AppLog.newOperationId("ocr")
+        val started=SystemClock.elapsedRealtime()
+        var lastPhase:GalleryOcrPhase?=null
+        var lastDone=0
+        var lastAt=started
         fun publish(phase: GalleryOcrPhase) {
             controller.progress = GalleryOcrProgress(phase,ready.size,total,failed.size,current.unverified)
+            val now=SystemClock.elapsedRealtime()
+            if(lastPhase!=phase||ready.size-lastDone>=128||now-lastAt>=15_000L){
+                AppLog.d("OCR","OCR_RUN session=$run phase=$phase indexed=${ready.size} total=$total failed=${failed.size} unverified=${current.unverified} ms=${now-started}")
+                lastPhase=phase;lastDone=ready.size;lastAt=now
+            }
         }
         try {
             if (!controller.enabled && !store.exists()) { publish(GalleryOcrPhase.PAUSED); return@LaunchedEffect }
@@ -169,7 +191,10 @@ internal fun rememberGalleryOcr(
                 delay(40)
             }
             publish(if (failed.isEmpty() && current.unverified == 0) GalleryOcrPhase.COMPLETE else GalleryOcrPhase.PARTIAL)
-        } catch (cancelled: CancellationException) { throw cancelled }
+        } catch (cancelled: CancellationException) {
+            AppLog.d("OCR","OCR_RUN session=$run phase=CANCELLED ms=${SystemClock.elapsedRealtime()-started}")
+            throw cancelled
+        }
         catch (_: Exception) { if (active()) publish(GalleryOcrPhase.ERROR) }
     }
     return controller

@@ -226,6 +226,7 @@ internal fun GalleryModeScreen(
     }
     val noteQuery = search.trim()
     var noteMatches by remember(noteQuery, notes?.searchKey) { mutableStateOf(emptySet<String>()) }
+    var noteStatus by remember(noteQuery,notes?.searchKey){mutableStateOf(if(notes?.searchKey==null)"NOT_READY" else "PENDING")}
     var noteSearchNotice by remember(noteQuery, notes?.searchKey) {
         mutableStateOf(if (noteQuery.isEmpty()) null else if (notes?.searchKey == null)
             "Поиск заметок недоступен" else "Поиск по заметкам…")
@@ -237,23 +238,27 @@ internal fun GalleryModeScreen(
                 val result = notes.search(noteQuery)
                 noteMatches = result.ids
                 noteSearchNotice = if (result.incomplete) "Поиск заметок частично недоступен" else null
-                com.domenota.medialoader.core.logging.AppLog.d("MediaNotes",
-                    "NOTE_SEARCH status=" + if (result.incomplete) "partial" else "complete")
+                noteStatus=if(result.incomplete)"PARTIAL" else if(result.ids.isEmpty())"EMPTY" else "COMPLETE"
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) {
                 noteMatches = emptySet()
                 noteSearchNotice = "Поиск заметок недоступен"
-                com.domenota.medialoader.core.logging.AppLog.d("MediaNotes","NOTE_SEARCH status=unavailable")
+                noteStatus="ERROR"
             }
         }
     }
     var ocrMatches by remember(noteQuery,ocr?.address) { mutableStateOf(emptySet<String>()) }
+    var ocrStatus by remember(noteQuery,ocr?.searchKey){mutableStateOf(if(ocr?.searchKey==null)"NOT_READY" else "PENDING")}
     LaunchedEffect(noteQuery,ocr?.searchKey) {
         if (noteQuery.isNotEmpty() && ocr?.searchKey != null) {
             delay(160)
-            try { ocrMatches = ocr.search(noteQuery) }
+            try {
+                val result=ocr.search(noteQuery)
+                ocrMatches=result.ids
+                ocrStatus=if(result.status==OcrSearchStatus.COMPLETE&&result.ids.isEmpty())"EMPTY" else result.status.name
+            }
             catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { ocrMatches = emptySet() }
+            catch (_: Exception) { ocrMatches = emptySet();ocrStatus="ERROR" }
         }
     }
     val matches = remember(noteMatches,ocrMatches) { noteMatches + ocrMatches }
@@ -282,6 +287,16 @@ internal fun GalleryModeScreen(
         galleryDefaultQuickItems(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites)
     }
     val visibleDisplayed=grid?.visible.orEmpty()
+    LaunchedEffect(noteQuery,gridReady,visibleDisplayed,noteStatus,ocrStatus){
+        val log=com.domenota.medialoader.core.logging.AppLog
+        if(log.isExtended()&&noteQuery.isNotEmpty()&&gridReady&&noteStatus!="PENDING"&&ocrStatus!="PENDING"){
+            delay(200)
+            val filename=visibleDisplayed.count{it.originalName.contains(noteQuery,true)}
+            val notesCount=visibleDisplayed.count{it.id in noteMatches}
+            val ocrCount=visibleDisplayed.count{it.id in ocrMatches}
+            log.d("GallerySearch","SEARCH result=${if(visibleDisplayed.isEmpty())"EMPTY_VISIBLE" else "MATCHES"} filename=$filename notes=$notesCount ocr=$ocrCount noteStatus=$noteStatus ocrStatus=$ocrStatus total=${visibleDisplayed.size}")
+        }
+    }
     val orderedDisplayed=grid?.ordered.orEmpty()
     val queue=grid?.queue.orEmpty()
     val queueSet=grid?.queueSet.orEmpty()

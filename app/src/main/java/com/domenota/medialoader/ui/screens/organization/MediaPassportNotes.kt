@@ -39,11 +39,20 @@ internal class MediaPassportNotes(
         return value
     }
     suspend fun save(ref: LibraryMediaRef, expected: String, value: String): String {
-        requireCurrent(ref)
-        val saved = store.save(catalog,ref,epoch,expected,value)
-        check(active()) { "Доступ изменился" }
-        com.domenota.medialoader.core.logging.AppLog.d("MediaNotes","NOTE_SAVE status=complete")
-        return saved
+        val started=android.os.SystemClock.elapsedRealtime()
+        val log=com.domenota.medialoader.core.logging.AppLog
+        try{
+            requireCurrent(ref)
+            val saved=store.save(catalog,ref,epoch,expected,value)
+            check(active()) { "Доступ изменился" }
+            val action=when{saved==expected->"UNCHANGED";saved.isEmpty()->"DELETE";expected.isEmpty()->"CREATE";else->"EDIT"}
+            log.d("MediaNotes","NOTE_SAVE status=COMPLETE action=$action ms=${android.os.SystemClock.elapsedRealtime()-started}")
+            return saved
+        }catch(cancelled:CancellationException){throw cancelled}
+        catch(failure:Exception){
+            log.d("MediaNotes","NOTE_SAVE status=UNAVAILABLE ms=${android.os.SystemClock.elapsedRealtime()-started}")
+            throw failure
+        }
     }
     suspend fun search(query: String): MediaPassportNoteSearch {
         if (query.isBlank()) return MediaPassportNoteSearch(emptySet(),false)
@@ -154,7 +163,7 @@ internal fun MediaPassportNoteDialog(ref: LibraryMediaRef, notes: MediaPassportN
                 catch(e: CancellationException){throw e}
                 catch(_: Exception){
                     error="Не удалось сохранить заметку"
-                    com.domenota.medialoader.core.logging.AppLog.d("MediaNotes","NOTE_SAVE status=unavailable")
+
                 }
                 finally{busy=false}
             }
