@@ -5250,7 +5250,15 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.MediaPassportNoteStoreTest#multipleNotesMigrateLegacyAndSearchEveryEntryOnlyOnce": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.MediaPassportNoteStoreTest#notesPersistEditAndDeleteWithoutChangingOriginalOrCopy": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.MediaPassportNoteStoreTest#notesRejectStaleListAndCreationTimeChanges": {
     "skipped": false,
     "failed": false
   },
