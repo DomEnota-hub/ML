@@ -6214,11 +6214,31 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#downloadedCacheRequiresSameVersionAndNeverOverwritesImport": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#importedDocumentIsVersionScopedAndPrivacyRemovalIsTargeted": {
     "skipped": false,
     "failed": false
   },
   "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#localSidecarRequiresLivePublicSourceAndNeverWritesAudio": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.LrclibLyricsProviderTest#nonJsonAndMalformedPayloadAreNotNotFound": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.LrclibLyricsProviderTest#queryUsesOnlyEncodedTitleAndArtist": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.LrclibLyricsProviderTest#retryAfterStopsRequestsAndRevokedAccessNeverSends": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.LrclibLyricsProviderTest#strictMatchingAndSyncedLyrics": {
     "skipped": false,
     "failed": false
   },

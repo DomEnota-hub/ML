@@ -55,6 +55,40 @@ class LocalTrackLyricsTest {
             a.delete();b.delete()
         }
     }
+    @Test fun downloadedCacheRequiresSameVersionAndNeverOverwritesImport() {
+        val audio=File.createTempFile("lyrics-net-",".mp3",context.cacheDir).apply{writeBytes(byteArrayOf(1,2,3))}
+        val doc=Uri.parse("content://test.lyrics/document/network")
+        org.robolectric.Shadows.shadowOf(context.contentResolver).registerInputStreamSupplier(doc) {
+            java.io.ByteArrayInputStream("Imported fixture".toByteArray())
+        }
+        try {
+            val store=LocalTrackLyrics(context)
+            val admission=access(audio)
+            val uri=Uri.fromFile(audio)
+            val v=com.domenota.medialoader.ui.components.readWaveformSourceVersion(context,uri)
+            assertTrue(v.proven)
+            val key=java.security.MessageDigest.getInstance("SHA-256")
+                .digest(listOf(uri.toString(),v.size.toString(),v.modified.toString()).joinToString("|").toByteArray(Charsets.UTF_8))
+                .joinToString(""){"%02x".format(it.toInt() and 255)}
+            val target=NetworkLyricsTarget(key,LyricsTrackSignature("Test","Artist","Album",120000))
+            val value=TrackLyrics("Network fixture",emptyList(),LyricsOrigin.LRCLIB)
+            assertNull(store.saveNetwork(admission,target,value){false})
+            assertEquals(value,store.saveNetwork(admission,target,value){true})
+            assertEquals(value,LocalTrackLyrics(context).read(admission){true})
+            assertEquals(LyricsOrigin.IMPORTED,store.importDocument(admission,doc){true}?.origin)
+            assertNull(store.saveNetwork(admission,target,value){true})
+            assertEquals("Imported fixture",store.read(admission){true}?.plain)
+            audio.appendBytes(byteArrayOf(4))
+            assertNull(store.saveNetwork(admission,target,value){true})
+            assertNull(store.read(admission){true})
+        } finally {
+            synchronized(DuplicatePrivacyGuard.lock) {
+                val a=access(audio)
+                LocalTrackLyrics.clearForPrivacy(context,a.ref.key,a.ref.aliases)
+            }
+            audio.delete()
+        }
+    }
     @Test fun localSidecarRequiresLivePublicSourceAndNeverWritesAudio() {
         val audio=File.createTempFile("lyrics-test-",".mp3",context.cacheDir).apply{writeBytes(byteArrayOf(1,2,3))}
         val lrc=File(audio.parentFile,audio.nameWithoutExtension+".lrc").apply{writeText("[00:01.25]Test phrase")}

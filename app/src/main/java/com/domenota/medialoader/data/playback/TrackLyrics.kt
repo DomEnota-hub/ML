@@ -4,7 +4,7 @@ import java.io.DataInputStream
 import java.io.InputStream
 import java.util.Locale
 
-internal enum class LyricsOrigin { EMBEDDED, SIDECAR, IMPORTED }
+internal enum class LyricsOrigin { EMBEDDED, SIDECAR, IMPORTED, LRCLIB }
 internal data class LyricLine(val atMs: Long, val text: String)
 internal data class TrackLyrics(val plain: String, val timed: List<LyricLine>, val origin: LyricsOrigin) {
     init {

@@ -10,7 +10,7 @@ import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 
-/** Imported documents only: no network, no writes to audio/sidecars, no backup. */
+/** Version-bound local/imported and downloaded lyrics, no writes to media or sidecars. */
 internal class LocalTrackLyrics(private val context:Context) {
     private val root=directory(context)
     private fun key(uri:Uri):String? {
@@ -36,7 +36,12 @@ internal class LocalTrackLyrics(private val context:Context) {
         if(rows.length()>LyricsParser.MAX_LINES) return@runCatching null
         val timed=(0 until rows.length()).map{ i->rows.getJSONArray(i).let{LyricLine(it.getLong(0),it.getString(1))}}
         if(timed.sumOf{it.text.length.toLong()}>LyricsParser.MAX_TEXT) return@runCatching null
-        TrackLyrics(o.getString("plain"),timed,LyricsOrigin.IMPORTED)
+        val origin=when(o.optString("origin","IMPORTED")){
+            "IMPORTED"->LyricsOrigin.IMPORTED
+            "LRCLIB"->LyricsOrigin.LRCLIB
+            else->return@runCatching null
+        }
+        TrackLyrics(o.getString("plain"),timed,origin)
     }.getOrNull()
     private fun readable(uri:Uri):Boolean=runCatching {
         context.contentResolver.openInputStream(uri)?.use{it.read()>=0}==true
@@ -58,15 +63,16 @@ internal class LocalTrackLyrics(private val context:Context) {
         val uri=source(access)
         val version=key(uri) ?: return null
         if(!readable(uri)) return null
-        val imported=synchronized(DuplicatePrivacyGuard.lock) {
+        val cached=synchronized(DuplicatePrivacyGuard.lock) {
             if(admitted(access,allowed)) load(version,access) else null
         }
         if(!admitted(access,allowed)) return null
+        val imported=cached?.takeIf{it.origin==LyricsOrigin.IMPORTED}
         val embedded=if(imported==null) runCatching {
             context.contentResolver.openInputStream(uri)?.use(EmbeddedLyrics::read)
         }.getOrNull() else null
         val sibling=if(imported==null && embedded?.timed?.isNotEmpty()!=true) sidecar(access,uri) else null
-        val result=imported ?: embedded?.takeIf{it.timed.isNotEmpty()} ?: sibling ?: embedded
+        val result=imported ?: embedded?.takeIf{it.timed.isNotEmpty()} ?: sibling ?: embedded ?: cached
         return result?.takeIf{admitted(access,allowed) && key(uri)==version && readable(uri)}
     }
     fun importDocument(access:AudioBookmarkAdmission,document:Uri,allowed:()->Boolean):TrackLyrics? {
@@ -76,17 +82,54 @@ internal class LocalTrackLyrics(private val context:Context) {
         if(!readable(uri)) return null
         val lyrics=runCatching{context.contentResolver.openInputStream(document)?.use(LyricsParser::read)}
             .getOrNull()?.let{LyricsParser.parse(it,LyricsOrigin.IMPORTED)} ?: return null
-        if(!admitted(access,allowed) || key(uri)!=version) return null
+        return persist(access,version,lyrics,allowed)
+    }
+    /** Extract only tag/recognition metadata from an admitted public source; never a filename or URI. */
+    fun networkTarget(access:AudioBookmarkAdmission,allowed:()->Boolean):NetworkLyricsTarget? {
+        if(!admitted(access,allowed)) return null
+        val uri=source(access)
+        val version=key(uri) ?: return null
+        if(!readable(uri)) return null
+        val row=access.ref.item
+        val metadata=runCatching {
+            val retriever=android.media.MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context,uri)
+                LyricsTrackSignature(
+                    row.recognizedTitle ?: retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE) ?: row.sourceAudioTitle.orEmpty(),
+                    row.recognizedArtist ?: retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: row.sourceAudioArtist.orEmpty(),
+                    row.recognizedAlbum ?: retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM),
+                    retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L)
+            } finally { retriever.release() }
+        }.getOrNull() ?: return null
+        return NetworkLyricsTarget(version,metadata).takeIf {
+            metadata.eligible && networkCurrent(access,it,allowed)
+        }
+    }
+    fun networkCurrent(access:AudioBookmarkAdmission,target:NetworkLyricsTarget,allowed:()->Boolean):Boolean {
+        if(!admitted(access,allowed)) return false
+        val uri=source(access)
+        return key(uri)==target.version && readable(uri) && admitted(access,allowed)
+    }
+    fun saveNetwork(access:AudioBookmarkAdmission,target:NetworkLyricsTarget,lyrics:TrackLyrics,allowed:()->Boolean):TrackLyrics? {
+        if(lyrics.origin!=LyricsOrigin.LRCLIB || !networkCurrent(access,target,allowed)) return null
+        return persist(access,target.version,lyrics,allowed)
+    }
+    private fun persist(access:AudioBookmarkAdmission,version:String,lyrics:TrackLyrics,allowed:()->Boolean):TrackLyrics? {
+        if(!admitted(access,allowed)) return null
+        val uri=source(access)
+        if(key(uri)!=version) return null
         val addressAliases=aliases(access)
         if(addressAliases.size !in 1..256) return null
         val o=JSONObject().put("schema",2).put("key",version).put("plain",lyrics.plain)
-            .put("aliases",JSONArray(addressAliases.sorted()))
+            .put("origin",lyrics.origin.name).put("aliases",JSONArray(addressAliases.sorted()))
             .put("timed",JSONArray().apply{lyrics.timed.forEach{put(JSONArray().put(it.atMs).put(it.text))}})
         val bytes=o.toString().toByteArray(Charsets.UTF_8)
         if(bytes.size>2*LyricsParser.MAX_BYTES) return null
         if(key(uri)!=version || !readable(uri)) return null
         val stored=synchronized(DuplicatePrivacyGuard.lock) {
-            if(!admitted(access,allowed)) return@synchronized false
+            if(!admitted(access,allowed) || key(uri)!=version) return@synchronized false
+            if(lyrics.origin==LyricsOrigin.LRCLIB && load(version,access)?.origin==LyricsOrigin.IMPORTED) return@synchronized false
             runCatching {
                 check(root.isDirectory || root.mkdirs())
                 val f=AtomicFile(file(version))

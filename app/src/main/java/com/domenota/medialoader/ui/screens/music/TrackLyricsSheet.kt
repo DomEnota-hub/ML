@@ -56,6 +56,8 @@ internal fun TrackLyricsSheet(
     var message by remember(key){mutableStateOf<String?>(null)}
     var correction by remember(key){mutableLongStateOf(0L)}
     var follow by remember(key){mutableStateOf(true)}
+    var networkTarget by remember(key){mutableStateOf<NetworkLyricsTarget?>(null)}
+    var candidates by remember(key){mutableStateOf<List<NetworkLyricsHit>>(emptyList())}
     // Deliberately keep the pending request outside the identity-keyed state.
     // A returned SAF result can never be rebound to a different track.
     var pending by remember {mutableStateOf<Any?>(null)}
@@ -78,12 +80,47 @@ internal fun TrackLyricsSheet(
             if(document==null) store.read(verified,allowed) else store.importDocument(verified,document,allowed)
         }
     }
+    suspend fun lookup(verified:AudioBookmarkAdmission) {
+        val job=currentCoroutineContext()[Job]
+        val allowed={alive.get() && job?.isActive!=false}
+        val target=withContext(Dispatchers.IO){store.networkTarget(verified,allowed)}
+        if(key!==latestKey || currentMedia()==null)return
+        if(target==null){message="Недостаточно подтверждённых метаданных для поиска";return}
+        networkTarget=target
+        val result=LrclibLyricsProvider.shared.search(target.signature){
+            store.networkCurrent(verified,target,allowed)
+        }
+        if(key!==latestKey || currentMedia()==null)return
+        when(result) {
+            is LyricsLookup.Matches -> {
+                val exact=LrclibProtocol.automatic(target.signature,result.hits)
+                if(exact?.candidate?.instrumental==true){message="Инструментальная композиция";return}
+                val found=exact?.lyrics
+                if(found!=null) {
+                    val saved=withContext(Dispatchers.IO){store.saveNetwork(verified,target,found,allowed)}
+                    if(key===latestKey && currentMedia()!=null){
+                        if(saved!=null){lyrics=saved;message=null}
+                        else message="Не удалось сохранить текст"
+                    }
+                } else {
+                    candidates=result.hits.filter{it.lyrics!=null}
+                    message=if(candidates.isEmpty())"Текст не найден" else null
+                }
+            }
+            is LyricsLookup.RetryLater -> message="LRCLIB временно ограничил запросы. Повтор через ${result.seconds} с или позже."
+            LyricsLookup.Unavailable -> message="LRCLIB временно недоступен"
+            LyricsLookup.Revoked -> message="Трек недоступен"
+        }
+    }
     LaunchedEffect(key) {
         loading=true
         try {
             val verified=authorize()
             val found=read(verified)
-            if(currentMedia()!=null && key===latestKey) {access=verified;lyrics=found}
+            if(currentMedia()!=null && key===latestKey) {
+                access=verified;lyrics=found
+                if(found==null){busy=true;try{lookup(verified)}finally{if(key===latestKey)busy=false}}
+            }
         } catch(cancelled:CancellationException){throw cancelled}
         catch(_:Exception){if(key===latestKey)message="Трек недоступен"}
         finally {if(key===latestKey)loading=false}
@@ -98,7 +135,7 @@ internal fun TrackLyricsSheet(
                     val verified=authorize()
                     val result=read(verified,document)
                     if(key===latestKey && currentMedia()!=null) {
-                        if(result!=null){lyrics=result;access=verified;correction=0L}
+                        if(result!=null){lyrics=result;access=verified;correction=0L;candidates=emptyList();networkTarget=null}
                         else message="Не удалось прочитать или привязать файл. Выберите LRC или TXT в UTF-8."
                     }
                 } catch(cancelled:CancellationException){throw cancelled}
@@ -139,6 +176,7 @@ internal fun TrackLyricsSheet(
                     LyricsOrigin.EMBEDDED->"Из тегов аудиофайла"
                     LyricsOrigin.SIDECAR->"Из файла LRC рядом с треком"
                     LyricsOrigin.IMPORTED->"Импортированный файл"
+                    LyricsOrigin.LRCLIB->"LRCLIB · сохранённый текст"
                 },style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 if(data.timed.isNotEmpty()) {
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
@@ -166,8 +204,49 @@ internal fun TrackLyricsSheet(
                 } else LazyColumn(Modifier.fillMaxWidth().heightIn(max=360.dp)) {
                     itemsIndexed(plainLines){_,line->Text(line,Modifier.padding(vertical=3.dp),style=MaterialTheme.typography.bodyLarge)}
                 }
-            } else if(!loading) Text(if(ready)"Локальный текст не найден. Можно выбрать LRC или TXT." else "Нет подтверждённого доступа к треку.",
+            } else if(!loading && !busy) Text(if(ready)"Текст песни не найден" else "Нет подтверждённого доступа к треку.",
                 color=MaterialTheme.colorScheme.onSurfaceVariant)
+            if(candidates.isNotEmpty() && ready && !busy && data==null) {
+                Text("Выбрать совпадение",style=MaterialTheme.typography.titleSmall)
+                LazyColumn(Modifier.fillMaxWidth().heightIn(max=200.dp)) {
+                    itemsIndexed(candidates){_,hit->
+                        val signature=hit.candidate.signature
+                        TextButton(onClick={
+                            val target=networkTarget ?: return@TextButton
+                            busy=true;message=null
+                            scope.launch {
+                                try {
+                                    val verified=authorize()
+                                    val job=currentCoroutineContext()[Job]
+                                    val found=withContext(Dispatchers.IO){
+                                        hit.lyrics?.let{store.saveNetwork(verified,target,it){alive.get() && job?.isActive!=false}}
+                                    }
+                                    if(key===latestKey && currentMedia()!=null){
+                                        if(found!=null){lyrics=found;candidates=emptyList();correction=0L}
+                                        else message="Не удалось сохранить текст"
+                                    }
+                                } catch(cancelled:CancellationException){throw cancelled}
+                                catch(_:Exception){if(key===latestKey)message="Трек недоступен"}
+                                finally{if(key===latestKey)busy=false}
+                            }
+                        },modifier=Modifier.fillMaxWidth()){
+                            Column {
+                                Text(signature.title+" · "+signature.artist)
+                                Text(signature.album.orEmpty()+" · "+(signature.durationMs/1000)+" с",style=MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+            if(ready && !busy && data==null) OutlinedButton(onClick={
+                busy=true;message=null;candidates=emptyList()
+                scope.launch {
+                    try{lookup(authorize())}
+                    catch(cancelled:CancellationException){throw cancelled}
+                    catch(_:Exception){if(key===latestKey)message="Поиск недоступен"}
+                    finally{if(key===latestKey)busy=false}
+                }
+            },modifier=Modifier.fillMaxWidth()){Text("Найти в LRCLIB")}
             message?.let{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
             OutlinedButton(onClick={pending=key;picker.launch(arrayOf("*/*"))},
                 enabled=ready && !busy && pending==null,modifier=Modifier.fillMaxWidth()){Text("Импортировать текст")}
