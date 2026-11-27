@@ -20,6 +20,12 @@ class WaveformSweepTest {
         assertNotEquals(WaveformSweep.fingerprint(listOf("a","b")),WaveformSweep.fingerprint(listOf("b","a")))
         assertEquals(WaveformSweep.fingerprint(listOf("a","b")),WaveformSweep.fingerprint(listOf("a","b")))
     }
+    @Test fun failureReasonsRemainTypedAndMixedFailuresAreUnknown(){
+        val first=sweep(3).advance(WaveformOutcome.FAILED,TaskFailure.CACHE_WRITE)
+        assertEquals(TaskFailure.CACHE_WRITE,first.details().failure)
+        assertTrue(first.details(recovered=true).recovered)
+        assertEquals(TaskFailure.UNKNOWN,first.advance(WaveformOutcome.FAILED,TaskFailure.DECODE).details().failure)
+    }
     @Test fun completedSweepCannotAdvance(){
         assertTrue(runCatching{sweep(0).advance(WaveformOutcome.CACHED)}.isFailure)
     }

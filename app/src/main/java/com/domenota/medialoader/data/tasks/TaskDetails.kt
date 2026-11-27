@@ -30,7 +30,8 @@ internal data class TaskDetails(
     val startedAt: Long? = null,
     val trigger: TaskTrigger? = null,
     val failure: TaskFailure? = null,
-    val outcomes: TaskOutcomes? = null
+    val outcomes: TaskOutcomes? = null,
+    val recovered:Boolean=false
 ) {
     init { require(startedAt == null || startedAt >= 0) }
 }

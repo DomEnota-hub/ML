@@ -156,7 +156,7 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
         val event=when {
             details?.correlation==null -> null
             old==null && row.status.terminal -> if(raw.details?.correlation!=null && archived?.details?.correlation!=details?.correlation)terminalEvent(row.status) else null
-            old==null -> if(row.status==TaskStatus.WAITING)TaskEvent.WAIT else TaskEvent.START
+            old==null -> if(details?.recovered==true)TaskEvent.RECOVERY else if(row.status==TaskStatus.WAITING)TaskEvent.WAIT else TaskEvent.START
             old.status!=row.status -> when(row.status) {
                 TaskStatus.RUNNING->TaskEvent.RESUME;TaskStatus.WAITING->TaskEvent.WAIT;TaskStatus.PAUSED->TaskEvent.PAUSE
                 TaskStatus.QUEUED->TaskEvent.CHECKPOINT;else->terminalEvent(row.status)

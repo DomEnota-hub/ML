@@ -52,8 +52,8 @@ class AudioWaveformPrecomputeWorker(
                 val uri = Uri.parse(requested)
                 val duration = inputData.getLong("durationMs", 0L).takeIf{it>0L} ?: readDurationMs(app,uri)
                 if(duration<=0L)return@runCatching Result.failure()
-                val outcome=preparePersistedAudioWaveform(app,uri){isStopped||!admission.currentFast(app,repo,requested)}
-                if(!admission.current(app,repo)||outcome==WaveformOutcome.FAILED)Result.failure() else Result.success()
+                val outcome=preparePersistedAudioWaveform(app,uri,duration){isStopped||!admission.currentFast(app,repo,requested)}
+                if(!admission.current(app,repo)||outcome.outcome==WaveformOutcome.FAILED)Result.failure() else Result.success()
             }.getOrElse {
                 if (it is java.util.concurrent.CancellationException && isStopped) throw it
                 Result.retry()
@@ -84,18 +84,22 @@ class AudioWaveformPrecomputeWorker(
             try {
                 app.contentResolver.query(
                     MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DURATION),
+                    arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DURATION, MediaStore.MediaColumns.DATA),
                     null, null, MediaStore.Audio.Media.DATE_ADDED + " DESC"
                 )?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                     val durationCol = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
+                    val pathCol=cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idCol)
                         val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
                         val duration = if (durationCol >= 0 && !cursor.isNull(durationCol))
                             cursor.getLong(durationCol) else 0L
                         if(isStopped)throw java.util.concurrent.CancellationException("Stopped")
-                        if(admission.allows(app,uri.toString(),"phone:audio:$id"))tracks.putIfAbsent(uri.toString(), duration)
+                        val physical=if(admission.requiresPhysicalProof && pathCol>=0&&!cursor.isNull(pathCol))PublicMediaIdentity.pathKeys(cursor.getString(pathCol)) else emptySet()
+                        if(admission.allows(app,uri.toString(),"phone:audio:$id",physical)){
+                            if(duration>0L)tracks[uri.toString()]=duration else tracks.putIfAbsent(uri.toString(),0L)
+                        }
                     }
                 } ?: return Result.retry()
             } catch(e:java.util.concurrent.CancellationException){throw e} catch(_:Exception){return Result.retry()}
@@ -118,7 +122,7 @@ class AudioWaveformPrecomputeWorker(
         val report=TaskReporter.create(TaskOwner.WAVEFORM,TaskKind.WAVEFORM,sweep.token.value)
         fun publish(status:TaskStatus=TaskStatus.RUNNING,wait:TaskWait?=null,stage:TaskStage=TaskStage.SCANNING) {
             report.report(status,files=countProgress(sweep.cursor,sweep.total),errors=sweep.outcomes.failed,
-                wait=wait,stage=stage,details=sweep.details())
+                wait=wait,stage=stage,details=sweep.details(recovered=restored!=null))
         }
         if(!store.save(sweep)) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
         if(sweep.finished) {
@@ -126,7 +130,8 @@ class AudioWaveformPrecomputeWorker(
             return if(store.clear())Result.success() else Result.retry()
         }
         publish()
-        val stop=(sweep.cursor+20).coerceAtMost(entries.size)
+        val stop=(sweep.cursor+200).coerceAtMost(entries.size)
+        val batchStart=android.os.SystemClock.elapsedRealtime()
         try {
             for(index in sweep.cursor until stop) {
                 if(isStopped) throw java.util.concurrent.CancellationException("Stopped")
@@ -137,23 +142,27 @@ class AudioWaveformPrecomputeWorker(
                 }
                 if(!admission.current(app,repo)){publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
                 val (source, knownDuration)=entries[index]
-                val outcome=try {
+                val result=try {
                     val uri=Uri.parse(source)
                     val duration=knownDuration.takeIf{it>0L} ?: readDurationMs(app,uri)
-                    if(duration<=0L) WaveformOutcome.SKIPPED
+                    if(duration<=0L) WaveformPreparation(emptyList(),WaveformOutcome.SKIPPED)
                     else {
                         val waiting=BackgroundMediaWork.isBusy()
                         if(waiting)publish(TaskStatus.WAITING,TaskWait.RESOURCE)
                         BackgroundMediaWork.awaitIdle()
                         if(waiting)publish()
                         if(!admission.current(app,repo))throw java.util.concurrent.CancellationException("Visibility changed")
-                        preparePersistedAudioWaveform(app,uri){isStopped||!admission.currentFast(app,repo,source)}
+                        preparePersistedAudioWaveform(app,uri,duration){isStopped||!admission.currentFast(app,repo,source)}
                     }
                 } catch(e:java.util.concurrent.CancellationException) { throw e }
-                  catch(_:Exception) { WaveformOutcome.FAILED }
+                  catch(_:Exception) { WaveformPreparation(emptyList(),WaveformOutcome.FAILED,TaskFailure.IO) }
                 if(!admission.current(app,repo)){publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
-                sweep=sweep.advance(outcome)
+                sweep=sweep.advance(result.outcome,result.failure)
                 publish()
+                if(sweep.cursor%20==0){
+                    if(!store.save(sweep)){publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry()}
+                    if(android.os.SystemClock.elapsedRealtime()-batchStart>=90_000L)break
+                }
             }
             if(!store.save(sweep)) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
             if(!sweep.finished) {

@@ -37,46 +37,15 @@ internal class AudioWaveformCache(private val directory: File) {
 
     private fun readLocked(source: String): FloatArray? {
         inMemory(source)?.let { return it }
-        val decoded=readDisk(source) ?: return null
-        return remember(source,decoded)
-    }
-
-    private fun readDisk(source:String):FloatArray? {
-        val file=savedFile(source)
-        return runCatching {
+        val file = savedFile(source)
+        val decoded = runCatching {
             DataInputStream(file.inputStream().buffered()).use { input ->
                 val count = input.readInt()
                 require(count in 1..MAX_BUCKETS)
-                FloatArray(count) { input.readFloat().also { require(it.isFinite() && it in 0f..1f) } }.also { require(input.read()==-1) }
+                FloatArray(count) { input.readFloat().also { require(it.isFinite() && it in 0f..1f) } }
             }
-        }.getOrNull()
-    }
-
-    private fun valid(value:FloatArray)=value.size in 1..MAX_BUCKETS && value.all{it.isFinite()&&it in 0f..1f} && value.any{it>0f}
-    private fun persist(source:String,result:FloatArray):Boolean = runCatching {
-        directory.mkdirs()
-        val temporary=File.createTempFile("waveform-",".tmp",directory)
-        try {
-            DataOutputStream(temporary.outputStream().buffered()).use { output ->
-                output.writeInt(result.size);result.forEach(output::writeFloat)
-            }
-            check(temporary.renameTo(savedFile(source)))
-            check(readDisk(source)?.contentEquals(result)==true)
-        } finally { temporary.delete() }
-    }.isSuccess
-
-    /** Count only a durable, validated result. The same key lock proves who created it. */
-    fun prepare(source:String,cancelled:()->Boolean={false},decode:()->FloatArray):WaveformOutcome=withKey(source) {
-        fun checkActive(){if(cancelled())throw java.util.concurrent.CancellationException("Waveform stopped")}
-        checkActive()
-        val saved=readDisk(source)?.takeIf(::valid)
-        if(saved!=null){remember(source,saved);return@withKey WaveformOutcome.CACHED}
-        // A previous memory-only value can be a partial/failed decode. Recompute it.
-        val result=decode()
-        checkActive()
-        if(!valid(result)||!persist(source,result))return@withKey WaveformOutcome.FAILED
-        remember(source,result)
-        WaveformOutcome.GENERATED
+        }.getOrNull() ?: return null
+        return remember(source, decoded)
     }
 
     /** Works after process death without starting a decoder for an already indexed track. */
@@ -98,7 +67,17 @@ internal class AudioWaveformCache(private val directory: File) {
         return withKey(source) {
             readLocked(source) ?: decode().also { result ->
                 remember(source, result)
-                if (valid(result)) persist(source,result)
+                if (result.size in 1..MAX_BUCKETS && result.any { it > 0f }) runCatching {
+                    directory.mkdirs()
+                    val temporary = File.createTempFile("waveform-", ".tmp", directory)
+                    try {
+                        DataOutputStream(temporary.outputStream().buffered()).use { output ->
+                            output.writeInt(result.size)
+                            result.forEach(output::writeFloat)
+                        }
+                        check(temporary.renameTo(savedFile(source)))
+                    } finally { temporary.delete() }
+                }
             }
         }
     }

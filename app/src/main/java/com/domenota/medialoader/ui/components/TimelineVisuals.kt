@@ -317,8 +317,6 @@ private fun loadVideoTimelineFrames(
     }
 }
 
-private val audioCacheLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
-
 /** Content and file updates invalidate a saved waveform, even when their URI is unchanged. */
 internal fun waveformCacheIdentity(uri: String, durationMs: Long, size: Long, modified: Long, buckets: Int): String =
     "v6|$uri|$durationMs|$size|$modified|$buckets"
@@ -356,13 +354,8 @@ internal fun readCachedAudioWaveform(
     bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
 ): List<Float>? = readAudioWaveformCacheFile(audioWaveformCacheFile(context, uri, durationMs, bucketCount), bucketCount)
 
-private fun readAudioWaveformCacheFile(cache: File, bucketCount: Int): List<Float>? {
-    if (!cache.isFile) return null
-    return runCatching {
-        cache.readText().split(',').mapNotNull(String::toFloatOrNull)
-            .takeIf { it.size == bucketCount && it.all { value -> value.isFinite() && value in 0f..1f } }
-    }.getOrNull()
-}
+private fun readAudioWaveformCacheFile(cache: File, bucketCount: Int): List<Float>? =
+    com.domenota.medialoader.data.playback.TimelineWaveformDiskCache.read(cache,bucketCount)
 
 internal fun hasCachedAudioWaveform(context: Context, uri: Uri, durationMs: Long): Boolean =
     readCachedAudioWaveform(context, uri, durationMs) != null
@@ -375,26 +368,19 @@ internal fun loadAudioWaveform(
     bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
     isCancelled: () -> Boolean = { false },
 ): List<Float> {
-    val cache = audioWaveformCacheFile(context, uri, durationMs, bucketCount)
-    val lock = audioCacheLocks.computeIfAbsent(cache.name) { Any() }
-    readAudioWaveformCacheFile(cache, bucketCount)?.let { return it }
-    return com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode(isCancelled) { synchronized(lock) {
-        readAudioWaveformCacheFile(cache, bucketCount)?.let { return@synchronized it }
-        val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount, isCancelled)
-        if (decoded.size == bucketCount && decoded.any { it > 0f }) {
-            runCatching {
-                cache.parentFile?.mkdirs()
-                val temporary = File.createTempFile("waveform-", ".tmp", cache.parentFile)
-                try {
-                    temporary.writeText(decoded.joinToString(","))
-                    check(temporary.renameTo(cache))
-                } finally {
-                    temporary.delete()
-                }
-            }
-        }
-        decoded
-    } }
+    return preparePersistedAudioWaveform(context,uri,durationMs,bucketCount,isCancelled).peaks
+}
+
+/** Background and foreground use exactly one versioned disk identity. */
+internal fun preparePersistedAudioWaveform(
+    context:Context,uri:Uri,durationMs:Long,bucketCount:Int=AUDIO_WAVEFORM_BUCKETS,
+    isCancelled:()->Boolean={false}
+):com.domenota.medialoader.data.playback.WaveformPreparation {
+    val cache=audioWaveformCacheFile(context,uri,durationMs,bucketCount)
+    return com.domenota.medialoader.data.playback.TimelineWaveformDiskCache.prepare(cache,bucketCount,isCancelled,
+        sameVersion={audioWaveformCacheFile(context,uri,durationMs,bucketCount)==cache}) {
+        decodeAudioWaveform(context,uri,durationMs,bucketCount,isCancelled)
+    }
 }
 
 private fun decodeAudioWaveform(
@@ -512,7 +498,7 @@ private fun decodeAudioWaveform(
             if (sampleCounts[index] == 0L) 0f
             else sqrt(energy[index] / sampleCounts[index]).toFloat()
         }
-        if (detailed && sampleCounts.any { it > 0L } && rms.all { it == 0f }) rms.toList()
+        if (sampleCounts.any { it > 0L } && rms.all { it == 0f }) rms.toList()
         else normalizeWaveformRms(rms)
     } catch (cancelled: java.util.concurrent.CancellationException) {
         throw cancelled

@@ -12,12 +12,13 @@ internal data class WaveformSweep(
     val total: Int,
     val startedAt: Long,
     val trigger: TaskTrigger,
-    val outcomes: TaskOutcomes = TaskOutcomes()
+    val outcomes: TaskOutcomes = TaskOutcomes(),
+    val failure:TaskFailure?=null
 ) {
     init { require(total >= 0 && outcomes.checked <= total && startedAt >= 0) }
     val cursor get() = outcomes.checked
     val finished get() = cursor == total
-    fun advance(outcome: WaveformOutcome): WaveformSweep {
+    fun advance(outcome: WaveformOutcome,reason:TaskFailure?=null): WaveformSweep {
         check(!finished)
         val next = when(outcome) {
             WaveformOutcome.CACHED -> outcomes.copy(cached=outcomes.cached+1)
@@ -25,10 +26,14 @@ internal data class WaveformSweep(
             WaveformOutcome.SKIPPED -> outcomes.copy(skipped=outcomes.skipped+1)
             WaveformOutcome.FAILED -> outcomes.copy(failed=outcomes.failed+1)
         }
-        return copy(outcomes=next)
+        val nextFailure=if(outcome!=WaveformOutcome.FAILED)failure else {
+            val known=reason?:TaskFailure.UNKNOWN
+            if(outcomes.failed==0)known else if(failure==known)known else TaskFailure.UNKNOWN
+        }
+        return copy(outcomes=next,failure=nextFailure)
     }
-    fun details()=TaskDetails(token,startedAt,trigger,
-        if(outcomes.failed>0) TaskFailure.UNKNOWN else null,outcomes)
+    fun details(recovered:Boolean=false)=TaskDetails(token,startedAt,trigger,
+        if(outcomes.failed>0) failure?:TaskFailure.UNKNOWN else null,outcomes,recovered)
     companion object {
         // Only used for local checkpoint validation, not emitted in logs/history.
         fun fingerprint(keys:List<String>):String {

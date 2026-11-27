@@ -36,23 +36,17 @@ internal fun loadAudioWaveform(context: Context, uri: Uri): FloatArray =
         com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode { decodeAudioPeaks(context, uri) }
     }
 
-internal fun preparePersistedAudioWaveform(context:Context,uri:Uri,cancelled:()->Boolean):com.domenota.medialoader.data.playback.WaveformOutcome =
-    waveformCache(context).prepare(uri.toString(),cancelled) {
-        com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode(cancelled) { decodeAudioPeaks(context,uri,cancelled=cancelled,strict=true) }
-    }
-
 /** Drop stale peaks after the MP3 content changes at the same public URI. */
 internal fun invalidateAudioWaveform(context: Context, uri: Uri) =
     waveformCache(context).invalidate(uri.toString())
 
 /** Decodes the file in the background and groups PCM loudness by playback time. */
-internal fun decodeAudioPeaks(context: Context, uri: Uri, count: Int = 256, cancelled:()->Boolean={false}, strict:Boolean=false): FloatArray {
+internal fun decodeAudioPeaks(context: Context, uri: Uri, count: Int = 256): FloatArray {
     val peaks = FloatArray(count)
     val squared = DoubleArray(count)
     val samples = LongArray(count)
     val extractor = MediaExtractor()
     var decoder: MediaCodec? = null
-    var complete=false
     try {
         extractor.setDataSource(context, uri, null)
         val track = (0 until extractor.trackCount).firstOrNull {
@@ -81,7 +75,6 @@ internal fun decodeAudioPeaks(context: Context, uri: Uri, count: Int = 256, canc
         var outputEnded = false
         var emptyOutputCount = 0
         while (!outputEnded && emptyOutputCount < 300) {
-            if(cancelled())throw java.util.concurrent.CancellationException("Waveform stopped")
             if (!inputEnded) {
                 val index = decoder.dequeueInputBuffer(10_000)
                 if (index >= 0) {
@@ -117,8 +110,6 @@ internal fun decodeAudioPeaks(context: Context, uri: Uri, count: Int = 256, canc
                 emptyOutputCount++
             }
         }
-        complete=outputEnded
-    } catch (error: java.util.concurrent.CancellationException) { throw error
     } catch (error: Exception) {
         AppLog.w("AudioWaveform", "Could not decode peaks")
     } finally {
@@ -129,7 +120,7 @@ internal fun decodeAudioPeaks(context: Context, uri: Uri, count: Int = 256, canc
     for (index in peaks.indices) {
         if (samples[index] > 0) peaks[index] = sqrt(squared[index] / samples[index]).toFloat()
     }
-    return if ((!strict||complete)&&peaks.any { it > 0f }) shapeWaveform(peaks) else decodeCompressedSampleSizes(context, uri, count,cancelled,strict)
+    return if (peaks.any { it > 0f }) shapeWaveform(peaks) else decodeCompressedSampleSizes(context, uri, count)
 }
 
 internal fun shapeWaveform(loudness: FloatArray): FloatArray {
@@ -145,7 +136,7 @@ internal fun shapeWaveform(loudness: FloatArray): FloatArray {
 }
 
 /** Last resort for formats without a usable PCM decoder; frame sizes still reveal variable bitrate. */
-private fun decodeCompressedSampleSizes(context: Context, uri: Uri, count: Int,cancelled:()->Boolean,strict:Boolean): FloatArray {
+private fun decodeCompressedSampleSizes(context: Context, uri: Uri, count: Int): FloatArray {
     val peaks = FloatArray(count)
     val extractor = MediaExtractor()
     try {
@@ -158,7 +149,6 @@ private fun decodeCompressedSampleSizes(context: Context, uri: Uri, count: Int,c
         val durationUs = format.getLong(MediaFormat.KEY_DURATION).coerceAtLeast(1L)
         val scratch = java.nio.ByteBuffer.allocate(256 * 1024)
         while (true) {
-            if(cancelled())throw java.util.concurrent.CancellationException("Waveform stopped")
             scratch.clear()
             val bytes = extractor.readSampleData(scratch, 0)
             if (bytes < 0) break
@@ -168,10 +158,8 @@ private fun decodeCompressedSampleSizes(context: Context, uri: Uri, count: Int,c
         }
         val max = peaks.maxOrNull()?.coerceAtLeast(1f) ?: 1f
         for (i in peaks.indices) peaks[i] = peaks[i] / max
-    } catch(error:java.util.concurrent.CancellationException){throw error
     } catch (error: Exception) {
         AppLog.w("AudioWaveform", "Could not read frames")
-        if(strict)return FloatArray(count)
     } finally {
         extractor.release()
     }

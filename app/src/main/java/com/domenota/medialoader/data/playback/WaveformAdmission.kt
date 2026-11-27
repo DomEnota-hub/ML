@@ -19,6 +19,7 @@ internal class WaveformAdmission private constructor(
     private val simpleRevision:Long
 ) {
     private val physical=blocked.any{it.startsWith("file:")||it.startsWith("file-stat:")}
+    val requiresPhysicalProof get()=physical
     private val byUri=rows.groupBy{it.savedUri}
     private val allowedKeys=hashMapOf<String,Pair<String,Set<String>>>()
     fun current(context:Context,repo:MediaRepository):Boolean =
@@ -30,7 +31,7 @@ internal class WaveformAdmission private constructor(
         repo.nomediaFolders.snapshot.value==nomedia && repo.selectiveArchive.privacy.value==archive &&
         (source==null||allowedKeys[source]?.let{DuplicatePrivacyGuard.accepts(context,epoch,it.first,it.second)}==true)
 
-    suspend fun allows(context:Context,source:String,id:String?):Boolean {
+    suspend fun allows(context:Context,source:String,id:String?,physicalKeys:Set<String> = emptySet()):Boolean {
         val uri=Uri.parse(source)
         val known=byUri[source].orEmpty()
         if(known.any{it.hidden||it.isPrivate||guard.appExcluded(it)})return false
@@ -38,7 +39,7 @@ internal class WaveformAdmission private constructor(
         val key=id?:known.firstOrNull()?.id?:source
         val aliases=PublicMediaIdentity.uriKeys(source)+key+"app:$key"
         if(aliases.any(blocked::contains))return false
-        val proof=if(physical)PublicMediaIdentity.capture(context,source) else emptySet()
+        val proof=if(!physical)emptySet() else if(physicalKeys.any{it.startsWith("file-stat:")})physicalKeys else PublicMediaIdentity.capture(context,source)
         if(physical&&proof.none{it.startsWith("file-stat:")})return false
         val keys=aliases+proof
         val allowed=keys.none(blocked::contains)&&DuplicatePrivacyGuard.accepts(context,epoch,key,keys)

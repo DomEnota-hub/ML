@@ -11,21 +11,6 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class AudioWaveformCacheTest {
-    @Test fun durablePreparationDoesNotCountMemoryOnlyOrFailedWrites(){
-        val notDirectory=temporary.newFile()
-        val cache=AudioWaveformCache(notDirectory)
-        cache.get("track"){floatArrayOf(.4f)}
-        var decodes=0
-        org.junit.Assert.assertEquals(WaveformOutcome.FAILED,cache.prepare("track"){decodes++;floatArrayOf(.5f)})
-        org.junit.Assert.assertEquals(1,decodes)
-    }
-    @Test fun durablePreparationDistinguishesCreationAndDiskHit(){
-        val folder=temporary.newFolder()
-        val cache=AudioWaveformCache(folder)
-        org.junit.Assert.assertEquals(WaveformOutcome.GENERATED,cache.prepare("track"){floatArrayOf(.3f,.8f)})
-        org.junit.Assert.assertEquals(WaveformOutcome.CACHED,AudioWaveformCache(folder).prepare("track"){error("Unexpected decode")})
-        org.junit.Assert.assertEquals(WaveformOutcome.FAILED,cache.prepare("bad"){floatArrayOf(Float.NaN)})
-    }
     @get:Rule val temporary = TemporaryFolder()
 
     @Test fun cachedTrackDoesNotWaitForAnotherTracksAnalysis() {

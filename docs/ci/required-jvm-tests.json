@@ -5818,14 +5818,6 @@
     "skipped": false,
     "failed": false
   },
-  "com.domenota.medialoader.data.playback.AudioWaveformCacheTest#durablePreparationDistinguishesCreationAndDiskHit": {
-    "skipped": false,
-    "failed": false
-  },
-  "com.domenota.medialoader.data.playback.AudioWaveformCacheTest#durablePreparationDoesNotCountMemoryOnlyOrFailedWrites": {
-    "skipped": false,
-    "failed": false
-  },
   "com.domenota.medialoader.data.playback.AudioWaveformCacheTest#replacingAudioAtSameUriInvalidatesMemoryAndDiskWaveform": {
     "skipped": false,
     "failed": false
@@ -6294,6 +6286,22 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.TimelineWaveformDiskCacheTest#changedContentNeverPublishesObsoleteCache": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.TimelineWaveformDiskCacheTest#failedWriteAndInvalidDecodeHaveDifferentReasons": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.TimelineWaveformDiskCacheTest#malformedExtraColumnsAreNotAValidCacheAndSilenceIsValid": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.TimelineWaveformDiskCacheTest#realTimelineCacheIsWrittenAndReusedWithoutDecode": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.VideoWatchProgressTest#aliasSwitchAndHistoryCleanupShareOneResumeAndWatchPosition": {
     "skipped": false,
     "failed": false
@@ -6327,6 +6335,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.playback.WaveformSweepTest#completedSweepCannotAdvance": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.WaveformSweepTest#failureReasonsRemainTypedAndMixedFailuresAreUnknown": {
     "skipped": false,
     "failed": false
   },
