@@ -132,9 +132,10 @@ class AudioWaveformPrecomputeWorker(
                     if(duration<=0L) WaveformOutcome.SKIPPED
                     else if(hasCachedAudioWaveform(app,uri,duration)) WaveformOutcome.CACHED
                     else {
-                        publish(TaskStatus.WAITING,TaskWait.RESOURCE)
+                        val waiting=BackgroundMediaWork.isBusy()
+                        if(waiting) publish(TaskStatus.WAITING,TaskWait.RESOURCE)
                         BackgroundMediaWork.awaitIdle()
-                        publish()
+                        if(waiting) publish()
                         if(isStopped) throw java.util.concurrent.CancellationException("Stopped")
                         if(hasCachedAudioWaveform(app,uri,duration)) WaveformOutcome.CACHED
                         else {

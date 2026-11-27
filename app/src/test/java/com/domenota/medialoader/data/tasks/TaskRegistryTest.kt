@@ -4,6 +4,31 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TaskRegistryTest {
+    @Test fun journalRecordsTransitionsNotEveryProgressAndDoesNotReplayOldHistory(){
+        val events=mutableListOf<TaskJournalEvent>()
+        val r=TaskRegistry{events.add(it)}
+        val old=row("old",TaskStatus.COMPLETE).copy(updatedAt=System.currentTimeMillis()-1000)
+        val live=row("working")
+        r.publish(TaskOwner.DOWNLOADS,listOf(old,live))
+        repeat(20){r.publish(TaskOwner.DOWNLOADS,listOf(old,live.copy(progress=TaskProgress(it.toLong(),20))))}
+        r.publish(TaskOwner.DOWNLOADS,listOf(old,live.copy(status=TaskStatus.WAITING,wait=TaskWait.NETWORK)))
+        r.publish(TaskOwner.DOWNLOADS,listOf(old,live))
+        r.publish(TaskOwner.DOWNLOADS,listOf(old,live.copy(status=TaskStatus.COMPLETE,updatedAt=System.currentTimeMillis())))
+        assertEquals(listOf(TaskEvent.START,TaskEvent.WAIT,TaskEvent.RESUME,TaskEvent.COMPLETE),events.map{it.event})
+        assertEquals(1,events.map{it.token}.distinct().size)
+        assertFalse(events.any{it.message().contains(live.id)})
+        assertEquals(events.last().token,r.history.value.rows.first{it.id==live.id}.details?.correlation)
+    }
+    @Test fun commandJournalReportsForwardingNotExecutorCompletion(){
+        val events=mutableListOf<TaskJournalEvent>()
+        val r=TaskRegistry{events.add(it)}
+        val live=row("working",commands=setOf(TaskCommand.CANCEL))
+        r.publish(TaskOwner.DOWNLOADS,listOf(live)){_,_->throw IllegalStateException("private raw path")}
+        assertFalse(r.dispatch(live.id,TaskCommand.CANCEL))
+        assertEquals(TaskEvent.COMMAND,events.last().event)
+        assertEquals(false,events.last().forwarded)
+        assertFalse(events.last().message().contains("private raw path"))
+    }
     @Test fun correlationIsRandomAndRejectsRawIdentifiers(){
         val a=TaskCorrelation.create()
         assertNotEquals(a,TaskCorrelation.create())

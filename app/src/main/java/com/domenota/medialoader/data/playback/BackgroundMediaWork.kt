@@ -10,8 +10,9 @@ internal object BackgroundMediaWork {
     fun setBusy(owner: String, value: Boolean) {
         if (value) busy.add(owner) else busy.remove(owner)
     }
+    fun isBusy():Boolean=busy.isNotEmpty() || (System.nanoTime() - started) / 1_000_000L < 2_500L
     suspend fun awaitIdle() {
-        while (busy.isNotEmpty() || (System.nanoTime() - started) / 1_000_000L < 2_500L) {
+        while (isBusy()) {
             delay(250L)
         }
     }

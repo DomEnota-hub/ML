@@ -7366,6 +7366,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#commandJournalReportsForwardingNotExecutorCompletion": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#commandsRequireCurrentCapability": {
     "skipped": false,
     "failed": false
@@ -7383,6 +7387,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#idleProcessIsVisibleAndControllableButNotAWaitingTask": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#journalRecordsTransitionsNotEveryProgressAndDoesNotReplayOldHistory": {
     "skipped": false,
     "failed": false
   },

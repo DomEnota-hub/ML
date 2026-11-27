@@ -78,7 +78,7 @@ internal fun taskId(owner: TaskOwner, key: String): String =
         for(byte in bytes) { val n=byte.toInt() and 255; append(digits[n ushr 4]); append(digits[n and 15]) }
     } }
 
-internal class TaskRegistry {
+internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {}) {
     private data class Feed(val rows: List<TaskSnapshot>, val command: (String, TaskCommand) -> Unit)
     private val sources = linkedMapOf<TaskOwner, Feed>()
     private val rowHandlers=hashMapOf<String,(TaskCommand)->Unit>()
@@ -91,6 +91,7 @@ internal class TaskRegistry {
     private var retentionDays = 7
     private val seen = hashMapOf<String,TaskStatus>()
     private val started = hashMapOf<String,Long>()
+    private val observed = hashMapOf<String,TaskSnapshot>()
     private var completion: ((TaskSnapshot)->Unit)? = null
 
     @Synchronized fun configure(days: Int, onCompletion: ((TaskSnapshot)->Unit)? = completion) {
@@ -108,7 +109,7 @@ internal class TaskRegistry {
     private fun rebuild() {
         val now=System.currentTimeMillis()
         val cutoff=if(retentionDays==0) saved.value.clearedAt else maxOf(saved.value.clearedAt,now-retentionDays*86_400_000L)
-        val live=sources.values.flatMap { it.rows }
+        val live=sources.values.flatMap { it.rows }.map { observe(it,now) }
         val nested=live.flatMap{it.children}.mapTo(hashSetOf()){it.id}
         val archive=saved.value.rows.filter { it.updatedAt>cutoff && it.id !in nested }.associateBy { it.id }.toMutableMap()
         for(row in live) {
@@ -132,10 +133,42 @@ internal class TaskRegistry {
         val allowed=archive.keys
         val shown=live.filter { !it.idle && (!it.status.terminal || it.id in allowed) }
         val liveKeys=live.mapTo(hashSetOf()){it.id}
-        seen.keys.retainAll(liveKeys); started.keys.retainAll(liveKeys); rowHandlers.keys.retainAll(liveKeys)
+        seen.keys.retainAll(liveKeys); started.keys.retainAll(liveKeys); rowHandlers.keys.retainAll(liveKeys); observed.keys.retainAll(liveKeys)
         val liveIds=shown.mapTo(hashSetOf()) { it.id }
         mutable.value=shown+rows.filterNot { it.id in liveIds }
         liveMutable.value=live.filter { !it.status.terminal || it.kind == TaskKind.OCR }
+    }
+
+    private fun emit(event:TaskEvent,row:TaskSnapshot,now:Long,command:TaskCommand?=null,forwarded:Boolean?=null) {
+        TaskJournalEvent.from(event,row,now,command,forwarded)?.let { runCatching { eventSink(it) } }
+    }
+    private fun observe(raw:TaskSnapshot,now:Long):TaskSnapshot {
+        if(raw.idle) { observed.remove(raw.id);return raw }
+        val previous=observed[raw.id]
+        val restarted=previous?.status?.terminal==true&&!raw.status.terminal
+        val base=if(restarted)null else previous?.details
+        // Historical terminal feed rows are not fresh events. Never assign an operation token to them.
+        val details=raw.details ?: base ?: if(!raw.status.terminal)TaskDetails(TaskCorrelation.create(),now) else null
+        val row=if(details==raw.details)raw else raw.copy(details=details)
+        val old=previous?.takeIf { !restarted && it.details?.correlation==details?.correlation }
+        val event=when {
+            details?.correlation==null -> null
+            old==null && row.status.terminal -> if(raw.details?.correlation!=null)terminalEvent(row.status) else null
+            old==null -> if(row.status==TaskStatus.WAITING)TaskEvent.WAIT else TaskEvent.START
+            old.status!=row.status -> when(row.status) {
+                TaskStatus.RUNNING->TaskEvent.RESUME;TaskStatus.WAITING->TaskEvent.WAIT;TaskStatus.PAUSED->TaskEvent.PAUSE
+                TaskStatus.QUEUED->TaskEvent.CHECKPOINT;else->terminalEvent(row.status)
+            }
+            row.status==TaskStatus.WAITING&&old.wait!=row.wait -> TaskEvent.WAIT
+            else -> null
+        }
+        observed[row.id]=row
+        event?.let{emit(it,row,now)}
+        return row
+    }
+    private fun terminalEvent(status:TaskStatus):TaskEvent?=when(status){
+        TaskStatus.COMPLETE->TaskEvent.COMPLETE;TaskStatus.PARTIAL->TaskEvent.PARTIAL
+        TaskStatus.FAILED->TaskEvent.FAIL;TaskStatus.CANCELLED->TaskEvent.CANCEL;else->null
     }
 
     /** Replace an executor's complete authoritative snapshot, not append per progress tick. */
@@ -174,12 +207,19 @@ internal class TaskRegistry {
                 if (row != null && command in row.commands) rowHandlers[id]?.let { callback -> { _:String, action:TaskCommand -> callback(action) } } ?: feed.command else null
             }
         } ?: return false
-        handler(id, command)
-        return true
+        val row=synchronized(this) { observed[id] ?: observed.values.firstOrNull { top->top.children.any { it.id==id } } }
+        return try {
+            handler(id, command)
+            row?.let{emit(TaskEvent.COMMAND,it,System.currentTimeMillis(),command,true)}
+            true
+        } catch(_:Exception) {
+            row?.let{emit(TaskEvent.COMMAND,it,System.currentTimeMillis(),command,false)}
+            false
+        }
     }
 }
 
 internal object TaskCenter {
-    val registry = TaskRegistry()
+    val registry = TaskRegistry(TaskJournal::write)
     fun initialize(context: android.content.Context) = TaskHistoryStore.start(context.applicationContext,registry)
 }
