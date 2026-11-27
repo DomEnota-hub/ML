@@ -15,6 +15,7 @@ internal class TaskReporter private constructor(private val owner: TaskOwner, pr
         }
         val base=operation
         val metadata=if(idle)null else details?.copy(correlation=details.correlation?:base?.correlation,startedAt=details.startedAt?:base?.startedAt)?:base
+        operation=metadata
         val row = TaskSnapshot(id, kind, status, files = files, errors = errors, wait = wait,
             percent = percent, stage = stage, commands=commands, idle=idle, details=metadata)
         if (row == last) return

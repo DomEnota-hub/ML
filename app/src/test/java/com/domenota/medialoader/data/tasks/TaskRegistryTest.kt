@@ -4,6 +4,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TaskRegistryTest {
+    @Test fun restoredTerminalMetadataSurvivesFeedWithoutNewJournalEvent(){
+        val events=mutableListOf<TaskJournalEvent>()
+        val r=TaskRegistry{events.add(it)}
+        val d=TaskDetails(TaskCorrelation.create(),100,TaskTrigger.BACKGROUND)
+        val old=row("restored",TaskStatus.COMPLETE).copy(updatedAt=System.currentTimeMillis(),details=d)
+        r.restore(TaskHistoryData(rows=listOf(old)))
+        r.publish(TaskOwner.DOWNLOADS,listOf(old.copy(details=null)))
+        assertEquals(d,r.history.value.rows.single().details)
+        assertTrue(events.isEmpty())
+        r.publish(TaskOwner.DOWNLOADS,listOf(old))
+        assertTrue(events.isEmpty())
+    }
     @Test fun journalRecordsTransitionsNotEveryProgressAndDoesNotReplayOldHistory(){
         val events=mutableListOf<TaskJournalEvent>()
         val r=TaskRegistry{events.add(it)}

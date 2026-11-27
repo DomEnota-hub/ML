@@ -146,14 +146,15 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
         if(raw.idle) { observed.remove(raw.id);return raw }
         val previous=observed[raw.id]
         val restarted=previous?.status?.terminal==true&&!raw.status.terminal
-        val base=if(restarted)null else previous?.details
+        val archived=saved.value.rows.firstOrNull { it.id==raw.id && it.status==raw.status }
+        val base=if(restarted)null else previous?.details ?: archived?.details
         // Historical terminal feed rows are not fresh events. Never assign an operation token to them.
         val details=raw.details ?: base ?: if(!raw.status.terminal)TaskDetails(TaskCorrelation.create(),now) else null
         val row=if(details==raw.details)raw else raw.copy(details=details)
         val old=previous?.takeIf { !restarted && it.details?.correlation==details?.correlation }
         val event=when {
             details?.correlation==null -> null
-            old==null && row.status.terminal -> if(raw.details?.correlation!=null)terminalEvent(row.status) else null
+            old==null && row.status.terminal -> if(raw.details?.correlation!=null && archived?.details?.correlation!=details.correlation)terminalEvent(row.status) else null
             old==null -> if(row.status==TaskStatus.WAITING)TaskEvent.WAIT else TaskEvent.START
             old.status!=row.status -> when(row.status) {
                 TaskStatus.RUNNING->TaskEvent.RESUME;TaskStatus.WAITING->TaskEvent.WAIT;TaskStatus.PAUSED->TaskEvent.PAUSE

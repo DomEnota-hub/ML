@@ -5818,6 +5818,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.AudioWaveformCacheTest#durablePreparationDistinguishesCreationAndDiskHit": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.AudioWaveformCacheTest#durablePreparationDoesNotCountMemoryOnlyOrFailedWrites": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.AudioWaveformCacheTest#replacingAudioAtSameUriInvalidatesMemoryAndDiskWaveform": {
     "skipped": false,
     "failed": false
@@ -7403,6 +7411,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#reporterCommandsAreCheckedAgainstLatestSnapshot": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#restoredTerminalMetadataSurvivesFeedWithoutNewJournalEvent": {
     "skipped": false,
     "failed": false
   },
