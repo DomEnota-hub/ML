@@ -20,8 +20,8 @@ internal data class DrawerConfiguration private constructor(
         return copy(order = normalizeOrder(order.toMutableList().apply { removeAt(from); add(to, entry) }))
     }
 
-    fun entries(developerAllowed: Boolean): List<DrawerEntry> =
-        order.filter { it in visible && it in drawerAvailableEntries(developerAllowed) }
+    fun entries(developerAllowed: Boolean, advancedToolsVisible:Boolean=false): List<DrawerEntry> =
+        order.filter { it in visible && it in drawerAvailableEntries(developerAllowed,advancedToolsVisible) }
 
     fun encode(): String = order.joinToString(",") { it.name + ":" + if (it in visible) "1" else "0" }
 
@@ -80,4 +80,19 @@ internal fun rememberDrawerConfiguration(prefs: SharedPreferences): DrawerConfig
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     return value
+}
+
+/** Feature admission does not mutate per-entry visibility or order. */
+@Composable
+internal fun rememberAdvancedDrawerTools(prefs:SharedPreferences):Boolean {
+    var enabled by remember(prefs){mutableStateOf(prefs.getBoolean("bulk_visible",false))}
+    DisposableEffect(prefs){
+        val listener=SharedPreferences.OnSharedPreferenceChangeListener{_,key->
+            if(key==null||key=="bulk_visible")enabled=prefs.getBoolean("bulk_visible",false)
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        enabled=prefs.getBoolean("bulk_visible",false)
+        onDispose{prefs.unregisterOnSharedPreferenceChangeListener(listener)}
+    }
+    return enabled
 }

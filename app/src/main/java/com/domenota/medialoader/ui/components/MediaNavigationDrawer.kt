@@ -109,7 +109,7 @@ internal fun MediaNavigationDrawer(
     val latestAllowed by rememberUpdatedState(allowed)
     val latestSelect by rememberUpdatedState(onSelect)
     val latestAvailable by rememberUpdatedState(available)
-    val latestVisible by rememberUpdatedState(configuration.entries(journalUnlocked))
+    val latestVisible by rememberUpdatedState(configuration.order.filter { it in configuration.visible && it in available && it in com.domenota.medialoader.ui.navigation.drawerAvailableEntries(journalUnlocked,true) })
     fun settle(open:Boolean){
         animation?.cancel()
         if(!latestAllowed){progress=0f;return}

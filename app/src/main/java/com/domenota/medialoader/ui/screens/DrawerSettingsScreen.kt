@@ -36,6 +36,7 @@ internal fun DrawerSettingsScreen(
     developerAllowed: Boolean,
     onChange: (DrawerConfiguration) -> Unit,
     onBack: () -> Unit,
+    advancedToolsVisible:Boolean=false,
 ) {
     val latestChange by rememberUpdatedState(onChange)
     val scroll = rememberScrollState()
@@ -47,13 +48,13 @@ internal fun DrawerSettingsScreen(
     var viewportTop by remember { mutableFloatStateOf(0f) }
     var viewportBottom by remember { mutableFloatStateOf(0f) }
     val centers = remember { mutableStateMapOf<DrawerEntry, Float>() }
-    val admitted = remember(developerAllowed) { drawerAvailableEntries(developerAllowed) }
+    val admitted = remember(developerAllowed,advancedToolsVisible) { drawerAvailableEntries(developerAllowed,advancedToolsVisible) }
     val entries = draft.order.filter { it in admitted }
 
     LaunchedEffect(configuration) {
         if (dragged == null) draft = configuration
     }
-    LaunchedEffect(developerAllowed) {
+    LaunchedEffect(developerAllowed,advancedToolsVisible) {
         if (dragged?.let { it !in admitted } == true) {
             dragged = null
             draft = configuration
@@ -151,7 +152,7 @@ internal fun DrawerSettingsScreen(
                                             }
                                         }
                                     }
-                                    .pointerInput(entry, developerAllowed) {
+                                    .pointerInput(entry, developerAllowed,advancedToolsVisible) {
                                         detectDragGesturesAfterLongPress(
                                             onDragStart = {
                                                 centers[entry]?.let { center ->

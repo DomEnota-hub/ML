@@ -79,9 +79,10 @@ class DrawerPolicyTest{
     }
 
     @Test fun allLibraryDestinationsAreEnabledButJournalFollowsGate(){
-        val public=DrawerEntry.entries.toSet()-setOf(DrawerEntry.JOURNAL, DrawerEntry.DIAGNOSTICS)
+        val public=DrawerEntry.entries.toSet()-setOf(DrawerEntry.JOURNAL,DrawerEntry.DIAGNOSTICS,DrawerEntry.BULK_DOWNLOAD,DrawerEntry.VK_IMAGES)
         assertEquals(public,drawerAvailableEntries(false))
-        assertEquals(DrawerEntry.entries.toSet()-DrawerEntry.DIAGNOSTICS,drawerAvailableEntries(true))
+        assertEquals(public+DrawerEntry.JOURNAL,drawerAvailableEntries(true))
+        assertEquals(DrawerEntry.entries.toSet()-DrawerEntry.DIAGNOSTICS,drawerAvailableEntries(true,true))
         assertTrue(setOf(DrawerEntry.FAVORITES,DrawerEntry.PRIVATE,DrawerEntry.ARCHIVE,
             DrawerEntry.COLLECTIONS,DrawerEntry.TRASH).all{it in public})
         val defaults=DrawerConfiguration.DEFAULT
@@ -118,5 +119,18 @@ class DrawerPolicyTest{
         assertEquals(DrawerEntry.entries.size,migrated.order.size)
         assertFalse(DrawerEntry.VK_IMAGES in migrated.visible)
         assertEquals(defaults,DrawerConfiguration.decode("garbage"))
+    }
+    @Test fun hiddenAdvancedToolsRetainConfiguredOrderAndVisibility(){
+        val initial=DrawerConfiguration.DEFAULT.setVisible(DrawerEntry.BULK_DOWNLOAD,true)
+            .setVisible(DrawerEntry.VK_IMAGES,true).move(DrawerEntry.VK_IMAGES,DrawerEntry.DOWNLOADS)
+        val hidden=initial.entries(true,false)
+        assertFalse(DrawerEntry.BULK_DOWNLOAD in hidden)
+        assertFalse(DrawerEntry.VK_IMAGES in hidden)
+        val restored=DrawerConfiguration.decode(initial.encode())
+        assertEquals(initial,restored)
+        assertEquals(initial.order.filter{it in initial.visible && it in drawerAvailableEntries(true,true)},restored.entries(true,true))
+        assertTrue(DrawerEntry.BULK_DOWNLOAD in restored.entries(true,true))
+        assertTrue(DrawerEntry.VK_IMAGES in restored.entries(true,true))
+        assertFalse(DrawerEntry.BULK_DOWNLOAD in DrawerConfiguration.DEFAULT.entries(true,true))
     }
 }

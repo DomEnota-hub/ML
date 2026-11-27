@@ -317,6 +317,7 @@ fun MediaLoaderApp(
     var journalRequested by rememberSaveable{mutableStateOf(false)}
     val journalUnlocked=rememberJournalUnlocked(uiPrefs)
     val drawerConfiguration=rememberDrawerConfiguration(uiPrefs)
+    val advancedDrawerTools=com.domenota.medialoader.ui.navigation.rememberAdvancedDrawerTools(uiPrefs)
     val phoneGallery by libraryModel.gallery.collectAsStateWithLifecycle()
     val phoneMusic by libraryModel.music.collectAsStateWithLifecycle()
     val libraryIndex by libraryModel.index.collectAsStateWithLifecycle()
@@ -3069,7 +3070,7 @@ fun MediaLoaderApp(
             LibraryRouteContent("drawer-settings") {
                 DrawerSettingsScreen(drawerConfiguration,journalUnlocked,
                     onChange={ DrawerConfiguration.write(uiPrefs,it) },
-                    onBack={ navController.popBackStack() })
+                    onBack={ navController.popBackStack() },advancedToolsVisible=advancedDrawerTools)
             },
             LibraryRouteContent("diagnostics") {
                 if (journalUnlocked && JournalAccess.allowed(uiPrefs)) {
@@ -3657,7 +3658,7 @@ fun MediaLoaderApp(
         com.domenota.medialoader.ui.navigation.returnDrawerHome(navController)
     }
     fun navigateDrawerEntry(entry:DrawerEntry){
-        if(entry !in DrawerConfiguration.read(uiPrefs).entries(JournalAccess.allowed(uiPrefs)))return
+        if(entry !in DrawerConfiguration.read(uiPrefs).entries(JournalAccess.allowed(uiPrefs),uiPrefs.getBoolean("bulk_visible",false)))return
         if(currentRoute==PRIVATE_ROUTE){
             if(!viewModel.privateAccess.state.value.unlocked||entry==DrawerEntry.PRIVATE)return
             viewModel.privateAccess.suspendAccess()
@@ -3714,7 +3715,7 @@ fun MediaLoaderApp(
         identity=drawerIdentity,
         allowed=drawerAllowed(currentRoute,appMode,drawerAdmission.admitted,drawerBlocked),
         active=drawerActiveEntry(currentRoute,appMode),
-        available=drawerAvailableEntries(journalUnlocked),journalUnlocked=journalUnlocked,
+        available=drawerAvailableEntries(journalUnlocked,advancedDrawerTools),journalUnlocked=journalUnlocked,
         configuration=drawerConfiguration,
         onSelect={entry->
             if(currentRoute=="music-duplicates"){

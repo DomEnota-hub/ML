@@ -21,8 +21,11 @@ internal val mandatoryDrawerEntries: Set<DrawerEntry> = setOf(
 )
 
 /** Diagnostics is hidden-only; Journal retains its persisted developer gate. */
-internal fun drawerAvailableEntries(journalUnlocked:Boolean):Set<DrawerEntry> =
-    DrawerEntry.entries.filterTo(linkedSetOf()){it!=DrawerEntry.DIAGNOSTICS && (journalUnlocked || it!=DrawerEntry.JOURNAL)}
+internal fun drawerAvailableEntries(journalUnlocked:Boolean, advancedToolsVisible:Boolean=false):Set<DrawerEntry> =
+    DrawerEntry.entries.filterTo(linkedSetOf()){
+        it!=DrawerEntry.DIAGNOSTICS && (journalUnlocked || it!=DrawerEntry.JOURNAL) &&
+            (advancedToolsVisible || (it!=DrawerEntry.BULK_DOWNLOAD && it!=DrawerEntry.VK_IMAGES))
+    }
 
 internal fun drawerRouteAllowed(route:String?,mode:AppMode):Boolean =
     when(route){
