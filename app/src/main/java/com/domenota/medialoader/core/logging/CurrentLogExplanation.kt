@@ -326,6 +326,8 @@ internal object CurrentLogExplanation {
             "HTTP search fallback failed" to "Резервный сетевой поиск не выполнен.",
             "Browser callback ignored" to "Событие браузера отклонено.",
             "Search document verified" to "Проверена страница музыкального поиска.",
+            "Search document rejected" to "Страница поиска отклонена: соответствие запроса в форме не подтверждено.",
+            "Search document ignored" to "Страница проигнорирована: её адрес не соответствует активному поиску.",
             "WebView DownloadListener" to "Встроенный браузер сообщил о запросе загрузки.",
             "No WebView MP3 callback" to "Не получено ожидаемое событие браузера для загрузки MP3.",
             "MP3 attempt diagnostic" to "Записан результат диагностики попытки MP3.",

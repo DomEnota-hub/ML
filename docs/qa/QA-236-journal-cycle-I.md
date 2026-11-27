@@ -10,3 +10,5 @@ Exact working-tree source inspection of logging call sites identified 227 additi
 
 ## Full-tree literal-prefix audit
 CI #278 walked 852 production Kotlin files, extracted 508 distinct direct literal prefixes and reported 37 unresolved representatives (four empty interpolation prefixes excluded). Its other 161 diagnostics tests passed. The follow-up rules address those concrete findings; the audit normalizes a trailing metadata separator and additionally includes direct sampled logging calls. Dynamic expressions and parameter-dependent values remain subject to conservative interpretation, not claimed as complete runtime replay.
+
+CI #279: compiled successfully; 162/163 diagnostics tests passed. Whole-tree audit: 852 production files, 517 distinct direct literal/sampled prefixes, two missing (HitMoz document rejection and ignored nonmatching route), four empty dynamic prefixes excluded. Added distinct safe explanations for the two exact source events; final focused verification pending.
