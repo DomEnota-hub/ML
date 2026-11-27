@@ -15,7 +15,27 @@ internal enum class TaskTrigger { USER, BACKGROUND, PERIODIC, MEDIA_CHANGED, REC
 internal enum class TaskFailure(val label: String) {
     NETWORK("Ошибка соединения"), PERMISSION("Нет разрешения"), STORAGE("Недостаточно места"),
     DECODE("Ошибка обработки"), CACHE_WRITE("Результат не сохранён"), IO("Ошибка чтения или записи"),
-    UNKNOWN("Причина не сохранена")
+    INTERRUPTED("Обработка прервана"), UNKNOWN("Причина не сохранена")
+}
+/** Classify actual exception types, not provider text, URL or presumed causes. */
+internal object TaskFailureClassifier {
+    fun from(error:Throwable):TaskFailure {
+        var current:Throwable?=error
+        val seen=hashSetOf<Throwable>()
+        var io=false
+        repeat(12){
+            val e=current?:return if(io)TaskFailure.IO else TaskFailure.UNKNOWN
+            if(!seen.add(e))return if(io)TaskFailure.IO else TaskFailure.UNKNOWN
+            when(e){
+                is SecurityException->return TaskFailure.PERMISSION
+                is java.net.UnknownHostException,is java.net.SocketTimeoutException,is java.net.SocketException,is java.net.ProtocolException,is java.io.EOFException->return TaskFailure.NETWORK
+                is android.system.ErrnoException->if(e.errno==android.system.OsConstants.ENOSPC)return TaskFailure.STORAGE
+                is java.io.IOException->io=true
+            }
+            current=e.cause
+        }
+        return if(io)TaskFailure.IO else TaskFailure.UNKNOWN
+    }
 }
 /** Mutually exclusive outcomes for a waveform sweep. Unknown counters remain absent on old rows. */
 internal data class TaskOutcomes(

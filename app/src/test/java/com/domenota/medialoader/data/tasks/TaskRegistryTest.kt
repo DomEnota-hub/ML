@@ -4,6 +4,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TaskRegistryTest {
+    @Test fun actualDownloadFailureIsCorrelatedWithoutRawException(){
+        val events=mutableListOf<TaskJournalEvent>()
+        val registry=TaskRegistry{events.add(it)}
+        val live=row("download")
+        registry.publish(TaskOwner.DOWNLOADS,listOf(live))
+        registry.noteDownloadFailure(live.id,TaskFailureClassifier.from(IllegalStateException("private url",java.net.SocketTimeoutException("secret"))),TaskStage.TRANSFER)
+        registry.publish(TaskOwner.DOWNLOADS,listOf(live.copy(status=TaskStatus.FAILED,errors=1,updatedAt=System.currentTimeMillis())))
+        val saved=registry.history.value.rows.single()
+        assertEquals(TaskFailure.NETWORK,saved.details?.failure)
+        assertEquals(TaskStage.TRANSFER,saved.stage)
+        assertEquals(events.first().token,events.last().token)
+        assertFalse(events.last().message().contains("secret"))
+        assertEquals(TaskFailure.UNKNOWN,TaskFailureClassifier.from(IllegalStateException("network timeout")))
+    }
+    @Test fun mixedGroupFailuresDoNotInventOneCause(){
+        val registry=TaskRegistry()
+        val first=row("a",TaskStatus.FAILED).copy(errors=1)
+        val second=row("b",TaskStatus.FAILED).copy(errors=1)
+        registry.noteDownloadFailure(first.id,TaskFailure.NETWORK,TaskStage.TRANSFER)
+        registry.noteDownloadFailure(second.id,TaskFailure.PERMISSION,TaskStage.SAVING)
+        registry.publish(TaskOwner.DOWNLOADS,listOf(row("group",TaskStatus.FAILED).copy(errors=2,children=listOf(first,second),updatedAt=System.currentTimeMillis())))
+        assertEquals(TaskFailure.UNKNOWN,registry.history.value.rows.single().details?.failure)
+        assertNull(registry.history.value.rows.single().stage)
+    }
     @Test fun restoreRetainsNewerPersistedMetadataOverOldTerminalFeed(){
         val registry=TaskRegistry()
         val now=System.currentTimeMillis()

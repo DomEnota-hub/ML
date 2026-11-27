@@ -7382,6 +7382,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.tasks.TaskHistoryCodecTest#legacyHistoryDoesNotInventResults": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskHistoryCodecTest#typedHistoryRoundTripsWithoutExecutableOrPrivateMetadata": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#actualDownloadFailureIsCorrelatedWithoutRawException": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#checkpointRecoveryUsesExplicitMetadata": {
     "skipped": false,
     "failed": false
@@ -7415,6 +7427,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#journalRecordsTransitionsNotEveryProgressAndDoesNotReplayOldHistory": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#mixedGroupFailuresDoNotInventOneCause": {
     "skipped": false,
     "failed": false
   },

@@ -92,6 +92,23 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
     private val seen = hashMapOf<String,TaskStatus>()
     private val started = hashMapOf<String,Long>()
     private val observed = hashMapOf<String,TaskSnapshot>()
+    private data class FailureAnnotation(val failure:TaskFailure,val stage:TaskStage?)
+    private val downloadFailures=linkedMapOf<String,FailureAnnotation>()
+    /** Typed evidence from the existing download executor; never an independent task or command. */
+    @Synchronized fun noteDownloadFailure(id:String,failure:TaskFailure,stage:TaskStage?) {
+        require(id.matches(Regex("[a-f0-9]{64}")))
+        downloadFailures[id]=FailureAnnotation(failure,stage)
+        while(downloadFailures.size>512)downloadFailures.remove(downloadFailures.keys.first())
+    }
+    @Synchronized fun clearDownloadFailure(id:String){downloadFailures.remove(id)}
+    private fun takeDownloadFailure(row:TaskSnapshot):FailureAnnotation? {
+        if(row.kind!=TaskKind.DOWNLOAD||!row.status.terminal||row.errors<=0)return null
+        val ids=if(row.children.isEmpty())listOf(row.id) else row.children.filter{it.errors>0}.map{it.id}
+        val found=ids.map{downloadFailures.remove(it)}
+        if(found.none{it!=null})return null
+        val uniform=found.firstOrNull()?.takeIf{known->found.all{it==known}}
+        return uniform?:FailureAnnotation(TaskFailure.UNKNOWN,null)
+    }
     private var completion: ((TaskSnapshot)->Unit)? = null
 
     @Synchronized fun configure(days: Int, onCompletion: ((TaskSnapshot)->Unit)? = completion) {
@@ -154,12 +171,15 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
         val archived=archivedRow?.takeIf{it.status==raw.status}
         val base=if(restarted)null else previous?.details ?: archived?.details
         // Historical terminal feed rows are not fresh events. Never assign an operation token to them.
-        val details=raw.details ?: base ?: if(!raw.status.terminal)TaskDetails(TaskCorrelation.create(),now) else null
-        val row=if(details==raw.details)raw else raw.copy(details=details)
+        val failure=takeDownloadFailure(raw)
+        val metadata=raw.details ?: base ?: if(!raw.status.terminal||failure!=null)TaskDetails(TaskCorrelation.create(),if(raw.status.terminal)null else now) else null
+        val details=if(failure!=null)metadata?.copy(failure=failure.failure) else metadata
+        val stage=raw.stage?:failure?.stage?:previous?.stage?.takeIf{!restarted}?:archived?.stage
+        val row=if(details==raw.details&&stage==raw.stage)raw else raw.copy(details=details,stage=stage)
         val old=previous?.takeIf { !restarted && it.details?.correlation==details?.correlation }
         val event=when {
             details?.correlation==null -> null
-            old==null && row.status.terminal -> if(raw.details?.correlation!=null && archived?.details?.correlation!=details?.correlation)terminalEvent(row.status) else null
+            old==null && row.status.terminal -> if((raw.details?.correlation!=null||failure!=null) && archived?.details?.correlation!=details?.correlation)terminalEvent(row.status) else null
             old==null -> if(details?.recovered==true)TaskEvent.RECOVERY else if(row.status==TaskStatus.WAITING)TaskEvent.WAIT else TaskEvent.START
             old.status!=row.status -> when(row.status) {
                 TaskStatus.RUNNING->TaskEvent.RESUME;TaskStatus.WAITING->TaskEvent.WAIT;TaskStatus.PAUSED->TaskEvent.PAUSE

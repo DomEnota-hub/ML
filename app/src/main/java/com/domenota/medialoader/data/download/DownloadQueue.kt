@@ -8,6 +8,7 @@ import com.domenota.medialoader.core.model.MediaItem
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.core.storage.StorageNaming
 import com.domenota.medialoader.data.HistoryRepository
+import com.domenota.medialoader.data.tasks.*
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
@@ -260,6 +261,7 @@ class DownloadQueue(
         val destination = destinationFor(item)
         val name = StorageNaming.availableName(current.originalName,
             withDestination(destination) { existingNames() } + history.reservedNames())
+        TaskCenter.registry.clearDownloadFailure(taskId(TaskOwner.DOWNLOADS,"file:${current.id}"))
         val queued = current.copy(originalName = name, state = DownloadState.QUEUED,
             sizeBytes = if (current.mediaType == MediaType.AUDIO) null else current.sizeBytes,
             bytesDownloaded = 0, errorMessage = null, savedUri = null, hidden = false)
@@ -338,7 +340,10 @@ class DownloadQueue(
             if (item != null && restoreWaitingAllowed(item)) {
                 submitLocked(DownloadTask(row.id, item, row.originalName, destination = destinationFor(item)))
                 restored++
-            } else history.save(row.copy(state = DownloadState.FAILED, errorMessage = INTERRUPTED))
+            } else {
+                if(DownloadTaskFeed.eligible(row))TaskCenter.registry.noteDownloadFailure(taskId(TaskOwner.DOWNLOADS,"file:${row.id}"),TaskFailure.INTERRUPTED,null)
+                history.save(row.copy(state = DownloadState.FAILED, errorMessage = INTERRUPTED))
+            }
         }
         if (restored > 0) runCatching(onDeferredRestored)
             .onFailure { AppLog.w("Download", "Foreground restore notification unavailable", it) }
@@ -462,6 +467,7 @@ class DownloadQueue(
         if (path == null) action() else withContext(com.domenota.medialoader.data.storage.DownloadFolderOverride(path)) { action() }
 
     private suspend fun transfer(task: DownloadTask) {
+        var stage=TaskStage.TRANSFER
         try {
             val startedAt = clock()
             AppLog.verbose("Download", "Engine transfer begin · id=${task.id} · provider=${task.item.providerId}")
@@ -469,6 +475,7 @@ class DownloadQueue(
                 engine.download(task) { bytes, total -> reportProgress(task.id, bytes, total) }
             }
             AppLog.verbose("Download", "Engine transfer finished · id=${task.id} · elapsedMs=${clock() - startedAt}")
+            stage=TaskStage.SAVING
             update(task.id) {
                 it.copy(
                     state = DownloadState.COMPLETED,
@@ -488,6 +495,8 @@ class DownloadQueue(
             throw cancelled
         } catch (error: Exception) {
             val message = (error as? DownloadFailure)?.message ?: GENERIC_FAILURE
+            val row=history.byId(task.id)
+            if(row!=null&&DownloadTaskFeed.eligible(row))TaskCenter.registry.noteDownloadFailure(taskId(TaskOwner.DOWNLOADS,"file:${task.id}"),TaskFailureClassifier.from(error),stage)
             AppLog.e("Download", "Failed · id=${task.id} · message=$message", error)
             update(task.id) { it.copy(state = DownloadState.FAILED, errorMessage = message) }
         }
