@@ -157,7 +157,11 @@ internal object StructuredLogExplanation {
                 key == "fullPcm" -> join("Сравнение декодированных аудиоданных", metric("firstSamples", "Отсчётов первого"), metric("secondSamples", "Отсчётов второго"))
                 else -> null
             }
-            "DuplicateScanMetrics" -> if (key == "music") join("Этап поиска дубликатов музыки", metric("processed", "Обработано"), metric("skipped", "Пропущено"), elapsed()) else null
+            "DuplicateScanMetrics" -> when (key) {
+                "music" -> join("Этап поиска дубликатов музыки", metric("processed", "Обработано"), metric("skipped", "Пропущено"), elapsed())
+                "gallery" -> join("Поиск дубликатов фото и видео", metric("processed", "Обработано"), metric("coverage", "Охват"), metric("cached", "В кеше"), metric("computed", "Вычислено"), metric("failed", "Не обработано"), elapsed())
+                else -> null
+            }
             "MusicDuplicates" -> if (key == "SCAN_HEAP") join("Оценка памяти для поиска дубликатов", metric("heapMiB", "Память", " МиБ")) else null
             "DuplicatePrivacy" -> if (key == "PRIVATE_MOVE") "Обновление отчётов дубликатов при изменении приватности." else null
             "DuplicateUI" -> join("Состояние интерфейса поиска дубликатов", f.label("event", mapOf("enter" to "Открытие", "leave" to "Выход")))
@@ -303,7 +307,7 @@ internal object StructuredLogExplanation {
         event == "yt-dlp update requested" -> "Запрошено обновление механизма анализа YouTube."
         event.startsWith("yt-dlp update failed:") -> "Обновление механизма анализа YouTube не выполнено."
         event.startsWith("Обновлён:") -> "Механизм анализа YouTube обновлён."
-        event.startsWith("Automatic yt-dlp refresh skipped:") -> "Автоматическое обновление пропущено: механизм недавно обновлялся."
+        event.startsWith("Automatic yt-dlp refresh skipped:") -> if (event.contains("cooldown active")) "Автоматическое обновление пропущено: действует интервал между попытками." else "Автоматическое обновление пропущено; причина указана в технической записи."
         event == "Web session saved" -> "Данные браузерного сеанса сохранены; вход в аккаунт этим не подтверждён."
         event == "Local token bridge" -> "Используется локальный механизм подготовки данных запроса YouTube."
         event == "Download start" -> "Начата операция получения видео YouTube."

@@ -80,7 +80,7 @@ object LogDisplay {
     fun classify(level: String, tag: String, event: String, raw: String = ""): LogTone {
         // The source event's status wins unless a narrowly defined successful
         // completion had historically been written as INFO.
-        if (LogExplanation.isCriticalSearchTimeout(raw)) return LogTone.ERROR
+        if (tag == "HitMoz" && event.startsWith("Search watchdog expired") && LogExplanation.isCriticalSearchTimeout(raw)) return LogTone.ERROR
         return when (level) {
             "ERROR", "FATAL" -> LogTone.ERROR
             "WARN" -> LogTone.WARN
@@ -125,7 +125,8 @@ object LogDisplay {
 
     /** Never include private log fields, URLs or filenames in the readable event title. */
     fun readable(entry: DisplayLogEntry): String =
-        TaskJournalDisplay.readable(entry) ?: StructuredLogExplanation.readable(entry) ?: legacyExplanation(entry)
+        TaskJournalDisplay.readable(entry) ?: StructuredLogExplanation.readable(entry) ?: legacyExplanation(entry)?.takeUnless { "пока нет точного пояснения" in it }
+            ?: CurrentLogExplanation.readable(entry)
             ?: when (entry.tone) {
                 LogTone.ERROR -> "Зафиксирована ошибка. Подробности доступны в техническом журнале."
                 LogTone.WARN -> "Зафиксировано предупреждение. Подробности доступны в техническом журнале."
@@ -157,6 +158,6 @@ object LogDisplay {
         "Crash" -> "Сбой приложения"
         "Settings" -> "Настройки"
         "Logs" -> "Журнал"
-        else -> StructuredLogExplanation.group(entry.tag)
+        else -> CurrentLogExplanation.group(entry.tag) ?: StructuredLogExplanation.group(entry.tag)
     }
 }
