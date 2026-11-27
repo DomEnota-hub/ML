@@ -140,7 +140,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
             IconButton(onSettings){Icon(Icons.Rounded.Settings,"Настройки")}
         }
         TabRow(selectedTabIndex=tab){
-            listOf("Обзор",if(activeCount>0)"Задачи · $activeCount" else "Задачи","История").forEachIndexed{index,label->
+            listOf("Обзор",if(activeCount>0)"Задачи: $activeCount" else "Задачи","История").forEachIndexed{index,label->
                 Tab(selected=tab==index,onClick={tab=index;focus=null;filter=0;errorsOnly=false},
                     selectedContentColor=MaterialTheme.colorScheme.primary,
                     unselectedContentColor=MaterialTheme.colorScheme.onSurfaceVariant,text={Text(label)})
@@ -177,7 +177,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                         if(running>0)add("$running в работе")
                         if(pending>0)add("$pending ожидает")
                         if(sleeping>0)add("$sleeping на паузе")
-                    }.joinToString(" · ").ifBlank{if(unknown)"Нет данных о состоянии" else "Нет задач"}
+                    }.joinToString(", ").ifBlank{if(unknown)"Нет данных о состоянии" else "Нет задач"}
                     val color=sectionColor(section)
                     Card(Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp)){
                         Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
@@ -283,7 +283,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
     val color=statusColor(row.status)
     Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
         Column(Modifier.weight(1f)){
-            Text(if(row.idle)"Не запущено" else if(row.status==TaskStatus.WAITING&&row.wait!=null)"Ожидание · ${row.wait.label}" else if(compact&&row.status==TaskStatus.COMPLETE)"Готово" else row.status.label,
+            Text(if(row.idle)"Не запущено" else if(row.status==TaskStatus.WAITING&&row.wait!=null)"Ожидание: ${row.wait.label}" else if(compact&&row.status==TaskStatus.COMPLETE)"Готово" else row.status.label,
                 style=MaterialTheme.typography.bodySmall,color=color)
             TaskCenterPresentation.progressText(row)?.let{Text(it,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
         }
@@ -347,8 +347,8 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
             if(summary.count>summary.recent.size)Text("Последние ${summary.recent.size} из ${summary.count}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             summary.recent.forEach{batch->
                 HorizontalDivider()
-                Text("Пакет ${batch.ordinal} · проверено ${batch.outcomes.checked}",style=MaterialTheme.typography.bodySmall)
-                Text("Создано ${batch.outcomes.generated} · в кэше ${batch.outcomes.cached} · пропущено ${batch.outcomes.skipped} · ошибок ${batch.outcomes.failed}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Пакет ${batch.ordinal}: проверено ${batch.outcomes.checked}",style=MaterialTheme.typography.bodySmall)
+                Text("Создано: ${batch.outcomes.generated}; в кэше: ${batch.outcomes.cached}; пропущено: ${batch.outcomes.skipped}; ошибок: ${batch.outcomes.failed}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -356,7 +356,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
 }
 @Composable private fun DetailLine(label:String,value:String){
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.Top){
-        Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("$label:",Modifier.weight(1f),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
     }
 }

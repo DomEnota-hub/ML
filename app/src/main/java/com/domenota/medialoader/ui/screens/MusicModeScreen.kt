@@ -95,6 +95,7 @@ internal fun MusicModeScreen(
     onAnalyticsOpen: (String,List<String>)->Unit = onOpen,
     onSaveFolderPlaylist: (suspend (String?,String,List<String>)->Unit)? = null,
     onFolderPlayExact: (suspend (List<String>)->Boolean)? = null,
+    onCloseSearch: (() -> Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -453,6 +454,14 @@ internal fun MusicModeScreen(
     LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen,recentOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null || recentOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
     BackHandler(folderOpen != null || resumeOpen || smartPage != null || frequentOpen || playlist != null || recentOpen || tab == 1) { if(recentOpen)recentOpen=false else if(folderOpen!=null)folderOpen=null else if(resumeOpen)resumeOpen=false else if(smartPage==SmartMusicPage.STATS&&statsIntervals.isNotEmpty()) statsIntervals=statsIntervals.dropLast(1) else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
+    val searchFocus = androidx.compose.ui.platform.LocalFocusManager.current
+    BackHandler(searchVisible == true && onCloseSearch != null && playlist == null && addingPlaylist == null &&
+        folderOpen == null && !resumeOpen && smartPage == null && !frequentOpen && !recentOpen &&
+        !duplicatesOpen && selectedTrackIds.isEmpty() && !hiddenTracksOpen) {
+        search = ""
+        searchFocus.clearFocus()
+        onCloseSearch?.invoke()
+    }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
         PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, browse.value.allRows, emptyMap(),
@@ -621,7 +630,8 @@ internal fun MusicModeScreen(
                     }
                     if (searchVisible != false && playlist == null) OutlinedTextField(search, { search = it },
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp), singleLine = true,
-                        label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
+                        label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp),
+                        trailingIcon = if (search.isNotEmpty()) ({ IconButton({ search = "" }) { Icon(Icons.Rounded.Close, "Очистить поиск") } }) else null)
                     if (tab == 0 && searchVisible == true && playlist == null && onOpenDuplicates != null && onTrashDuplicates != null)
                         DuplicateSearchShortcut(::openDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     if (tab == 0) BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {

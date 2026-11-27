@@ -2321,6 +2321,7 @@ fun MediaLoaderApp(
                     onRename = renameVisibilityFile,
                     onMoveToPrivate = { requestPrivateMove(listOf(it)) },
                     searchVisible = librarySearchVisible,
+                    onCloseSearch = { gallerySearchVisible = false },
                     onOpenDuplicates = { navController.navigate("visual-duplicates") { launchSingleTop = true } },
                     tabOverride = galleryTab, datePickerRequest = galleryDateRequest,
                      scrollToTopRequest = galleryTopRequest, onTabChange = {
@@ -2426,6 +2427,7 @@ fun MediaLoaderApp(
                     },
                     onFavorite = setLibraryFavorite,
                     searchVisible = librarySearchVisible, tabOverride = musicTab,
+                    onCloseSearch = { musicSearchVisible = false },
                      scrollToTopRequest = musicTopRequest, onTabChange = {
                          if (musicTab == it) musicTopRequest++
                          musicTab = it

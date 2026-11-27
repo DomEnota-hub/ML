@@ -101,6 +101,7 @@ internal fun GalleryModeScreen(
     onArchiveFolder: ((String) -> Unit)? = null,
     notes: com.domenota.medialoader.ui.screens.organization.MediaPassportNotes? = null,
     ocr: GalleryOcrController? = null,
+    onCloseSearch: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -164,6 +165,12 @@ internal fun GalleryModeScreen(
     val selecting = selectedIds.isNotEmpty()
     fun toggle(id: String) { selectedIds = ArrayList(if (id in selectedIds) selectedIds - id else selectedIds + id) }
     BackHandler(selecting) { selectedIds = arrayListOf() }
+    val searchFocus = androidx.compose.ui.platform.LocalFocusManager.current
+    BackHandler(searchVisible == true && onCloseSearch != null && !selecting && !archiveOpen) {
+        search = ""
+        searchFocus.clearFocus()
+        onCloseSearch?.invoke()
+    }
     val scope = rememberCoroutineScope()
     fun mutate(action: suspend () -> Unit) { scope.launch {
         try { action(); error = null } catch (e: CancellationException) { throw e }
@@ -603,7 +610,8 @@ internal fun GalleryModeScreen(
                     if (searchVisible != false) OutlinedTextField(search, { search = it },
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
-                        leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        trailingIcon = if (search.isNotEmpty()) ({ IconButton({ search = "" }) { Icon(Icons.Rounded.Close, "Очистить поиск") } }) else null)
                     if (searchVisible == true && !detailOpen && noteQuery.isNotEmpty())
                         noteSearchNotice?.let { Text(it,Modifier.padding(horizontal=17.dp,vertical=4.dp),
                             style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
