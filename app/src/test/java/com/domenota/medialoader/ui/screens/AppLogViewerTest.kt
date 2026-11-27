@@ -69,7 +69,12 @@ class AppLogViewerTest {
             compose.onAllNodesWithText(original).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithContentDescription("Сначала старые. Изменить порядок").performClick()
-        compose.onNodeWithText("Сначала новые").assertExists()
+        // Selection runs on Dispatchers.Default, outside the Compose test clock.
+        compose.waitUntil(10000) {
+            compose.onAllNodesWithText("Сначала новые", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("Сначала новые. Изменить порядок").assertExists()
+        compose.onNodeWithText("Сначала новые", useUnmergedTree = true).assertIsDisplayed()
         compose.onNode(hasSetTextAction()).performTextInput("несуществующее событие")
         compose.waitUntil(10000) {
             compose.onAllNodesWithText("Нет записей по выбранным условиям.").fetchSemanticsNodes().isNotEmpty()
