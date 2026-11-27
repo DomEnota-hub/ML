@@ -92,7 +92,7 @@ internal fun MediaRecoveryLabSection(
     onRestoreRemainingDates: () -> Unit,
     onUndoMediaDateChanges: () -> Unit,
 ) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(true) }
     var diagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
     var oldExpanded by rememberSaveable { mutableStateOf(false) }
     var historicalExpanded by rememberSaveable { mutableStateOf(false) }
@@ -123,7 +123,7 @@ internal fun MediaRecoveryLabSection(
             onClick = { if (!operationBusy) expanded = !expanded },
         )
         ExpandableSettingsBody(expanded || operationBusy) {
-            TextButton(onClick = onHide, enabled = !operationBusy) { Text("Скрыть лабораторию") }
+            TextButton(onClick = onHide, enabled = !operationBusy) { Text("Закрыть лабораторию") }
             GroupDivider()
             SettingRow(Icons.Rounded.FolderOpen, "Старые загрузки", "Инвентаризация и перенос",
                 grouped = true, nested = true, expanded = oldExpanded || oldRecoveryBusy,

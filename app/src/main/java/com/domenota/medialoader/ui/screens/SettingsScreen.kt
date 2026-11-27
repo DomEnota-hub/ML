@@ -61,6 +61,9 @@ import androidx.compose.material.icons.rounded.Cookie
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -494,7 +497,8 @@ fun SettingsScreen(
             logText=""
         }
     }
-    var recoveryLabVisible by remember { mutableStateOf(prefs.getBoolean("recovery_lab_visible", false)) }
+    // A former persisted switch is no longer a separate visibility gate.
+    var recoveryLabOpen by rememberSaveable { mutableStateOf(false) }
     val historicalRunning by com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.collectAsState()
     var sandboxRunning by remember { mutableStateOf(false) }
     var oldRecoveryRunning by remember { mutableStateOf(false) }
@@ -502,16 +506,18 @@ fun SettingsScreen(
         migrationInventoryBusy || republishTrialBusy || exifTrialBusy || videoTrialBusy ||
         sameUriBusy || dateRecoveryBusy
     com.domenota.medialoader.ui.components.ReportDrawerScreen(
-        !recoveryLabBusy&&!openAppearance&&!openJournal&&editorKind==null&&
+        !recoveryLabBusy&&!recoveryLabOpen&&!openAppearance&&!openJournal&&editorKind==null&&
         !showMediaWriteExplanation&&!videoThumbnailDialog&&!aiModelsDialog&&!themeDialog&&
         !recognitionDialog&&!musicSourceDialog&&!instagramModeDialog&&!gapiKeysDialog&&
         !spareAuthorizationDialog&&!sourceProfilesDialog&&!networkDialog&&!folderDialog&&!confirmClear&&!confirmInstagramSignOut&&
         !confirmYouTubeSignOut&&!confirmVkSignOut&&!confirmRutubeSignOut&&!trashDialog&&
         !confirmEmptyTrash&&!sessionDialog&&!logsDialog&&!confirmClearAppLog)
-    fun setRecoveryLabVisible(value: Boolean) {
-        if (recoveryLabBusy) return
-        recoveryLabVisible = value
-        prefs.edit().putBoolean("recovery_lab_visible", value).apply()
+    fun setRecoveryLabOpen(value: Boolean) {
+        if (recoveryLabBusy || (value && !com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))) return
+        recoveryLabOpen = value
+    }
+    LaunchedEffect(developerVisible,recoveryLabBusy){
+        if(!developerVisible&&!recoveryLabBusy)recoveryLabOpen=false
     }
     var aboutTapCount by remember { mutableStateOf(0) }
     var aboutTapDeadline by remember { mutableStateOf(0L) }
@@ -945,23 +951,14 @@ fun SettingsScreen(
         confirmButton = { TextButton(onClick = { videoThumbnailDialog = false }) { Text("Закрыть") } },
     )
 
-    if (themeDialog) AlertDialog(
-        onDismissRequest = { themeDialog = false },
-        title = { Text("Тема") },
-        text = { Column {
-            listOf("light" to "Светлая", "dark" to "Тёмная", "system" to "Системная").forEach { (key, title) ->
-                TextButton(onClick = {
-                    themeMode = key
-                    prefs.edit().putString("theme", key).apply()
-                    themeDialog = false
-                    (context as? Activity)?.recreate()
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text(title, color = if (themeMode == key) com.domenota.medialoader.ui.theme.musicPlaybackAccent else MaterialTheme.colorScheme.onSurface)
-                }
-            }
-        } },
-        confirmButton = { TextButton(onClick = { themeDialog = false }) { Text("Закрыть") } },
-    )
+    if (themeDialog) ThemeModeDialog(themeMode.orEmpty(),{themeDialog=false}){key->
+        if(themeMode!=key){
+            themeMode=key
+            prefs.edit().putString("theme",key).apply()
+            themeDialog=false
+            (context as? Activity)?.recreate()
+        }else themeDialog=false
+    }
 
     editorKind?.let { kind ->
         EditorFilePickerDialog(
@@ -978,6 +975,70 @@ fun SettingsScreen(
         )
     }
 
+    if ((developerVisible && recoveryLabOpen) || recoveryLabBusy) {
+        androidx.activity.compose.BackHandler { setRecoveryLabOpen(false) }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal=20.dp,vertical=12.dp)){
+            TextButton(onClick={setRecoveryLabOpen(false)},enabled=!recoveryLabBusy){Text("Назад")}
+        // Temporary MediaStore/EXIF migration laboratory. To retire after the
+        // Xiaomi issue is solved, remove THIS invocation and its isolated files.
+        MediaRecoveryLabSection(
+            onHide = { setRecoveryLabOpen(false) },
+            operationBusy = recoveryLabBusy,
+            sandboxBusy = sandboxRunning,
+            onSandboxBusyChange = { sandboxRunning = it },
+            oldRecoveryBusy = oldRecoveryRunning,
+            onOldRecoveryBusyChange = { oldRecoveryRunning = it },
+            activeDownloadCount = activeDownloadCount,
+            storageMigrationRunning = storageMigrationRunning,
+            storageMigrationMessage = storageMigrationMessage,
+            onMigrateLegacyMedia = onMigrateLegacyMedia,
+            galleryDateAudit = galleryDateAudit,
+            galleryDateAuditBusy = galleryDateAuditBusy,
+            onGalleryDateAudit = onGalleryDateAudit,
+            migrationInventoryStatus = migrationInventoryStatus,
+            migrationInventoryBusy = migrationInventoryBusy,
+            migrationInventoryReady = migrationInventoryJson.isNotBlank(),
+            onRunMigrationInventory = onRunMigrationInventory,
+            onExportMigrationInventory = {
+                if (migrationInventoryJson.isNotBlank() && !migrationInventoryBusy)
+                    migrationAuditExporter.launch("ML_Migration_Inventory_1.7.166.json")
+            },
+            republishTrialStatus = republishTrialStatus,
+            republishTrialBusy = republishTrialBusy,
+            onRunGalleryRepublishTrial = onRunGalleryRepublishTrial,
+            onRemoveGalleryRepublishTestCopies = onRemoveGalleryRepublishTestCopies,
+            exifTrialStatus = exifTrialStatus,
+            exifTrialBusy = exifTrialBusy,
+            onRunExifTrial = onRunExifTrial,
+            onRemoveExifTrial = onRemoveExifTrial,
+            videoTrialStatus = videoTrialStatus,
+            videoTrialBusy = videoTrialBusy,
+            onRunVideoTrial = onRunVideoTrial,
+            onRemoveVideoTrial = onRemoveVideoTrial,
+            sameUriBusy = sameUriBusy,
+            sameUriJpegStatus = sameUriJpegStatus,
+            sameUriVideoStatus = sameUriVideoStatus,
+            onRunSameUriJpeg = onRunSameUriJpeg,
+            onRunSameUriMp4 = onRunSameUriMp4,
+            onRepairSameUriJpegMtime = onRepairSameUriJpegMtime,
+            onRepairSameUriMp4Mtime = onRepairSameUriMp4Mtime,
+            onRestoreSameUriJpeg = onRestoreSameUriJpeg,
+            onRestoreSameUriMp4 = onRestoreSameUriMp4,
+            onRemoveSameUriJpeg = onRemoveSameUriJpeg,
+            onRemoveSameUriMp4 = onRemoveSameUriMp4,
+            dateRecoveryStatus = dateRecoveryStatus,
+            dateRecoveryBusy = dateRecoveryBusy,
+            dateRecoveryReady = dateRecoveryReady,
+            onDateRecoveryPreview = onDateRecoveryPreview,
+            onDateRecoveryTrial = onDateRecoveryTrial,
+            dateRecoveryTrialDone = dateRecoveryTrialDone,
+            onRestoreRemainingDates = onRestoreRemainingDates,
+            onUndoMediaDateChanges = onUndoMediaDateChanges,
+        )
+        }
+        return
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
         Text("Настройки", modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).pointerInput(Unit) {
@@ -1136,13 +1197,13 @@ fun SettingsScreen(
                 grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
                 onClick = { instagramModeDialog = true })
             GroupDivider()
-            SettingRow(Icons.Rounded.Tune, "Профили источников",
+            SettingRow(Icons.Rounded.Layers, "Профили источников",
                 "Instagram, YouTube, VK, Rutube",
-                grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
+                grouped = true, nested = true, iconTone = SettingIconTone.SOURCE_PROFILES,
                 onClick = { sourceProfilesDialog = true })
             GroupDivider()
-            SettingRow(Icons.Rounded.Tune, "Условия сети", networkPolicy.label,
-                grouped = true, nested = true, iconTone = SettingIconTone.QUALITY,
+            SettingRow(Icons.Rounded.Wifi, "Условия сети", networkPolicy.label,
+                grouped = true, nested = true, iconTone = SettingIconTone.NETWORK,
                 onClick = { networkDialog = true })
             GroupDivider()
             SettingRow(Icons.Rounded.Key, "Ключи GAPI для Instagram и VK",
@@ -1172,62 +1233,7 @@ fun SettingsScreen(
             }
         }
 
-        // Temporary MediaStore/EXIF migration laboratory. To retire after the
-        // Xiaomi issue is solved, remove THIS invocation and its isolated files.
-        if ((developerVisible && recoveryLabVisible) || recoveryLabBusy) MediaRecoveryLabSection(
-            onHide = { setRecoveryLabVisible(false) },
-            operationBusy = recoveryLabBusy,
-            sandboxBusy = sandboxRunning,
-            onSandboxBusyChange = { sandboxRunning = it },
-            oldRecoveryBusy = oldRecoveryRunning,
-            onOldRecoveryBusyChange = { oldRecoveryRunning = it },
-            activeDownloadCount = activeDownloadCount,
-            storageMigrationRunning = storageMigrationRunning,
-            storageMigrationMessage = storageMigrationMessage,
-            onMigrateLegacyMedia = onMigrateLegacyMedia,
-            galleryDateAudit = galleryDateAudit,
-            galleryDateAuditBusy = galleryDateAuditBusy,
-            onGalleryDateAudit = onGalleryDateAudit,
-            migrationInventoryStatus = migrationInventoryStatus,
-            migrationInventoryBusy = migrationInventoryBusy,
-            migrationInventoryReady = migrationInventoryJson.isNotBlank(),
-            onRunMigrationInventory = onRunMigrationInventory,
-            onExportMigrationInventory = {
-                if (migrationInventoryJson.isNotBlank() && !migrationInventoryBusy)
-                    migrationAuditExporter.launch("ML_Migration_Inventory_1.7.166.json")
-            },
-            republishTrialStatus = republishTrialStatus,
-            republishTrialBusy = republishTrialBusy,
-            onRunGalleryRepublishTrial = onRunGalleryRepublishTrial,
-            onRemoveGalleryRepublishTestCopies = onRemoveGalleryRepublishTestCopies,
-            exifTrialStatus = exifTrialStatus,
-            exifTrialBusy = exifTrialBusy,
-            onRunExifTrial = onRunExifTrial,
-            onRemoveExifTrial = onRemoveExifTrial,
-            videoTrialStatus = videoTrialStatus,
-            videoTrialBusy = videoTrialBusy,
-            onRunVideoTrial = onRunVideoTrial,
-            onRemoveVideoTrial = onRemoveVideoTrial,
-            sameUriBusy = sameUriBusy,
-            sameUriJpegStatus = sameUriJpegStatus,
-            sameUriVideoStatus = sameUriVideoStatus,
-            onRunSameUriJpeg = onRunSameUriJpeg,
-            onRunSameUriMp4 = onRunSameUriMp4,
-            onRepairSameUriJpegMtime = onRepairSameUriJpegMtime,
-            onRepairSameUriMp4Mtime = onRepairSameUriMp4Mtime,
-            onRestoreSameUriJpeg = onRestoreSameUriJpeg,
-            onRestoreSameUriMp4 = onRestoreSameUriMp4,
-            onRemoveSameUriJpeg = onRemoveSameUriJpeg,
-            onRemoveSameUriMp4 = onRemoveSameUriMp4,
-            dateRecoveryStatus = dateRecoveryStatus,
-            dateRecoveryBusy = dateRecoveryBusy,
-            dateRecoveryReady = dateRecoveryReady,
-            onDateRecoveryPreview = onDateRecoveryPreview,
-            onDateRecoveryTrial = onDateRecoveryTrial,
-            dateRecoveryTrialDone = dateRecoveryTrialDone,
-            onRestoreRemainingDates = onRestoreRemainingDates,
-            onUndoMediaDateChanges = onUndoMediaDateChanges,
-        )
+
 
         Spacer(Modifier.height(26.dp))
         Text("Музыка", style = MaterialTheme.typography.titleMedium,
@@ -1401,7 +1407,7 @@ fun SettingsScreen(
                 )
                 GroupDivider()
                 SettingRow(
-                    Icons.Rounded.FormatListBulleted,
+                    Icons.Rounded.MenuBook,
                     "Расширенный журнал",
                     if (extendedLog) "Подробные события всех подсистем · включён"
                     else "Подробная диагностика · выключена",
@@ -1430,11 +1436,9 @@ fun SettingsScreen(
                     onClick={detailedPerf=!detailedPerf;AppLog.setDetailedPerformance(detailedPerf)})
                 GroupDivider()
                 SettingRow(Icons.Rounded.Science, "Лаборатория исправлений",
-                    if (recoveryLabVisible) "Показана" else "Скрыта", grouped = true,
-                    iconTone = SettingIconTone.RECOVERY_LAB, showChevron = false,
-                    trailing = { Switch(checked = recoveryLabVisible, enabled = !recoveryLabBusy,
-                        onCheckedChange = ::setRecoveryLabVisible) },
-                    onClick = if (recoveryLabBusy) null else { { setRecoveryLabVisible(!recoveryLabVisible) } })
+                    "Инструменты восстановления", grouped = true,
+                    iconTone = SettingIconTone.RECOVERY_LAB,
+                    onClick = if (recoveryLabBusy) null else { { setRecoveryLabOpen(true) } })
             }
         }
     }

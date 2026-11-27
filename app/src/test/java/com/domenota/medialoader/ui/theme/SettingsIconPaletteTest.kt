@@ -69,6 +69,8 @@ class SettingsIconPaletteTest {
             SettingIconTone.DOWNLOAD,
             SettingIconTone.DOWNLOAD_FOLDER,
             SettingIconTone.QUALITY,
+            SettingIconTone.SOURCE_PROFILES,
+            SettingIconTone.NETWORK,
             SettingIconTone.NOTIFICATIONS,
             SettingIconTone.INSTAGRAM_MODE,
             SettingIconTone.CLOSE_PICKER,
@@ -102,7 +104,7 @@ class SettingsIconPaletteTest {
             SettingIconTone.SHORTCUT_GALLERY,
             SettingIconTone.SHORTCUT_MUSIC,
         )
-        assertEquals(37, rows.size)
+        assertEquals(39, rows.size)
         for (dark in listOf(false, true)) {
             val samples = rows.map { it.swatch(dark) }
             val duplicateColors = samples.groupingBy { it.foreground }.eachCount().filterValues { it > 1 }.keys
