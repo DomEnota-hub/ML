@@ -30,6 +30,36 @@ class GalleryOcrIndexTest {
             mapOf("content://test/a" to "v1","content://test/song" to "v2")))
         assertNotEquals(original,GalleryOcrPolicy.photoInputs(listOf(a,audio),mapOf("content://test/a" to "v2")))
     }
+    @Test fun workKeyIgnoresPresentationAndOrderButNotIdentityOrAccess() {
+        val a=ref("a"); val b=ref("b")
+        val key=GalleryOcrPolicy.workKey(listOf(a,b),emptyMap())
+        assertEquals(key,GalleryOcrPolicy.workKey(listOf(b,a.copy(item=a.item.copy(originalName="renamed title"))),emptyMap()))
+        assertNotEquals(key,GalleryOcrPolicy.workKey(listOf(a,b,b),emptyMap()))
+        assertNotEquals(key,GalleryOcrPolicy.workKey(listOf(a,b.copy(item=b.item.copy(hidden=true))),emptyMap()))
+        assertNotEquals(key,GalleryOcrPolicy.workKey(listOf(a,b.copy(aliases=setOf("file-stat:changed"))),emptyMap()))
+        assertNotEquals(key,GalleryOcrPolicy.workKey(listOf(a,b),mapOf("content://test/a" to "changed")))
+    }
+    @Test fun retryBudgetIsBoundedAndScopedToSourceVersion() {
+        val initial=catalog(ref("a"),ref("b"))
+        val a=initial.candidates.first()
+        val budget=OcrRetryBudget()
+        budget.record(a,OcrFailureReason.READ)
+        assertTrue(budget.canTry(a))
+        budget.record(a,OcrFailureReason.VALIDATION)
+        budget.retain(initial)
+        assertFalse(budget.canTry(a))
+        assertEquals(mapOf(OcrFailureReason.VALIDATION to 1),budget.counts())
+        val changed=catalog(ref("a",stat="file-stat:changed"),ref("b"))
+        budget.retain(changed)
+        assertTrue(budget.canTry(changed.candidates.first()))
+        assertTrue(budget.counts().isEmpty())
+        budget.record(a,OcrFailureReason.READ)
+        budget.clear(a.key)
+        assertTrue(budget.counts().isEmpty())
+        budget.record(a,OcrFailureReason.READ)
+        budget.reset()
+        assertTrue(budget.counts().isEmpty())
+    }
     @Test fun checkpointSurvivesReopeningAndEmptyRecognitionCounts() = runBlocking {
         val a = ref("a"); val b = ref("b")
         val catalog = catalog(a,b)

@@ -43,6 +43,14 @@ internal object GalleryOcrPolicy {
         val relevant=buildMap { photos.forEach { ref -> ref.item.savedUri?.let { uri -> fingerprints[uri]?.let{put(uri,it)} } } }
         return photos to relevant
     }
+    // Order, display title, favorites and unrelated media do not identify OCR
+    // inputs. Keep the complete access/identity fields and duplicate multiplicity.
+    fun workKey(photos: List<LibraryMediaRef>, fingerprints: Map<String,String>): Map<List<Any?>,Int> =
+        photos.groupingBy { ref -> listOf<Any?>(ref.key, ref.appDownloadId, ref.aliases,
+            ref.item.id, ref.item.savedUri, ref.item.sizeBytes, ref.item.state,
+            ref.item.mediaType, ref.item.isPrivate, ref.item.hidden,
+            ref.item.savedUri?.let(fingerprints::get)) }.eachCount()
+
     fun publicPhoto(ref: LibraryMediaRef, blocked: Set<String>): Boolean =
         ref.item.mediaType == MediaType.PHOTO && ref.item.state == DownloadState.COMPLETED &&
             !ref.item.isPrivate && !ref.item.hidden && !ref.item.savedUri.isNullOrBlank() &&
@@ -83,6 +91,28 @@ internal data class GalleryOcrCandidate(
             } == true
         } catch (_: Exception) { false }
     }
+}
+
+internal enum class OcrFailureReason { VALIDATION, SOURCE_CHANGED, READ, CHECKPOINT }
+
+/** In-memory retry budget scoped to the live access fence and exact source version.
+ * A changed source or explicit retry starts a fresh budget. No private text or URI
+ * is stored; the durable successful checkpoints remain in GalleryOcrIndex. */
+internal class OcrRetryBudget(private val limit: Int = 2) {
+    private data class Failure(val version: String, val attempts: Int, val reason: OcrFailureReason)
+    private val failures = mutableMapOf<String, Failure>()
+    fun retain(catalog: GalleryOcrCatalog) {
+        failures.entries.removeAll { (key, failure) -> catalog.byKey[key]?.version != failure.version }
+    }
+    fun canTry(candidate: GalleryOcrCandidate): Boolean =
+        (failures[candidate.key]?.takeIf { it.version == candidate.version }?.attempts ?: 0) < limit
+    fun record(candidate: GalleryOcrCandidate, reason: OcrFailureReason) {
+        val old = failures[candidate.key]?.takeIf { it.version == candidate.version }
+        failures[candidate.key] = Failure(candidate.version, (old?.attempts ?: 0) + 1, reason)
+    }
+    fun clear(key: String) { failures.remove(key) }
+    fun reset() { failures.clear() }
+    fun counts(): Map<OcrFailureReason,Int> = failures.values.groupingBy { it.reason }.eachCount()
 }
 
 internal class GalleryOcrCatalog(refs: List<LibraryMediaRef>, fingerprints: Map<String, String>, blocked: Set<String>) {

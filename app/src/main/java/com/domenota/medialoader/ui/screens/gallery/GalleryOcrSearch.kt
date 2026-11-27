@@ -76,7 +76,10 @@ internal fun rememberGalleryOcr(
     // invalidate an OCR run; real privacy/permission changes always revoke it.
     val photos = remember(refs,fingerprints) { GalleryOcrPolicy.photoInputs(refs,fingerprints) }
     val fence = remember(blocked,epoch,galleryAccessEpoch,permissionTag,invalidation) { Any() }
-    val token = remember(photos,access!=null,fence) { if(access!=null) Any() else null }
+    val workKey = remember(photos) { GalleryOcrPolicy.workKey(photos.first,photos.second) }
+    val token = remember(workKey,access!=null,fence) { if(access!=null) Any() else null }
+    val retryBudget = remember(fence,access!=null) { OcrRetryBudget() }
+    var lastRetryNonce by remember(retryBudget) { mutableLongStateOf(controller.retryNonce) }
     var lastFence by remember(controller) { mutableStateOf<Any?>(null) }
     val liveToken by rememberUpdatedState(token)
     val liveValidate by rememberUpdatedState(validate)
@@ -109,7 +112,7 @@ internal fun rememberGalleryOcr(
             }
             if(!active()||DuplicatePrivacyGuard.generation(context)!=epoch) return@read OcrSearchResult(emptySet(),OcrSearchStatus.BLOCKED)
             val p=controller.progress
-            val complete=p.total==current.candidates.size&&p.done==p.total&&p.failed==0&&p.unverified==0&&
+            val complete=p.complete&&p.total==current.candidates.size&&
                 current.unverified==0&&result.size==hits.size
             OcrSearchResult(result,if(complete)OcrSearchStatus.COMPLETE else OcrSearchStatus.PARTIAL)
         }
@@ -152,6 +155,11 @@ internal fun rememberGalleryOcr(
             return@LaunchedEffect
         }
         val total = current.candidates.size
+        if (lastRetryNonce != controller.retryNonce) {
+            retryBudget.reset()
+            lastRetryNonce = controller.retryNonce
+        }
+        retryBudget.retain(current)
         val failed = linkedSetOf<String>()
         val ready = linkedSetOf<String>()
         val run=AppLog.newOperationId("ocr")
@@ -163,7 +171,7 @@ internal fun rememberGalleryOcr(
             controller.progress = GalleryOcrProgress(phase,ready.size,total,failed.size,current.unverified)
             val now=SystemClock.elapsedRealtime()
             if(lastPhase!=phase||ready.size-lastDone>=128||now-lastAt>=15_000L){
-                AppLog.d("OCR","OCR_RUN session=$run phase=$phase indexed=${ready.size} total=$total failed=${failed.size} unverified=${current.unverified} ms=${now-started}")
+                AppLog.d("OCR","OCR_RUN session=$run phase=$phase indexed=${ready.size} total=$total failed=${failed.size} unverified=${current.unverified} reasons=${retryBudget.counts()} ms=${now-started}")
                 lastPhase=phase;lastDone=ready.size;lastAt=now
             }
         }
@@ -171,9 +179,11 @@ internal fun rememberGalleryOcr(
             if (!controller.enabled && !store.exists()) { publish(GalleryOcrPhase.PAUSED); return@LaunchedEffect }
             ready.addAll(store.reconcile(current,epoch,::active))
             if (!active()) return@LaunchedEffect
+            ready.forEach(retryBudget::clear)
+            failed += current.candidates.filter { it.key !in ready && !retryBudget.canTry(it) }.map { it.key }
             controller.revision++
             if (!controller.enabled) { publish(GalleryOcrPhase.PAUSED); return@LaunchedEffect }
-            for (batch in current.candidates.filterNot { it.key in ready }.chunked(GalleryOcrPolicy.BATCH)) {
+            for (batch in current.candidates.filterNot { it.key in ready || it.key in failed }.chunked(GalleryOcrPolicy.BATCH)) {
                 currentCoroutineContext().ensureActive()
                 if (!active()) return@LaunchedEffect
                 while (true) {
@@ -196,14 +206,27 @@ internal fun rememberGalleryOcr(
                     publish(GalleryOcrPhase.RUNNING)
                     try {
                         if (verified[candidate.ref.key]?.let(candidate::same) != true ||
-                            !candidate.admitted(context,epoch) || !candidate.stillSame(context)) {
+                            !candidate.admitted(context,epoch)) {
+                            retryBudget.record(candidate,OcrFailureReason.VALIDATION)
+                            failed += candidate.key; continue
+                        }
+                        if (!candidate.stillSame(context)) {
+                            retryBudget.record(candidate,OcrFailureReason.SOURCE_CHANGED)
                             failed += candidate.key; continue
                         }
                         val body = GalleryOcrReader.read(context,candidate)
-                        if (active() && candidate.admitted(context,epoch) && candidate.stillSame(context))
-                            recognized += candidate to body else failed += candidate.key
+                        if (!active()) return@LaunchedEffect
+                        if (candidate.admitted(context,epoch) && candidate.stillSame(context))
+                            recognized += candidate to body else {
+                            retryBudget.record(candidate,OcrFailureReason.SOURCE_CHANGED)
+                            failed += candidate.key
+                        }
                     } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (_: Exception) { failed += candidate.key }
+                    catch (_: Exception) {
+                        if (!active()) return@LaunchedEffect
+                        retryBudget.record(candidate,OcrFailureReason.READ)
+                        failed += candidate.key
+                    }
                 }
                 currentCoroutineContext().ensureActive()
                 if (!active()) return@LaunchedEffect
@@ -212,7 +235,12 @@ internal fun rememberGalleryOcr(
                     final[candidate.ref.key]?.let(candidate::same) == true && candidate.stillSame(context)
                 }
                 val written = store.checkpoint(safe,epoch,::active)
-                failed += batch.map { it.key }.filterNot(written::contains)
+                if (!active()) return@LaunchedEffect
+                batch.filter { it.key !in written && it.key !in failed }.forEach {
+                    retryBudget.record(it,OcrFailureReason.CHECKPOINT)
+                    failed += it.key
+                }
+                written.forEach(retryBudget::clear)
                 ready.addAll(written)
                 controller.revision++
                 publish(GalleryOcrPhase.RUNNING)

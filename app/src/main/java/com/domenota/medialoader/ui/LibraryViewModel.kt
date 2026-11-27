@@ -1155,8 +1155,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     blocking = !state.value.loaded
                     if (blocking) state.value = PhoneLibraryState(loading = true, revision = ++revision, accessEpoch = accessEpoch)
                 }
-                if (!blocking && state.value.complete && stamp.generation != null && previousStamp == stamp) {
-                    state.value = state.value.copy(loading = false)
+                if (!blocking && state.value.complete && state.value.message == null &&
+                    !state.value.requiresValidation &&
+                    maySkipUnchangedMediaNotification(previousStamp,stamp,!changedAccess,partial)) {
+                    if (state.value.loading) state.value = state.value.copy(loading = false)
                     com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED) {}
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan skipped · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch · stamp=unchanged")
                     refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
