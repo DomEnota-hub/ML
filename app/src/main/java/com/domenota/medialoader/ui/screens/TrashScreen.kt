@@ -5,6 +5,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +61,9 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.data.library.PhoneMediaTrash
+
+/** Root Activity reserves horizontal/bottom safe area; the nested top bar owns status insets. */
+internal fun trashRouteInsets(safe:WindowInsets):WindowInsets = safe.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
 
 /**
  * App downloads use private trashed URI, while phone media use system MediaStore trash.

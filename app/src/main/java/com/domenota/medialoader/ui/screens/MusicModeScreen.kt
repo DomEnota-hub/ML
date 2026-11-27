@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
@@ -736,14 +737,7 @@ internal fun MusicModeScreen(
                                 }
                             }
                         }
-                        IconButton(onClick = { setFoldersGrid(false) }) {
-                            Icon(Icons.Rounded.List, "Список папок", tint = if (!foldersGrid)
-                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        IconButton(onClick = { setFoldersGrid(true) }) {
-                            Icon(Icons.Rounded.GridView, "Сетка папок", tint = if (foldersGrid)
-                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        MusicFolderViewToggle(foldersGrid, ::setFoldersGrid)
                     }
                 }
                 val visibleFolders = sortedFolderKeys.filter { it !in excludedFolders }
@@ -769,11 +763,7 @@ internal fun MusicModeScreen(
                         }
                     }
                 } else items(visibleFolders, key = { "folder:$it" }) { folder ->
-                    TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.Folder, null)
-                        Text("${MusicFolderRules.title(folder)}: ${RussianCounts.tracks(folders[folder].orEmpty().size)}",
-                            Modifier.weight(1f).padding(start = 12.dp), maxLines = 2, color = MaterialTheme.colorScheme.onSurface)
-                    }
+                    MusicFolderListRow(MusicFolderRules.title(folder), RussianCounts.tracks(folders[folder].orEmpty().size)) { folderOpen = folder }
                 }
                 if (folders.keys.any { it in excludedFolders }) {
                     item(key = "excluded-folders") {
@@ -1057,4 +1047,28 @@ private class MusicAnalyticsRows(val rows: Map<String,DownloadEntity>, val keys:
     val candidateDigest: String=ListeningProjectionCodec.candidateDigest(candidates)) {
     fun withEpoch(epoch:Any)=MusicAnalyticsRows(rows,keys,candidates,epoch,rankDigest,candidateDigest)
     companion object { val EMPTY = MusicAnalyticsRows(emptyMap(),emptyMap(),emptyList()) }
+}
+
+@Composable
+internal fun MusicFolderViewToggle(grid:Boolean, onChange:(Boolean)->Unit) {
+    IconButton(onClick={onChange(!grid)}) {
+        Icon(if(grid) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+            if(grid) "Показать списком" else "Показать сеткой", tint=MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+internal fun MusicFolderListRow(title:String,count:String,onOpen:()->Unit) {
+    Surface(Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=4.dp).clickable(onClick=onOpen),
+        color=MaterialTheme.colorScheme.surfaceVariant,shape=RoundedCornerShape(14.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min=56.dp).padding(horizontal=12.dp,vertical=8.dp),
+            verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Rounded.Folder,null,Modifier.size(28.dp),tint=MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                Text(title,fontWeight=FontWeight.SemiBold,color=MaterialTheme.colorScheme.primary,maxLines=2,overflow=TextOverflow.Ellipsis)
+                Text(count,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Rounded.ChevronRight,null,tint=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }

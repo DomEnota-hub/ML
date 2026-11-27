@@ -171,7 +171,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                                 TaskCounter("Активные",active.size,statusColor(TaskStatus.RUNNING),Modifier.weight(1f)){focus=null;filter=1;tab=1}
                                 TaskCounter("Ожидают",waiting.size,statusColor(TaskStatus.WAITING),Modifier.weight(1f)){focus=null;filter=2;tab=1}
                                 TaskCounter("На паузе",paused.size,statusColor(TaskStatus.PAUSED),Modifier.weight(1f)){focus=null;filter=3;tab=1}
-                                TaskCounter("Ошибки",errors.size,statusColor(TaskStatus.FAILED),Modifier.weight(1f)){focus=null;historyFilter=1;tab=2}
+                                TaskCounter("С ошибкой",errors.size,statusColor(TaskStatus.FAILED),Modifier.weight(1f)){focus=null;historyFilter=1;tab=2}
                             }
                         }
                     }
@@ -334,20 +334,30 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         if(TaskCenterPresentation.showBar(row)&&progress!=null)Text("${(progress*100).toInt()}%",style=if(compact)MaterialTheme.typography.labelMedium else MaterialTheme.typography.headlineSmall,color=color)
     }
     if(TaskCenterPresentation.showBar(row)){
-        if(progress!=null)LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth().height(5.dp),color=color,trackColor=MaterialTheme.colorScheme.outlineVariant)
+        if(progress!=null)LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth().height(5.dp),color=color,trackColor=MaterialTheme.colorScheme.outlineVariant,drawStopIndicator={})
         else if(row.active)LinearProgressIndicator(Modifier.fillMaxWidth().height(5.dp),color=color,trackColor=MaterialTheme.colorScheme.outlineVariant)
     }
-    if(row.errors>0)Text("Ошибки: ${row.errors}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.error)
+    if(row.errors>0)Text(if(row.kind==TaskKind.OCR) "Ошибки файлов: ${row.errors}" else "Ошибки обработки: ${row.errors}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.error)
     if(row.status.terminal)row.details?.outcomes?.let{v->Text("Создано: "+v.generated+" · В кэше: "+v.cached+" · Пропущено: "+v.skipped,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
     TaskCommands(row,command)
 }
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun TaskCommands(row:TaskSnapshot,command:(String,TaskCommand)->Unit){
     if(row.commands.isEmpty())return
-    FlowRow(horizontalArrangement=Arrangement.spacedBy(3.dp)){
-        row.commands.forEach{action->
-            TextButton({command(row.id,action)}){
-                if(action==TaskCommand.PAUSE||action==TaskCommand.RESUME){Icon(if(action==TaskCommand.PAUSE)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null,Modifier.size(18.dp));Spacer(Modifier.width(4.dp))}
+    val actions=row.commands.sortedBy{if(it==TaskCommand.CANCEL) Int.MAX_VALUE else it.ordinal}
+    FlowRow(Modifier.fillMaxWidth(),horizontalArrangement=if(actions.size==2&&TaskCommand.CANCEL in actions) Arrangement.SpaceBetween else Arrangement.spacedBy(8.dp)){
+        actions.forEach{action->
+            TextButton({command(row.id,action)},modifier=Modifier.heightIn(min=48.dp),
+                contentPadding=PaddingValues(0.dp),
+                colors=ButtonDefaults.textButtonColors(contentColor=if(action==TaskCommand.CANCEL)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)){
+                Icon(when(action){
+                    TaskCommand.PAUSE->Icons.Rounded.Pause
+                    TaskCommand.RESUME->Icons.Rounded.PlayArrow
+                    TaskCommand.CANCEL->Icons.Rounded.Close
+                    TaskCommand.RETRY->Icons.Rounded.Refresh
+                    TaskCommand.OPEN->Icons.Rounded.ChevronRight
+                },null,Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
                 Text(when{row.idle&&action==TaskCommand.RESUME->"Начать";action==TaskCommand.RETRY&&row.kind==TaskKind.DOWNLOAD&&row.children.isEmpty()&&row.files==null->"Повторить загрузку";else->action.label})
             }
         }
@@ -398,7 +408,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
             }
         }
     }
-    if(onJournal!=null)details?.correlation?.let{token->TextButton({onJournal(token)}){Text("Связанные события журнала")}}
+    if(onJournal!=null)details?.correlation?.let{token->TextButton({onJournal(token)},contentPadding=PaddingValues(0.dp)){Icon(Icons.Rounded.Description,null,Modifier.size(18.dp));Spacer(Modifier.width(4.dp));Text("Связанные события журнала")}}
 }
 @Composable private fun DetailLine(label:String,value:String){
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.Top){

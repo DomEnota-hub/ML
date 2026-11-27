@@ -247,4 +247,22 @@ class LibraryModeScreensTest {
 
     private fun file(id: String, name: String, type: MediaType = MediaType.PHOTO) = DownloadEntity(
         id, "device", name, type, DownloadState.COMPLETED, null, null, 0)
+    @Test fun musicFolderViewToggleShowsNextActionAndListRowOpens() {
+        var grid by mutableStateOf(true)
+        var opened=false
+        compose.setContent { MaterialTheme {
+            androidx.compose.foundation.layout.Column {
+                MusicFolderViewToggle(grid){grid=it}
+                if(!grid)MusicFolderListRow("Папка","7 треков"){opened=true}
+            }
+        } }
+        compose.onNodeWithContentDescription("Показать списком").performClick()
+        compose.onNodeWithContentDescription("Показать сеткой").assertExists()
+        compose.onNodeWithText("7 треков").assertExists()
+        compose.onNodeWithText("Папка").performClick()
+        compose.runOnIdle{org.junit.Assert.assertTrue(opened)}
+        compose.onNodeWithContentDescription("Показать сеткой").performClick()
+        compose.onNodeWithContentDescription("Показать списком").assertExists()
+        compose.onNodeWithText("7 треков").assertDoesNotExist()
+    }
 }

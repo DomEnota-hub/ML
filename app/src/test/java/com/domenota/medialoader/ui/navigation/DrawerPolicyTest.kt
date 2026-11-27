@@ -13,7 +13,7 @@ class DrawerPolicyTest{
     }
     @Test fun onlyMainRoutesAndActualScreenAdmissionCanOpen(){
         for(mode in AppMode.entries){
-            for(route in listOf("home","downloads","simple-archive",FAVORITES_ROUTE,"private","collections","music-duplicates","task-center") + (if(mode==AppMode.MUSIC)listOf("settings") else emptyList())){
+            for(route in listOf("home","downloads","simple-archive",FAVORITES_ROUTE,"private","collections","music-duplicates","task-center") + listOf("settings")){
                 assertTrue(drawerAllowed(route,mode,true,false))
                 assertFalse(drawerAllowed(route,mode,false,false))
                 assertFalse(drawerAllowed(route,mode,true,true))
@@ -21,7 +21,7 @@ class DrawerPolicyTest{
             for(route in listOf(null,MUSIC_SEARCH_ROUTE,"trash","archive",
                 "visual-duplicates","viewer/{downloadId}","video-editor/{downloadId}",
                 "photo-editor/{downloadId}","audio-editor/{downloadId}","batch-photo-editor","equalizer",
-                "browser/{source}","preview","bulk","playlist-add/{playlistId}","unknown") + (if(mode!=AppMode.MUSIC)listOf("settings") else emptyList())){
+                "browser/{source}","preview","bulk","playlist-add/{playlistId}","unknown")){
                 assertFalse(drawerAllowed(route,mode,true,false))
             }
         }

@@ -9378,6 +9378,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.LibraryModeScreensTest#musicFolderViewToggleShowsNextActionAndListRowOpens": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.LibraryModeScreensTest#phoneGalleryOffersOnlySafeActionsAndAlbumQueue": {
     "skipped": false,
     "failed": false
@@ -9691,6 +9695,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.UnifiedLibraryScreenTest#trashDeleteConfirmationExcludesNewArrivalsAndOtherTypes": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.UnifiedLibraryScreenTest#trashFooterStaysInsideActivitySafeArea": {
     "skipped": false,
     "failed": false
   },
@@ -10811,6 +10819,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.tasks.TaskCenterUiTest#partialHistoryAndLatestConfirmedResultRemainDistinctFromErrors": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.tasks.TaskCenterUiTest#taskCommandsDispatchOnlyAdvertisedActions": {
     "skipped": false,
     "failed": false
   },

@@ -30,7 +30,7 @@ internal fun drawerAvailableEntries(journalUnlocked:Boolean, advancedToolsVisibl
 internal fun drawerRouteAllowed(route:String?,mode:AppMode):Boolean =
     when(route){
         "home","downloads","simple-archive",FAVORITES_ROUTE,"private","collections","music-duplicates","task-center"->true
-        "settings"->mode==AppMode.MUSIC
+        "settings"->true
         else->false
     }
 

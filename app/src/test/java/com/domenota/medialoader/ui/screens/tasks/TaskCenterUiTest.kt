@@ -54,4 +54,16 @@ class TaskCenterUiTest {
         compose.onNodeWithText("Частично завершено").assertExists()
         compose.onNodeWithText("2 из 2 треков").assertExists()
     }
+    @Test fun taskCommandsDispatchOnlyAdvertisedActions(){
+        val task=TaskSnapshot(taskId(TaskOwner.BULK,"actions"),TaskKind.BULK,TaskStatus.RUNNING,commands=setOf(TaskCommand.PAUSE,TaskCommand.CANCEL))
+        val seen=mutableListOf<Pair<String,TaskCommand>>()
+        compose.setContent { MaterialTheme(colorScheme=darkColorScheme()){
+            TaskCenterContent(listOf(task),listOf(task),setOf(TaskOwner.BULK),{},{},{id,action->seen.add(id to action);true})
+        } }
+        compose.onNodeWithText("Активные").performClick()
+        compose.onNodeWithText("Продолжить").assertDoesNotExist()
+        compose.onNodeWithText("Пауза").performClick()
+        compose.onNodeWithText("Отмена").performClick()
+        compose.runOnIdle{org.junit.Assert.assertEquals(listOf(task.id to TaskCommand.PAUSE,task.id to TaskCommand.CANCEL),seen)}
+    }
 }

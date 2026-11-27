@@ -7,6 +7,12 @@ import com.domenota.medialoader.data.archive.SimpleArchiveGroup
 import com.domenota.medialoader.data.archive.SimpleArchiveGroupKind
 import com.domenota.medialoader.data.archive.ArchiveEntrySource
 import org.junit.Before
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Scaffold
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
@@ -119,5 +125,25 @@ class UnifiedLibraryScreenTest{
         compose.runOnIdle{rows=rows+row("new-video",MediaKind.VIDEO)}
         compose.onNodeWithText("Удалить навсегда",substring=false).performClick()
         compose.runOnIdle{assertEquals(setOf("video-item"),removed)}
+    }
+    @Test fun trashFooterStaysInsideActivitySafeArea() {
+        val rows=listOf(DownloadUiItem("song","song","Файл",null,state=DownloadUiState.COMPLETED,kind=MediaKind.AUDIO))
+        var navPx=0f
+        compose.setContent{MaterialTheme{
+            navPx=with(LocalDensity.current){48.dp.toPx()}
+            Scaffold(modifier=Modifier.fillMaxSize().testTag("trash-host"),contentWindowInsets=trashRouteInsets(WindowInsets(left=0.dp,top=24.dp,right=0.dp,bottom=48.dp))){inner->
+                Box(Modifier.padding(inner).consumeWindowInsets(inner).fillMaxSize().testTag("trash-safe")){
+                    TrashScreen(items=rows,onBack={},onOpen={},onRestore={},onDelete={})
+                }
+            }
+        }}
+        compose.onNodeWithText("Выбрать всё",substring=false).performClick()
+        val host=compose.onNodeWithTag("trash-host").fetchSemanticsNode().boundsInRoot
+        val safe=compose.onNodeWithTag("trash-safe").fetchSemanticsNode().boundsInRoot
+        assertTrue(safe.bottom<=host.bottom-navPx+1f)
+        for(label in listOf("Восстановить","Удалить")){
+            val bounds=compose.onNodeWithText(label,substring=false).assertIsDisplayed().assertIsEnabled().fetchSemanticsNode().boundsInRoot
+            assertTrue(label,bounds.bottom<=safe.bottom+1f&&bounds.top>=safe.top)
+        }
     }
 }

@@ -23,6 +23,7 @@ import com.domenota.medialoader.data.archive.SimpleArchivePolicy
 import com.domenota.medialoader.data.archive.ArchiveEntrySource
 import com.domenota.medialoader.ui.components.ArchiveActionIcon
 import com.domenota.medialoader.ui.screens.SimpleArchiveScreen
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
@@ -3646,8 +3647,8 @@ fun MediaLoaderApp(
     val drawerImeVisible=WindowInsets.ime.getBottom(LocalDensity.current)>0
     val drawerLifecycle=backStackEntry?.lifecycle?.currentStateFlow?.collectAsState()?.value
     val drawerCheckingAccess=when(currentRoute){
-        PRIVATE_ROUTE,SIMPLE_ARCHIVE_ROUTE,FAVORITES_ROUTE,"collections"->false
-        "music-duplicates",AppDestination.Settings.route->visibleLibraryValidationPending(AppMode.MUSIC,libraryIndex,phoneGallery,phoneMusic)
+        PRIVATE_ROUTE,SIMPLE_ARCHIVE_ROUTE,FAVORITES_ROUTE,"collections",AppDestination.Settings.route->false
+        "music-duplicates"->visibleLibraryValidationPending(AppMode.MUSIC,libraryIndex,phoneGallery,phoneMusic)
         else->checkingPhoneAccess
     }
     val drawerBlocked= !drawerWindowFocused || drawerImeVisible ||
@@ -3742,7 +3743,8 @@ fun MediaLoaderApp(
             else MaterialTheme.colorScheme.background,
         contentWindowInsets = when {
             currentRoute in setOf("music-duplicates", "visual-duplicates", "batch-photo-editor") -> WindowInsets.safeDrawing
-            fullBleedGalleryViewer || currentRoute in setOf("collections", "trash") -> WindowInsets(0, 0, 0, 0)
+            currentRoute == "trash" -> com.domenota.medialoader.ui.screens.trashRouteInsets(WindowInsets.safeDrawing)
+            fullBleedGalleryViewer || currentRoute == "collections" -> WindowInsets(0, 0, 0, 0)
             galleryHomeOverlay -> WindowInsets.statusBars
             else -> ScaffoldDefaults.contentWindowInsets
         },
@@ -3822,7 +3824,7 @@ fun MediaLoaderApp(
         LibraryRefreshShield(
             checkingPhoneAccess && currentRoute != AppDestination.Settings.route && currentRoute != "drawer-settings" && currentRoute != "task-center" &&
                 !(appMode == AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route),
-            Modifier.padding(innerPadding),
+            Modifier.padding(innerPadding).then(if(currentRoute=="trash") Modifier.consumeWindowInsets(innerPadding) else Modifier),
             onExit = if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                 ({ changeAppMode(AppMode.DOWNLOADER) }) else null,
         ) {
