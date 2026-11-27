@@ -29,6 +29,8 @@ import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Silent, persistent WorkManager analysis. A batch has no foreground notification and
@@ -39,6 +41,7 @@ class AudioWaveformPrecomputeWorker(
     context: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
+    private companion object { val sweepMutex = Mutex() }
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val app = applicationContext
         val requested = inputData.getString("requestedUri")
@@ -56,6 +59,10 @@ class AudioWaveformPrecomputeWorker(
                 Result.failure()
             }
         }
+        sweepMutex.withLock { processSweep(app) }
+    }
+
+    private suspend fun processSweep(app:Context):Result {
         val tracks = linkedMapOf<String, Long>()
         // Never index the application's hidden or private audio history.
         runCatching {
@@ -86,53 +93,79 @@ class AudioWaveformPrecomputeWorker(
                 }
             }
         }
-        val entries = tracks.entries.toList()
+        val entries = tracks.entries.sortedBy { it.key }
         val prefs = app.getSharedPreferences("waveform_precompute_v1", Context.MODE_PRIVATE)
-        val inventory = entries.fold(1) { hash, entry ->
-            31 * hash + entry.key.hashCode()
+        val store=WaveformSweepStore(prefs)
+        val inventory=WaveformSweep.fingerprint(entries.map { it.key })
+        val restored=store.read()
+        if(restored!=null && (restored.inventory!=inventory || restored.total!=entries.size)) {
+            val abandoned=TaskReporter.create(TaskOwner.WAVEFORM,TaskKind.WAVEFORM,restored.token.value)
+            abandoned.report(TaskStatus.CANCELLED,files=countProgress(restored.cursor,restored.total),errors=restored.outcomes.failed,details=restored.details())
         }
-        val start = if (prefs.getInt("inventory", 0) == inventory)
-            prefs.getInt("cursor", 0).coerceIn(0, entries.size) else 0
-        // WorkManager runs are time-limited: make progress even for large music libraries.
-        val stop = (start + 20).coerceAtMost(entries.size)
-        val report = TaskReporter.create(TaskOwner.WAVEFORM, TaskKind.WAVEFORM, id.toString())
-        var checked = 0
-        var failures = 0
-        report.report(files=countProgress(0,stop-start),stage=TaskStage.SCANNING)
+        var sweep=restored?.takeIf { it.inventory==inventory && it.total==entries.size }
+            ?: WaveformSweep(TaskCorrelation.create(),inventory,entries.size,System.currentTimeMillis(),
+                if(inputData.getBoolean("periodicSweep",false)) TaskTrigger.PERIODIC else TaskTrigger.BACKGROUND)
+        val report=TaskReporter.create(TaskOwner.WAVEFORM,TaskKind.WAVEFORM,sweep.token.value)
+        fun publish(status:TaskStatus=TaskStatus.RUNNING,wait:TaskWait?=null,stage:TaskStage=TaskStage.SCANNING) {
+            report.report(status,files=countProgress(sweep.cursor,sweep.total),errors=sweep.outcomes.failed,
+                wait=wait,stage=stage,details=sweep.details())
+        }
+        if(!store.save(sweep)) { publish(TaskStatus.FAILED);return Result.retry() }
+        if(sweep.finished) {
+            publish(if(sweep.outcomes.failed>0||sweep.outcomes.skipped>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE)
+            return if(store.clear())Result.success() else Result.retry()
+        }
+        publish()
+        val stop=(sweep.cursor+20).coerceAtMost(entries.size)
         try {
-        for (index in start until stop) {
-            if (isStopped) { report.report(TaskStatus.CANCELLED,files=countProgress(checked,stop-start),errors=failures); return@withContext Result.retry() }
-            val wait=TaskHistoryStore.waitReason(app)
-            if(wait!=null) { report.report(TaskStatus.WAITING,files=countProgress(checked,stop-start),errors=failures,wait=wait); return@withContext Result.retry() }
-            val (source, knownDuration) = entries[index]
-            runCatching {
-                val uri = Uri.parse(source)
-                // Use the same metadata retriever as the editor: MediaStore durations can differ by rounding.
-                val duration = readDurationMs(app, uri).takeIf { it > 0L } ?: knownDuration
-                if (duration > 0L && !hasCachedAudioWaveform(app, uri, duration)) {
-                    // Give priority to playback and visible editing before PCM decoding.
-                    report.report(TaskStatus.WAITING,files=countProgress(checked,stop-start),errors=failures,wait=TaskWait.RESOURCE)
-                    BackgroundMediaWork.awaitIdle()
-                    report.report(files=countProgress(checked,stop-start),errors=failures,stage=TaskStage.SCANNING)
-                    if (isStopped) throw java.util.concurrent.CancellationException("Stopped before waveform")
-                    loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
+            for(index in sweep.cursor until stop) {
+                if(isStopped) throw java.util.concurrent.CancellationException("Stopped")
+                val wait=TaskHistoryStore.waitReason(app)
+                if(wait!=null) {
+                    if(!store.save(sweep)) { publish(TaskStatus.FAILED);return Result.retry() }
+                    publish(TaskStatus.WAITING,wait);return Result.retry()
                 }
-            }.onFailure { if (it is java.util.concurrent.CancellationException) throw it else failures++ }
-            checked++
-            report.report(files=countProgress(checked,stop-start),errors=failures,stage=TaskStage.SCANNING)
-        }
-        prefs.edit().putInt("inventory", inventory).putInt("cursor", if (stop < entries.size) stop else 0).apply()
-        if (stop < entries.size) {
-            // APPEND a dependent batch rather than retrying with exponential back-off.
-            // Every completed batch persists its cursor; WorkManager survives process death.
-            AudioWaveformPrecompute.continueRemaining(app)
-        }
-        report.report(if(failures>0) TaskStatus.PARTIAL else TaskStatus.COMPLETE,files=countProgress(checked,stop-start),errors=failures,stage=TaskStage.SCANNING)
-        Result.success()
-        } catch (e: java.util.concurrent.CancellationException) {
-            report.report(TaskStatus.CANCELLED,files=countProgress(checked,stop-start),errors=failures); throw e
-        } catch (e: Exception) {
-            report.report(TaskStatus.FAILED,files=countProgress(checked,stop-start),errors=failures+1); throw e
+                val (source, knownDuration)=entries[index]
+                val outcome=try {
+                    val uri=Uri.parse(source)
+                    val duration=readDurationMs(app,uri).takeIf { it>0L } ?: knownDuration
+                    if(duration<=0L) WaveformOutcome.SKIPPED
+                    else if(hasCachedAudioWaveform(app,uri,duration)) WaveformOutcome.CACHED
+                    else {
+                        publish(TaskStatus.WAITING,TaskWait.RESOURCE)
+                        BackgroundMediaWork.awaitIdle()
+                        publish()
+                        if(isStopped) throw java.util.concurrent.CancellationException("Stopped")
+                        if(hasCachedAudioWaveform(app,uri,duration)) WaveformOutcome.CACHED
+                        else {
+                            loadAudioWaveform(app,uri,duration,isCancelled={isStopped})
+                            if(isStopped) throw java.util.concurrent.CancellationException("Stopped")
+                            if(hasCachedAudioWaveform(app,uri,duration)) WaveformOutcome.GENERATED else WaveformOutcome.FAILED
+                        }
+                    }
+                } catch(e:java.util.concurrent.CancellationException) { throw e }
+                  catch(_:Exception) { WaveformOutcome.FAILED }
+                sweep=sweep.advance(outcome)
+                publish()
+            }
+            if(!store.save(sweep)) { publish(TaskStatus.FAILED);return Result.retry() }
+            if(!sweep.finished) {
+                publish(TaskStatus.QUEUED,stage=TaskStage.ENQUEUE)
+                AudioWaveformPrecompute.continueRemaining(app)
+            } else {
+                publish(if(sweep.outcomes.failed>0||sweep.outcomes.skipped>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE)
+                if(!store.clear())return Result.retry()
+            }
+            return Result.success()
+        } catch(e:java.util.concurrent.CancellationException) {
+            store.save(sweep)
+            // WorkManager may resume this pass; do not fabricate a terminal cancellation.
+            publish(TaskStatus.WAITING,TaskWait.RESOURCE)
+            throw e
+        } catch(_:Exception) {
+            store.save(sweep)
+            publish(TaskStatus.FAILED)
+            return Result.retry()
         }
     }
 
@@ -167,6 +200,7 @@ object AudioWaveformPrecompute {
         manager.enqueueUniquePeriodicWork(
             PERIODIC, ExistingPeriodicWorkPolicy.KEEP,
             PeriodicWorkRequestBuilder<AudioWaveformPrecomputeWorker>(6, TimeUnit.HOURS)
+                .setInputData(workDataOf("periodicSweep" to true))
                 .setConstraints(constraints).build()
         )
         request(context)

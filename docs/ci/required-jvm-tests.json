@@ -6314,6 +6314,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.WaveformSweepTest#batchesShareOneOperationAndCountRealOutcomes": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.WaveformSweepTest#completedSweepCannotAdvance": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.WaveformSweepTest#inventoryFingerprintIsOrderedAndUnambiguous": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.WaveformWorkPolicyTest#librarySweepRunsWithoutDozeAndStillRequiresHealthyBattery": {
     "skipped": false,
     "failed": false
