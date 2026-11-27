@@ -80,7 +80,22 @@ internal object TaskHistoryStore {
         JSONObject().put("id",row.id).put("kind",row.kind.name).put("status",row.status.name).put("time",row.updatedAt)
             .put("errors",row.errors).put("percent",row.percent?:JSONObject.NULL).put("stage",row.stage?.name?:JSONObject.NULL)
             .put("files",progressJson(row.files)).put("bytes",progressJson(row.progress))
+            .put("details",detailsJson(row.details))
     }))
+    private fun detailsJson(value:TaskDetails?):Any = value?.let { d ->
+        JSONObject().put("correlation",d.correlation?.value?:JSONObject.NULL)
+            .put("started",d.startedAt?:JSONObject.NULL).put("trigger",d.trigger?.name?:JSONObject.NULL)
+            .put("failure",d.failure?.name?:JSONObject.NULL).put("outcomes",d.outcomes?.let { c ->
+                JSONObject().put("cached",c.cached).put("generated",c.generated).put("skipped",c.skipped).put("failed",c.failed)
+            }?:JSONObject.NULL)
+    }?:JSONObject.NULL
+    private fun decodeDetails(o:JSONObject?):TaskDetails? = o?.let { d ->
+        TaskDetails(TaskCorrelation.parse(d.optString("correlation")),
+            d.optLong("started",-1).takeIf{it>=0},
+            TaskTrigger.entries.firstOrNull{it.name==d.optString("trigger")},
+            TaskFailure.entries.firstOrNull{it.name==d.optString("failure")},
+            d.optJSONObject("outcomes")?.let { c -> runCatching { TaskOutcomes(c.getInt("cached"),c.getInt("generated"),c.getInt("skipped"),c.getInt("failed")) }.getOrNull() })
+    }
     private fun progressJson(value:TaskProgress?):Any = value?.let { JSONObject().put("done",it.done).put("total",it.total?:JSONObject.NULL) }?:JSONObject.NULL
     internal fun decode(json:JSONObject):TaskHistoryData {
         val array=json.optJSONArray("rows")?:JSONArray()
@@ -91,7 +106,7 @@ internal object TaskHistoryStore {
             fun progress(key:String)=o.optJSONObject(key)?.let { TaskProgress(it.getLong("done"),if(it.isNull("total"))null else it.getLong("total")) }
             TaskSnapshot(o.getString("id"),TaskKind.valueOf(o.getString("kind")),status,progress=progress("bytes"),files=progress("files"),
                 errors=o.getInt("errors"),updatedAt=o.getLong("time"),percent=if(o.isNull("percent"))null else o.getInt("percent"),
-                stage=if(o.isNull("stage"))null else TaskStage.valueOf(o.getString("stage")))
+                stage=if(o.isNull("stage"))null else TaskStage.valueOf(o.getString("stage")),details=decodeDetails(o.optJSONObject("details")))
         }.getOrNull() }
         return TaskHistoryData(json.optLong("clearedAt",0).coerceAtLeast(0),rows)
     }

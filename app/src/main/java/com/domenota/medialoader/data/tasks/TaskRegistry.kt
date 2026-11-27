@@ -56,6 +56,7 @@ internal data class TaskSnapshot(
     val source: TaskSource? = null,
     val media: TaskMedia? = null,
     val idle: Boolean = false,
+    val details: TaskDetails? = null,
 ) {
     init {
         require(id.matches(Regex("[a-f0-9]{64}")))

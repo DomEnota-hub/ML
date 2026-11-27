@@ -4,6 +4,27 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TaskRegistryTest {
+    @Test fun correlationIsRandomAndRejectsRawIdentifiers(){
+        val a=TaskCorrelation.create()
+        assertNotEquals(a,TaskCorrelation.create())
+        assertEquals(a,TaskCorrelation.parse(a.value))
+        assertNull(TaskCorrelation.parse("content://media/external/audio/23"))
+        assertNull(TaskCorrelation.parse(taskId(TaskOwner.WAVEFORM,"file")))
+    }
+    @Test fun outcomeCountersAreExclusiveAndBounded(){
+        assertEquals(20,TaskOutcomes(12,5,2,1).checked)
+        assertTrue(runCatching{TaskOutcomes(cached=-1)}.isFailure)
+        assertTrue(runCatching{TaskOutcomes(cached=Int.MAX_VALUE,generated=1)}.isFailure)
+    }
+    @Test fun historyPreservesSafeDetailsButNotCommands(){
+        val r=TaskRegistry()
+        val d=TaskDetails(TaskCorrelation.create(),100,TaskTrigger.BACKGROUND,TaskFailure.DECODE,TaskOutcomes(2,1,0,1))
+        val task=row("result",TaskStatus.PARTIAL,setOf(TaskCommand.RETRY)).copy(updatedAt=System.currentTimeMillis(),details=d)
+        r.publish(TaskOwner.DOWNLOADS,listOf(task))
+        val saved=r.history.value.rows.single()
+        assertEquals(d,saved.details)
+        assertTrue(saved.commands.isEmpty())
+    }
     @Test fun idleProcessIsVisibleAndControllableButNotAWaitingTask(){
         val registry=TaskRegistry()
         val idle=TaskSnapshot(taskId(TaskOwner.OCR,"idle"),TaskKind.OCR,TaskStatus.PAUSED,commands=setOf(TaskCommand.RESUME),idle=true)
