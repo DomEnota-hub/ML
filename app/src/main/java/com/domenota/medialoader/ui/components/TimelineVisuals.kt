@@ -634,9 +634,8 @@ private fun MediaFormat.getIntegerOrNull(key: String): Int? =
     if (containsKey(key)) runCatching { getInteger(key) }.getOrNull() else null
 
 private fun cacheKey(value: String): String =
-    MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray())
-        .joinToString("") { "%02x".format(it) }
+    com.domenota.medialoader.data.playback.waveformHex(MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray()))
 
 private const val VIDEO_TIMELINE_FRAMES = 8
 internal const val AUDIO_WAVEFORM_BUCKETS = 1024

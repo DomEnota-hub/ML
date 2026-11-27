@@ -47,7 +47,13 @@ internal data class WaveformSweep(
             val d=MessageDigest.getInstance("SHA-256")
             keys.forEach { key -> val bytes=key.toByteArray(Charsets.UTF_8)
                 d.update(java.nio.ByteBuffer.allocate(4).putInt(bytes.size).array());d.update(bytes) }
-            return d.digest().joinToString("") { "%02x".format(it) }
+            return waveformHex(d.digest())
         }
     }
+}
+
+/** Avoid Formatter allocation per byte when fingerprinting a large library. */
+internal fun waveformHex(bytes:ByteArray):String=buildString(bytes.size*2) {
+    val hex="0123456789abcdef"
+    bytes.forEach { byte -> val n=byte.toInt() and 255; append(hex[n ushr 4]);append(hex[n and 15]) }
 }

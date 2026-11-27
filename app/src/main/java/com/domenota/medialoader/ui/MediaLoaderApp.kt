@@ -1547,7 +1547,7 @@ fun MediaLoaderApp(
             (phoneGallery.complete || !hasPhoneLibraryAccess(context,AppMode.GALLERY)) &&
             (!phoneGallery.complete || (!phoneGallery.loading && phoneGallery.message == null &&
                 phoneGallery.accessEpoch == galleryAccessEpoch && libraryIndex.galleryRevision == phoneGallery.revision)) },
-        collectionBlocked,collectionPrivacyGeneration,galleryAccessEpoch,{ libraryModel.refresh(AppMode.GALLERY) }) { ids ->
+        collectionBlocked,collectionPrivacyGeneration,galleryAccessEpoch,collectionPermissionTag,{ libraryModel.refresh(AppMode.GALLERY) }) { ids ->
         validCollectionRefs(ids,queueSave=true)
     }
     val reviewCount=remember(reviewEntries,organizationRefs){val ids=organizationRefs.mapNotNull{it.appDownloadId}.toHashSet();reviewEntries.count{it.downloadId in ids}}

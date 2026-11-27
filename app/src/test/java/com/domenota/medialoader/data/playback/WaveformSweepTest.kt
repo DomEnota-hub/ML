@@ -28,6 +28,11 @@ class WaveformSweepTest {
         assertEquals(TaskOutcomes(20,3,1,1),s.outcomes)
         assertEquals(25,s.cursor)
     }
+    @Test fun compactHexPreservesExistingCacheIdentity(){
+        val bytes=byteArrayOf(0,1,15,16,127,-128,-1)
+        assertEquals(bytes.joinToString(""){"%02x".format(it)},waveformHex(bytes))
+        assertEquals("00010f107f80ff",waveformHex(bytes))
+    }
     @Test fun inventoryFingerprintIsOrderedAndUnambiguous(){
         assertNotEquals(WaveformSweep.fingerprint(listOf("ab","c")),WaveformSweep.fingerprint(listOf("a","bc")))
         assertNotEquals(WaveformSweep.fingerprint(listOf("a","b")),WaveformSweep.fingerprint(listOf("b","a")))

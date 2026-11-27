@@ -6374,6 +6374,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.WaveformSweepTest#compactHexPreservesExistingCacheIdentity": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.WaveformSweepTest#completedSweepCannotAdvance": {
     "skipped": false,
     "failed": false

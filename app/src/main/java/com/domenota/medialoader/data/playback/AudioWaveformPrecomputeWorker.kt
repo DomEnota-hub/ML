@@ -75,8 +75,9 @@ class AudioWaveformPrecomputeWorker(
         val key=WaveformSweep.fingerprint(listOf(source,duration.toString(),version.size.toString(),
             version.modified.toString(),version.providerDuration.toString()))
         val skipKey get()="skip:$key"
-        fun alreadyPrepared(receipts:Set<String>)=version.proven &&
-            (files.any{WaveformCacheReceipt.current(it,receipts)} || (duration<=0L && skipKey in receipts))
+        fun alreadyPrepared(receipts:Map<String,String>)=version.proven &&
+            (files.any{file->WaveformCacheReceipt.stamp(file)?.let{receipts[file.name]==it}==true} ||
+                (duration<=0L && skipKey in receipts))
     }
 
     private suspend fun processSweep(app:Context):Result {
@@ -153,22 +154,22 @@ class AudioWaveformPrecomputeWorker(
         val allowedFiles=allEntries.flatMap{it.files}.mapTo(hashSetOf()){it.name}
         val allowedSkips=allEntries.filter{it.version.proven&&it.duration<=0L}.mapTo(hashSetOf()){it.skipKey}
         val originalReceipts=store.receipts()
-        val receipts=originalReceipts.filterTo(hashSetOf()){
+        val receipts=originalReceipts.filter{
             it in allowedSkips || it.substringBefore('|') in allowedFiles
-        }
+        }.associateByTo(hashMapOf()){it.substringBefore('|')}
         val periodic=inputData.getBoolean("periodicOrigin",false) || (!canResume&&restored?.trigger==TaskTrigger.PERIODIC)
         val entries=if(canResume)requireNotNull(restoredEntries) else
             if(periodic)allEntries else allEntries.filterNot{it.alreadyPrepared(receipts)}
         val plan=entries.mapTo(linkedSetOf()){it.key}
         if(restored==null && entries.isEmpty()){
-            if(originalReceipts!=receipts&&!store.saveReceipts(receipts))return Result.retry()
+            if(originalReceipts!=receipts.values.toSet()&&!store.saveReceipts(receipts.values.toSet()))return Result.retry()
             return Result.success()
         }
         var sweep=if(canResume)requireNotNull(restored)
             else WaveformSweep(TaskCorrelation.create(),inventory,entries.size,System.currentTimeMillis(),
                 if(periodic) TaskTrigger.PERIODIC else TaskTrigger.BACKGROUND)
         val resumed=canResume
-        fun save()=store.save(sweep,plan,receipts)
+        fun save()=store.save(sweep,plan,receipts.values.toSet())
         val report=TaskReporter.create(TaskOwner.WAVEFORM,TaskKind.WAVEFORM,sweep.token.value)
         fun publish(status:TaskStatus=TaskStatus.RUNNING,wait:TaskWait?=null,stage:TaskStage=TaskStage.SCANNING) {
             report.report(status,files=countProgress(sweep.cursor,sweep.total),errors=sweep.outcomes.failed,
@@ -213,10 +214,12 @@ class AudioWaveformPrecomputeWorker(
                 // Only a validated persistent write/read can become an incremental hit.
                 // Failed outcomes are retried; unsupported durations are rechecked on the
                 // periodic pass or immediately when their known source version changes.
-                track.files.forEach{file->receipts.removeAll{it.startsWith(file.name+"|")}}
+                track.files.forEach{file->receipts.remove(file.name)}
                 receipts.remove(track.skipKey)
-                result.cacheReceipt?.takeIf{receipt->track.files.any{WaveformCacheReceipt.stamp(it)==receipt}}?.let(receipts::add)
-                if(result.outcome==WaveformOutcome.SKIPPED&&track.version.proven&&track.duration<=0L)receipts+=track.skipKey
+                result.cacheReceipt?.takeIf{receipt->track.files.any{WaveformCacheReceipt.stamp(it)==receipt}}
+                    ?.let{receipts[it.substringBefore('|')]=it}
+                if(result.outcome==WaveformOutcome.SKIPPED&&track.version.proven&&track.duration<=0L)
+                    receipts[track.skipKey]=track.skipKey
                 sweep=sweep.advance(result.outcome,result.failure)
                 publish()
                 if(sweep.cursor%20==0){

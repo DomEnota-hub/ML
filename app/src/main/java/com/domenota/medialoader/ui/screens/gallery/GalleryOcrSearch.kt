@@ -57,7 +57,7 @@ internal class GalleryOcrController(context: Context) {
 @Composable
 internal fun rememberGalleryOcr(
     refs: List<LibraryMediaRef>, fingerprints: Map<String,String>, access: Any?,
-    blocked: Set<String>, epoch: Long, galleryAccessEpoch: Long, ensureCatalog: () -> Unit,
+    blocked: Set<String>, epoch: Long, galleryAccessEpoch: Long, permissionTag:String, ensureCatalog: () -> Unit,
     validate: suspend (List<String>) -> List<LibraryMediaRef>,
 ): GalleryOcrController {
     val context = LocalContext.current.applicationContext
@@ -67,7 +67,7 @@ internal fun rememberGalleryOcr(
     // The incoming catalog includes music and videos. Only photo changes should
     // invalidate an OCR run; real privacy/permission changes always revoke it.
     val photos = remember(refs,fingerprints) { GalleryOcrPolicy.photoInputs(refs,fingerprints) }
-    val fence = remember(blocked,epoch,galleryAccessEpoch,invalidation) { Any() }
+    val fence = remember(blocked,epoch,galleryAccessEpoch,permissionTag,invalidation) { Any() }
     val token = remember(photos,access!=null,fence) { if(access!=null) Any() else null }
     var lastFence by remember(controller) { mutableStateOf<Any?>(null) }
     val liveToken by rememberUpdatedState(token)
@@ -181,8 +181,9 @@ internal fun rememberGalleryOcr(
                     if (!active()) return@LaunchedEffect
                     while (true) {
                         val reason=TaskHistoryStore.waitReason(context,controller.chargeOnly) ?: break
-                    if(!active()) return@LaunchedEffect
-                    publish(if(reason==TaskWait.CHARGING)GalleryOcrPhase.WAITING_CHARGE else GalleryOcrPhase.WAITING_ENERGY); delay(2000)
+                        if(!active()) return@LaunchedEffect
+                        publish(if(reason==TaskWait.CHARGING)GalleryOcrPhase.WAITING_CHARGE else GalleryOcrPhase.WAITING_ENERGY)
+                        delay(2000)
                     }
                     publish(GalleryOcrPhase.RUNNING)
                     try {
