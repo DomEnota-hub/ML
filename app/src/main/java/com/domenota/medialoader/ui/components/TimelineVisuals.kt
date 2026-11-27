@@ -321,38 +321,58 @@ private fun loadVideoTimelineFrames(
 internal fun waveformCacheIdentity(uri: String, durationMs: Long, size: Long, modified: Long, buckets: Int): String =
     "v6|$uri|$durationMs|$size|$modified|$buckets"
 
-private fun audioWaveformCacheFile(context: Context, uri: Uri, durationMs: Long, buckets: Int): File {
-    var bytes = -1L
-    var modified = -1L
-    if (uri.scheme == "file") {
-        val file = uri.path?.let(::File)
-        if (file != null) { bytes = file.length(); modified = file.lastModified() }
-    } else if (uri.scheme == "content") {
-        runCatching {
-            context.contentResolver.query(
-                uri,
-                arrayOf(android.provider.MediaStore.MediaColumns.SIZE,
-                    android.provider.MediaStore.MediaColumns.DATE_MODIFIED),
-                null, null, null
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val sizeCol = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.SIZE)
-                    val modifiedCol = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
-                    if (sizeCol >= 0 && !cursor.isNull(sizeCol)) bytes = cursor.getLong(sizeCol)
-                    if (modifiedCol >= 0 && !cursor.isNull(modifiedCol)) modified = cursor.getLong(modifiedCol)
-                }
-            }
-        }
+/** Only proven file versions may bypass a later full cache read. */
+internal data class WaveformSourceVersion(val size:Long=-1L,val modified:Long=-1L,val providerDuration:Long=0L) {
+    val proven get()=size>0L && modified>0L
+}
+internal fun waveformDurations(requested:Long,provider:Long,proven:Boolean):List<Long> {
+    // A MediaStore duration and a player duration may differ by encoder padding.
+    // Never reuse across a substantial duration discrepancy or unknown version.
+    val near=proven && requested>0L && provider>0L &&
+        kotlin.math.abs(requested-provider)<=minOf(1000L,maxOf(20L,requested/200L))
+    return if(near)listOf(provider,requested).distinct() else listOf(requested)
+}
+internal fun readWaveformSourceVersion(context:Context,uri:Uri):WaveformSourceVersion {
+    if(uri.scheme=="file") {
+        val file=uri.path?.let(::File)
+        return if(file?.isFile==true) WaveformSourceVersion(file.length(),file.lastModified()) else WaveformSourceVersion()
     }
-    val identity = waveformCacheIdentity(uri.toString(), durationMs, bytes, modified, buckets)
-    return File(context.filesDir, "timeline/audio/${cacheKey(identity)}.wave")
+    if(uri.scheme!="content")return WaveformSourceVersion()
+    fun query(duration:Boolean):WaveformSourceVersion?=runCatching {
+        val columns=buildList {
+            add(android.provider.MediaStore.MediaColumns.SIZE)
+            add(android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
+            if(duration)add(android.provider.MediaStore.Audio.Media.DURATION)
+        }
+        context.contentResolver.query(uri,columns.toTypedArray(),null,null,null)?.use { cursor ->
+            if(!cursor.moveToFirst())return@use null
+            fun value(name:String,default:Long):Long {
+                val i=cursor.getColumnIndex(name)
+                return if(i>=0&&!cursor.isNull(i))cursor.getLong(i) else default
+            }
+            WaveformSourceVersion(value(android.provider.MediaStore.MediaColumns.SIZE,-1L),
+                value(android.provider.MediaStore.MediaColumns.DATE_MODIFIED,-1L),
+                value(android.provider.MediaStore.Audio.Media.DURATION,0L))
+        }
+    }.getOrNull()
+    return (if(uri.authority=="media")query(true) else null) ?: query(false) ?: WaveformSourceVersion()
+}
+internal fun waveformCacheFileFor(context:Context,source:String,durationMs:Long,version:WaveformSourceVersion,
+    buckets:Int=AUDIO_WAVEFORM_BUCKETS):File {
+    val identity=waveformCacheIdentity(source,durationMs,version.size,version.modified,buckets)
+    return File(context.filesDir,"timeline/audio/${cacheKey(identity)}.wave")
 }
 
 /** Read-only UI path: never decode or wait for a decoder on the UI coroutine. */
 internal fun readCachedAudioWaveform(
     context: Context, uri: Uri, durationMs: Long,
     bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
-): List<Float>? = readAudioWaveformCacheFile(audioWaveformCacheFile(context, uri, durationMs, bucketCount), bucketCount)
+): List<Float>? {
+    val version=readWaveformSourceVersion(context,uri)
+    return waveformDurations(durationMs,version.providerDuration,version.proven).firstNotNullOfOrNull { duration ->
+        readAudioWaveformCacheFile(waveformCacheFileFor(context,uri.toString(),duration,version,bucketCount),bucketCount)
+    }
+}
 
 private fun readAudioWaveformCacheFile(cache: File, bucketCount: Int): List<Float>? =
     com.domenota.medialoader.data.playback.TimelineWaveformDiskCache.read(cache,bucketCount)
@@ -360,27 +380,46 @@ private fun readAudioWaveformCacheFile(cache: File, bucketCount: Int): List<Floa
 internal fun hasCachedAudioWaveform(context: Context, uri: Uri, durationMs: Long): Boolean =
     readCachedAudioWaveform(context, uri, durationMs) != null
 
-/** Only the background worker calls this. Per-key locks prevent duplicate decoding. */
 internal fun loadAudioWaveform(
     context: Context,
     uri: Uri,
     durationMs: Long,
     bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
     isCancelled: () -> Boolean = { false },
-): List<Float> {
-    return preparePersistedAudioWaveform(context,uri,durationMs,bucketCount,isCancelled).peaks
-}
+): List<Float> =
+    preparePersistedAudioWaveform(context,uri,durationMs,bucketCount,isCancelled).peaks
 
-/** Background and foreground use exactly one versioned disk identity. */
+/** Retain v6 filenames; canonical duration is used only with a proven near match. */
 internal fun preparePersistedAudioWaveform(
     context:Context,uri:Uri,durationMs:Long,bucketCount:Int=AUDIO_WAVEFORM_BUCKETS,
     isCancelled:()->Boolean={false}
 ):com.domenota.medialoader.data.playback.WaveformPreparation {
-    val cache=audioWaveformCacheFile(context,uri,durationMs,bucketCount)
-    return com.domenota.medialoader.data.playback.TimelineWaveformDiskCache.prepare(cache,bucketCount,isCancelled,
-        sameVersion={audioWaveformCacheFile(context,uri,durationMs,bucketCount)==cache}) {
-        decodeAudioWaveform(context,uri,durationMs,bucketCount,isCancelled)
+    val version=readWaveformSourceVersion(context,uri)
+    val durations=waveformDurations(durationMs,version.providerDuration,version.proven)
+    fun file(duration:Long)=waveformCacheFileFor(context,uri.toString(),duration,version,bucketCount)
+    fun sameVersion()=readWaveformSourceVersion(context,uri)==version
+    fun active(){if(isCancelled())throw java.util.concurrent.CancellationException("Waveform stopped")}
+    active()
+    for(duration in durations) {
+        val cache=file(duration)
+        val peaks=readAudioWaveformCacheFile(cache,bucketCount) ?: continue
+        active()
+        if(!sameVersion())return com.domenota.medialoader.data.playback.WaveformPreparation(emptyList(),
+            com.domenota.medialoader.data.playback.WaveformOutcome.FAILED,
+            com.domenota.medialoader.data.tasks.TaskFailure.IO)
+        return com.domenota.medialoader.data.playback.WaveformPreparation(peaks,
+            com.domenota.medialoader.data.playback.WaveformOutcome.CACHED,
+            cacheReceipt=if(version.proven)com.domenota.medialoader.data.playback.WaveformCacheReceipt.stamp(cache) else null)
     }
+    val selected=durations.first()
+    val cache=file(selected)
+    val result=com.domenota.medialoader.data.playback.TimelineWaveformDiskCache.prepare(cache,bucketCount,isCancelled,
+        sameVersion=::sameVersion) { decodeAudioWaveform(context,uri,selected,bucketCount,isCancelled) }
+    active()
+    return if(version.proven && sameVersion() && result.outcome in setOf(
+        com.domenota.medialoader.data.playback.WaveformOutcome.CACHED,
+        com.domenota.medialoader.data.playback.WaveformOutcome.GENERATED))
+        result.copy(cacheReceipt=com.domenota.medialoader.data.playback.WaveformCacheReceipt.stamp(cache)) else result
 }
 
 private fun decodeAudioWaveform(

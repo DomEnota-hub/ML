@@ -6322,6 +6322,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.TimelineWaveformDiskCacheTest#confirmedCacheReceiptDetectsDeletionAndChangedCache": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.TimelineWaveformDiskCacheTest#failedWriteAndInvalidDecodeHaveDifferentReasons": {
     "skipped": false,
     "failed": false
@@ -8575,6 +8579,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.components.WaveformBackgroundRenderingTest#drawingMoreColumnsKeepsDistinctSoundDynamics": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.components.WaveformBackgroundRenderingTest#nearProviderDurationReusesExistingVersionButLargeOrUnprovenDifferenceDoesNot": {
     "skipped": false,
     "failed": false
   },

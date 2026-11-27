@@ -7,6 +7,16 @@ import org.junit.rules.TemporaryFolder
 import java.io.File
 class TimelineWaveformDiskCacheTest {
     @get:Rule val temp=TemporaryFolder()
+    @Test fun confirmedCacheReceiptDetectsDeletionAndChangedCache(){
+        val file=File(temp.newFolder(),"track.wave")
+        TimelineWaveformDiskCache.prepare(file,2){listOf(.2f,.8f)}
+        val receipt=setOf(requireNotNull(WaveformCacheReceipt.stamp(file)))
+        assertTrue(WaveformCacheReceipt.current(file,receipt))
+        file.appendText(",bad")
+        assertFalse(WaveformCacheReceipt.current(file,receipt))
+        file.delete()
+        assertFalse(WaveformCacheReceipt.current(file,receipt))
+    }
     @Test fun realTimelineCacheIsWrittenAndReusedWithoutDecode(){
         val file=File(temp.newFolder(),"track.wave")
         val peaks=listOf(.2f,.8f)

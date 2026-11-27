@@ -9,7 +9,8 @@ import java.util.concurrent.CancellationException
 internal data class WaveformPreparation(
     val peaks:List<Float>,
     val outcome:WaveformOutcome,
-    val failure:TaskFailure?=null
+    val failure:TaskFailure?=null,
+    val cacheReceipt:String?=null
 )
 internal object TimelineWaveformDiskCache {
     private fun valid(peaks:List<Float>,count:Int)=count>0&&peaks.size==count&&peaks.all{it.isFinite()&&it in 0f..1f}
@@ -53,4 +54,11 @@ internal object TimelineWaveformDiskCache {
             else WaveformPreparation(peaks,WaveformOutcome.GENERATED)
         }
     }
+}
+
+/** Derived receipt only; no URI, filename of the original, or audio data. */
+internal object WaveformCacheReceipt {
+    fun stamp(file:File):String? = if(file.isFile && file.length()>0L && file.lastModified()>0L)
+        "${file.name}|${file.length()}|${file.lastModified()}" else null
+    fun current(file:File,receipts:Set<String>):Boolean=stamp(file)?.let(receipts::contains)==true
 }

@@ -150,8 +150,9 @@ internal fun AudioBookmarksPanel(
                 authorize()
                 val result = withContext(Dispatchers.IO) {
                     val parsed = Uri.parse(uri)
-                    val raw = readCachedAudioWaveform(context, parsed, durationMs)
-                        ?: loadAudioWaveform(context, parsed, durationMs, isCancelled = { job?.isActive == false })
+                    val cached=readCachedAudioWaveform(context, parsed, durationMs)
+                    com.domenota.medialoader.core.logging.AppLog.d("AudioWaveform","BOOKMARK_WAVEFORM cache="+if(cached!=null)"HIT" else "MISS")
+                    val raw=cached ?: loadAudioWaveform(context, parsed, durationMs, isCancelled = { job?.isActive == false })
                     raw.takeIf { it.isNotEmpty() }?.let { waveformColumnPeaks(it, 128) }
                 }
                 authorize()

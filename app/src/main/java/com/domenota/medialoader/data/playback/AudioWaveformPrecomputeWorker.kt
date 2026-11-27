@@ -22,6 +22,11 @@ import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.MediaRepository
 import com.domenota.medialoader.ui.components.preparePersistedAudioWaveform
+import com.domenota.medialoader.ui.components.WaveformSourceVersion
+import com.domenota.medialoader.ui.components.readWaveformSourceVersion
+import com.domenota.medialoader.ui.components.waveformCacheFileFor
+import com.domenota.medialoader.ui.components.waveformDurations
+import java.io.File
 import java.util.concurrent.TimeUnit
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
@@ -66,8 +71,17 @@ class AudioWaveformPrecomputeWorker(
         sweepMutex.withLock { processSweep(app) }
     }
 
+    private data class Track(val source:String,val duration:Long,val version:WaveformSourceVersion,val files:List<File>) {
+        val key=WaveformSweep.fingerprint(listOf(source,duration.toString(),version.size.toString(),
+            version.modified.toString(),version.providerDuration.toString()))
+        val skipKey get()="skip:$key"
+        fun alreadyPrepared(receipts:Set<String>)=version.proven &&
+            (files.any{WaveformCacheReceipt.current(it,receipts)} || (duration<=0L && skipKey in receipts))
+    }
+
     private suspend fun processSweep(app:Context):Result {
         val tracks = linkedMapOf<String, Long>()
+        val versions=hashMapOf<String,WaveformSourceVersion>()
         val repo=MediaRepository.get(app)
         if(!TaskHistoryStore.awaitReady())return Result.retry()
         val admission=try { WaveformAdmission.read(app,repo) } catch(e:java.util.concurrent.CancellationException){throw e} catch(_:Exception){return Result.retry()}
@@ -85,12 +99,16 @@ class AudioWaveformPrecomputeWorker(
             try {
                 app.contentResolver.query(
                     MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DURATION, MediaStore.MediaColumns.DATA),
+                    arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DURATION, MediaStore.MediaColumns.DATA,
+                        MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED),
                     null, null, MediaStore.Audio.Media.DATE_ADDED + " DESC"
                 )?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                     val durationCol = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
                     val pathCol=cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                    val sizeCol=cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                    val modifiedCol=cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+                    fun value(col:Int)=if(col>=0&&!cursor.isNull(col))cursor.getLong(col) else -1L
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idCol)
                         val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
@@ -100,33 +118,63 @@ class AudioWaveformPrecomputeWorker(
                         val physical=if(admission.requiresPhysicalProof && pathCol>=0&&!cursor.isNull(pathCol))PublicMediaIdentity.pathKeys(cursor.getString(pathCol)) else emptySet()
                         if(admission.allows(app,uri.toString(),"phone:audio:$id",physical)){
                             if(duration>0L)tracks[uri.toString()]=duration else tracks.putIfAbsent(uri.toString(),0L)
+                            versions[uri.toString()]=WaveformSourceVersion(value(sizeCol),value(modifiedCol),duration)
                         }
                     }
                 } ?: return Result.retry()
             } catch(e:java.util.concurrent.CancellationException){throw e} catch(_:Exception){return Result.retry()}
         }
         if(!admission.current(app,repo))return Result.retry()
-        val entries = tracks.entries.sortedBy { it.key }
+        val allEntries=tracks.entries.sortedBy{it.key}.map { (source,knownDuration) ->
+            if(isStopped)throw java.util.concurrent.CancellationException("Stopped")
+            val version=versions[source]?:readWaveformSourceVersion(app,Uri.parse(source))
+            val duration=knownDuration.takeIf{it>0L}?:version.providerDuration
+            val files=if(version.proven&&duration>0L)waveformDurations(duration,version.providerDuration,true)
+                .map{waveformCacheFileFor(app,source,it,version)} else emptyList()
+            Track(source,duration,version,files)
+        }
+        if(!admission.current(app,repo))return Result.retry()
         val prefs = app.getSharedPreferences("waveform_precompute_v1", Context.MODE_PRIVATE)
         val store=WaveformSweepStore(prefs)
-        val inventory=WaveformSweep.fingerprint(entries.map { it.key })
+        // A full versioned inventory and a frozen pending plan make the cursor
+        // safe across process death and media changes. No original URI is persisted.
+        val inventory=WaveformSweep.fingerprint(allEntries.map{it.key})
         val restored=store.read()
         val continuation=inputData.getString("continuationToken")
         if(continuation!=null && continuation!=restored?.token?.value)return Result.success()
-        if(restored!=null && (restored.inventory!=inventory || restored.total!=entries.size)) {
+        val oldPlan=store.plan()
+        val restoredEntries=oldPlan?.let{plan->allEntries.filter{it.key in plan}}
+        val canResume=restored!=null && restored.inventory==inventory && oldPlan!=null &&
+            restoredEntries?.size==restored.total && oldPlan.size==restored.total
+        if(restored!=null && !canResume) {
             val abandoned=TaskReporter.create(TaskOwner.WAVEFORM,TaskKind.WAVEFORM,restored.token.value)
             abandoned.report(TaskStatus.CANCELLED,files=countProgress(restored.cursor,restored.total),errors=restored.outcomes.failed,details=restored.details())
         }
-        var sweep=restored?.takeIf { it.inventory==inventory && it.total==entries.size }
-            ?: WaveformSweep(TaskCorrelation.create(),inventory,entries.size,System.currentTimeMillis(),
-                if(inputData.getBoolean("periodicOrigin",false)) TaskTrigger.PERIODIC else TaskTrigger.BACKGROUND)
-        val resumed=restored?.token==sweep.token
+        val allowedFiles=allEntries.flatMap{it.files}.mapTo(hashSetOf()){it.name}
+        val allowedSkips=allEntries.filter{it.version.proven&&it.duration<=0L}.mapTo(hashSetOf()){it.skipKey}
+        val originalReceipts=store.receipts()
+        val receipts=originalReceipts.filterTo(hashSetOf()){
+            it in allowedSkips || it.substringBefore('|') in allowedFiles
+        }
+        val periodic=inputData.getBoolean("periodicOrigin",false) || (!canResume&&restored?.trigger==TaskTrigger.PERIODIC)
+        val entries=if(canResume)requireNotNull(restoredEntries) else
+            if(periodic)allEntries else allEntries.filterNot{it.alreadyPrepared(receipts)}
+        val plan=entries.mapTo(linkedSetOf()){it.key}
+        if(restored==null && entries.isEmpty()){
+            if(originalReceipts!=receipts&&!store.saveReceipts(receipts))return Result.retry()
+            return Result.success()
+        }
+        var sweep=if(canResume)requireNotNull(restored)
+            else WaveformSweep(TaskCorrelation.create(),inventory,entries.size,System.currentTimeMillis(),
+                if(periodic) TaskTrigger.PERIODIC else TaskTrigger.BACKGROUND)
+        val resumed=canResume
+        fun save()=store.save(sweep,plan,receipts)
         val report=TaskReporter.create(TaskOwner.WAVEFORM,TaskKind.WAVEFORM,sweep.token.value)
         fun publish(status:TaskStatus=TaskStatus.RUNNING,wait:TaskWait?=null,stage:TaskStage=TaskStage.SCANNING) {
             report.report(status,files=countProgress(sweep.cursor,sweep.total),errors=sweep.outcomes.failed,
                 wait=wait,stage=stage,details=sweep.details(recovered=resumed))
         }
-        if(!store.save(sweep)) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
+        if(!save()) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
         if(sweep.finished) {
             publish(if(sweep.outcomes.failed>0||sweep.outcomes.skipped>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE)
             if(!TaskHistoryStore.persistCurrent(TaskCenter.registry))return Result.retry()
@@ -140,11 +188,13 @@ class AudioWaveformPrecomputeWorker(
                 if(isStopped) throw java.util.concurrent.CancellationException("Stopped")
                 val wait=TaskHistoryStore.waitReason(app)
                 if(wait!=null) {
-                    if(!store.save(sweep)) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
+                    if(!save()) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
                     publish(TaskStatus.WAITING,wait);return Result.retry()
                 }
-                if(!admission.current(app,repo)){store.save(sweep);publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
-                val (source, knownDuration)=entries[index]
+                if(!admission.current(app,repo)){save();publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
+                val track=entries[index]
+                val source=track.source
+                val knownDuration=track.duration
                 val result=try {
                     val uri=Uri.parse(source)
                     val duration=knownDuration.takeIf{it>0L} ?: readDurationMs(app,uri)
@@ -159,17 +209,24 @@ class AudioWaveformPrecomputeWorker(
                     }
                 } catch(e:java.util.concurrent.CancellationException) { throw e }
                   catch(_:Exception) { WaveformPreparation(emptyList(),WaveformOutcome.FAILED,TaskFailure.IO) }
-                if(!admission.current(app,repo)){store.save(sweep);publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
+                if(!admission.current(app,repo)){save();publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
+                // Only a validated persistent write/read can become an incremental hit.
+                // Failed outcomes are retried; unsupported durations are rechecked on the
+                // periodic pass or immediately when their known source version changes.
+                track.files.forEach{file->receipts.removeAll{it.startsWith(file.name+"|")}}
+                receipts.remove(track.skipKey)
+                result.cacheReceipt?.takeIf{receipt->track.files.any{WaveformCacheReceipt.stamp(it)==receipt}}?.let(receipts::add)
+                if(result.outcome==WaveformOutcome.SKIPPED&&track.version.proven&&track.duration<=0L)receipts+=track.skipKey
                 sweep=sweep.advance(result.outcome,result.failure)
                 publish()
                 if(sweep.cursor%20==0){
                     sweep=sweep.finishCheckpoint(System.currentTimeMillis())
-                    if(!store.save(sweep)){publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry()}
+                    if(!save()){publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry()}
                     if(android.os.SystemClock.elapsedRealtime()-batchStart>=90_000L)break
                 }
             }
             if(sweep.finished)sweep=sweep.finishCheckpoint(System.currentTimeMillis())
-            if(!store.save(sweep)) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
+            if(!save()) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
             if(!sweep.finished) {
                 publish(TaskStatus.QUEUED,stage=TaskStage.ENQUEUE)
                 AudioWaveformPrecompute.continueRemaining(app,sweep.token.value)
@@ -179,13 +236,13 @@ class AudioWaveformPrecomputeWorker(
             }
             return Result.success()
         } catch(e:java.util.concurrent.CancellationException) {
-            store.save(sweep)
+            save()
             // A privacy generation change is a retry, not a cancelled WorkManager chain.
             publish(TaskStatus.WAITING,TaskWait.RESOURCE)
             if(isStopped)throw e
             return Result.retry()
         } catch(_:Exception) {
-            store.save(sweep)
+            save()
             publish(TaskStatus.WAITING,TaskWait.RESOURCE)
             return Result.retry()
         }

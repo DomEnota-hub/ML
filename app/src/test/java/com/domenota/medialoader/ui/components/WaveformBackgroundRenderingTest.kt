@@ -50,6 +50,12 @@ class WaveformBackgroundRenderingTest {
         assertEquals(0.5, energy.total, 0.0001)
     }
 
+    @Test fun nearProviderDurationReusesExistingVersionButLargeOrUnprovenDifferenceDoesNot() {
+        assertEquals(listOf(180000L,180018L),waveformDurations(180018,180000,true))
+        assertEquals(listOf(180018L),waveformDurations(180018,180000,false))
+        assertEquals(listOf(180000L),waveformDurations(180000,175000,true))
+        assertEquals(listOf(180000L),waveformDurations(180000,180000,true))
+    }
     @Test fun revisedTrackAndBucketCountNeverReuseObsoleteCache() {
         val base = waveformCacheIdentity("content://media/audio/42", 180000L, 1000L, 100L, 1024)
         assertEquals(base, waveformCacheIdentity("content://media/audio/42", 180000L, 1000L, 100L, 1024))
