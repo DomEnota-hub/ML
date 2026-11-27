@@ -192,9 +192,11 @@ fun MediaViewerScreen(
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val view = LocalView.current
-    DisposableEffect(selectedItem.id, trashReadOnly) {
-        AppLog.verbose("Viewer", "Opened · id=${selectedItem.id} · trash=$trashReadOnly · type=${selectedItem.mediaType}")
-        onDispose { AppLog.verbose("Viewer", "Closed · id=${selectedItem.id} · trash=$trashReadOnly") }
+    DisposableEffect(selectedItem.id, trashReadOnly, selectedItem.isPrivate, selectedItem.hidden) {
+        val session=AppLog.newOperationId("viewer")
+        val admitted=!selectedItem.isPrivate&&!selectedItem.hidden
+        if(admitted)AppLog.verbose("Viewer","Opened · session=$session · trash=$trashReadOnly · type=${selectedItem.mediaType}")
+        onDispose { if(admitted)AppLog.verbose("Viewer","Closed · session=$session") }
     }
     var confirmTrashDelete by remember { mutableStateOf(false) }
     var songSearchOpen by remember(selectedItem.id) { mutableStateOf(false) }

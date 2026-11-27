@@ -1812,7 +1812,7 @@ fun MediaLoaderApp(
             fileStatusUris = fileStatusUris + (id to item.savedUri)
             fileStatuses = fileStatuses + (id to status)
             if (status == SavedFileStatus.MISSING) {
-                AppLog.w("History", "Open prevented · saved file missing · id=$id")
+                AppLog.w("History", "Open prevented · saved file missing")
                 AppNotice.post(context, "Файл удалён с устройства")
             } else if (status == SavedFileStatus.INACCESSIBLE) {
                 AppNotice.post(context, "Нет доступа к файлу")

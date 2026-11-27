@@ -39,6 +39,8 @@ object PerformanceLog {
         val runtime = Runtime.getRuntime()
         return "heapUsedMiB=${(runtime.totalMemory() - runtime.freeMemory()) / 1048576} · heapMaxMiB=${runtime.maxMemory() / 1048576}"
     }
+    private fun runningKinds():String = com.domenota.medialoader.data.tasks.TaskCenter.registry.liveTasks.value
+        .filter{it.active}.groupingBy{it.kind}.eachCount().entries.joinToString(","){"${it.key.name}:${it.value}"}.ifBlank{"none"}
     fun start() {
         if (active) return
         active = true
@@ -55,8 +57,9 @@ object PerformanceLog {
             val now = SystemClock.uptimeMillis()
             if(AppLog.isDetailedPerformance() && now-lastDetailed>=15_000L) {
                 lastDetailed=now
+                AppLog.flushReadModelGuards()
                 val stats=runCatching { android.os.Debug.getRuntimeStats() }.getOrDefault(emptyMap())
-                AppLog.i("Perf", "DETAIL · screen=$screen · ${memory()} · gcCount=${stats["art.gc.gc-count"] ?: "?"} · gcTimeMs=${stats["art.gc.gc-time"] ?: "?"} · gcBlockingCount=${stats["art.gc.blocking-gc-count"] ?: "?"} · gcBlockingTimeMs=${stats["art.gc.blocking-gc-time"] ?: "?"} · ${DetailedPerformance.summary()}")
+                AppLog.i("Perf", "DETAIL · screen=$screen · ${memory()} · gcCount=${stats["art.gc.gc-count"] ?: "?"} · gcTimeMs=${stats["art.gc.gc-time"] ?: "?"} · gcBlockingCount=${stats["art.gc.blocking-gc-count"] ?: "?"} · gcBlockingTimeMs=${stats["art.gc.blocking-gc-time"] ?: "?"} · ${DetailedPerformance.summary()} · activeKinds=${runningKinds()}")
             }
             if (waiting && acknowledged.get() == token) {
                 if (reported) AppLog.i("Perf", "UI_RECOVERED · blockedMs=${now - sent} · screen=$screen")
@@ -69,7 +72,7 @@ object PerformanceLog {
             } else if (stall.shouldReport(now - sent)) {
                 reported = true
                 val stack = Looper.getMainLooper().thread.stackTrace.take(36).joinToString("\n") { "    at $it" }
-                AppLog.w("Perf", "UI_STALL · blockedMs=${now - sent} · screen=$screen · lastAction=$lastAction · ${memory()}\n$stack")
+                AppLog.w("Perf", "UI_STALL · blockedMs=${now - sent} · screen=$screen · lastAction=$lastAction · ${memory()} · activeKinds=${runningKinds()}\n$stack")
             }
         }, 0, 250, TimeUnit.MILLISECONDS)
         frameStart = 0L; frameWindow = 0L; slowFrames = 0; worstFrameMs = 0L
@@ -77,6 +80,7 @@ object PerformanceLog {
     }
     fun stop() {
         if (active) {
+            AppLog.flushReadModelGuards()
             AppLog.i("Perf", "LIBRARY_WORK · ${LibraryWorkCounters.summary()}")
             AppLog.i("Perf", "LIBRARY_PROJECTIONS · ${LibraryProjectionCounters.summary()}")
         }
@@ -98,7 +102,7 @@ object PerformanceLog {
             frameStart = ms
             if (frameWindow == 0L) frameWindow = ms
             if (ms - frameWindow >= 10_000) {
-                if (slowFrames > 0) AppLog.i("Perf", "FRAME_GAPS · windowMs=${ms - frameWindow} · over50ms=$slowFrames · worstMs=$worstFrameMs · screen=$screen")
+                if (slowFrames > 0) AppLog.i("Perf", "FRAME_GAPS · windowMs=${ms - frameWindow} · over50ms=$slowFrames · worstMs=$worstFrameMs · screen=$screen · activeKinds=${runningKinds()}")
                 frameWindow = ms; slowFrames = 0; worstFrameMs = 0
             }
             Choreographer.getInstance().postFrameCallback(this)

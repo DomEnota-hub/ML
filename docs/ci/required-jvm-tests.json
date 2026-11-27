@@ -479,6 +479,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.ReadModelGuardWindowTest#repeatedObservationsAreBoundedAndDrainedWithoutLosingFirstOrCount": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.ReadModelGuardWindowTest#rolloverAndDifferentReasonsRemainDistinctAndClearDropsPendingRepeats": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.logging.SafeNetworkAddressTest#diagnosticHidesPathAndQueryValuesButKeepsStableFingerprint": {
     "skipped": false,
     "failed": false

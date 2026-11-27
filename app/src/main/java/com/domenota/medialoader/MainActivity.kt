@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val startupAt = android.os.SystemClock.uptimeMillis()
         AppLog.init(applicationContext)
+        AppLog.d("App","ACTIVITY_CREATE restored=${savedInstanceState!=null} effectiveTheme=${if(com.domenota.medialoader.ui.theme.appThemeIsDark(this))"dark" else "light"}")
         com.domenota.medialoader.core.logging.PerformanceLog.begin("activity_create")
         super.onCreate(savedInstanceState)
         currentPlayerRequests=com.domenota.medialoader.data.playback.CurrentPlayerRequestState.restore(savedInstanceState)

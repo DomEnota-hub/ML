@@ -514,6 +514,7 @@ fun SettingsScreen(
         !confirmEmptyTrash&&!sessionDialog&&!logsDialog&&!confirmClearAppLog)
     fun setRecoveryLabOpen(value: Boolean) {
         if (recoveryLabBusy || (value && !com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))) return
+        if(recoveryLabOpen!=value)AppLog.d("Settings","RECOVERY_LAB open=$value")
         recoveryLabOpen = value
     }
     LaunchedEffect(developerVisible,recoveryLabBusy){
@@ -956,6 +957,8 @@ fun SettingsScreen(
         if(themeMode!=key){
             themeMode=key
             prefs.edit().putString("theme",key).apply()
+            val effectiveDark=key=="dark"||(key=="system"&&(context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES)
+            AppLog.i("Settings","THEME selected=$key effective=${if(effectiveDark)"dark" else "light"} recreate=true")
             themeDialog=false
             (context as? Activity)?.recreate()
         }else themeDialog=false
@@ -1048,6 +1051,7 @@ fun SettingsScreen(
                     delay(3_000)
                     advancedDownloadToolsVisible = !advancedDownloadToolsVisible
                     prefs.edit().putBoolean("bulk_visible", advancedDownloadToolsVisible).apply()
+                    AppLog.d("Settings","ADVANCED_DOWNLOAD_TOOLS visible=$advancedDownloadToolsVisible")
                     AppNotice.post(context, if (advancedDownloadToolsVisible) {
                         "Дополнительные загрузки открыты"
                     } else {

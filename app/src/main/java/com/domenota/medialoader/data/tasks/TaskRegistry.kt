@@ -127,7 +127,9 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
         saved.value=TaskHistoryData(cutoff,merged.values.toList()); rebuild()
     }
     @Synchronized fun clearHistory() {
+        val count=saved.value.rows.size
         saved.value=TaskHistoryData(System.currentTimeMillis(),emptyList()); rebuild()
+        com.domenota.medialoader.core.logging.AppLog.d("TaskCenter","HISTORY_CLEAR status=memory_applied removed=$count")
     }
     private fun rebuild() {
         val now=System.currentTimeMillis()

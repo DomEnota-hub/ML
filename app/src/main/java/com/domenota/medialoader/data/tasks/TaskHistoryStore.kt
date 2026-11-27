@@ -72,10 +72,18 @@ internal object TaskHistoryStore {
     fun update(value: TaskSettings) {
         require(value.retention in TaskSettings.RETENTION)
         val context=app?:return
+        if(mutable.value==value)return
+        val old=mutable.value
         context.getSharedPreferences("task-center-settings",Context.MODE_PRIVATE).edit()
             .putInt("retention",value.retention).putBoolean("charging",value.charging)
             .putBoolean("batterySaver",value.batterySaver).putBoolean("notifications",value.notifications).apply()
         mutable.value=value; TaskCenter.registry.configure(value.retention)
+        com.domenota.medialoader.core.logging.AppLog.d("Settings","TASK_OPTIONS changed="+buildList{
+            if(old.retention!=value.retention)add("retention:${value.retention}")
+            if(old.charging!=value.charging)add("charging:${value.charging}")
+            if(old.batterySaver!=value.batterySaver)add("batterySaver:${value.batterySaver}")
+            if(old.notifications!=value.notifications)add("notifications:${value.notifications}")
+        }.joinToString(","))
     }
     fun waitReason(context: Context): TaskWait? {
         val s=mutable.value
