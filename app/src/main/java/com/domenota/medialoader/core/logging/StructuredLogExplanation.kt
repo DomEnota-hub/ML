@@ -148,6 +148,8 @@ internal object StructuredLogExplanation {
             "AudioWaveform" -> when {
                 event.startsWith("Could not decode peaks") -> "Не удалось декодировать данные для звуковой волны."
                 key == "BOOKMARK_WAVEFORM" -> join("Звуковая волна в редакторе закладок", f.label("cache", mapOf("HIT" to "Использован кеш", "MISS" to "В кеше не найдено")))
+                key == "WAVEFORM_DURATION_READ_FAILED" -> "Ошибка чтения длительности аудио; звуковая волна не создана. Причина не установлена."
+                key == "WAVEFORM_DURATION_MISSING" -> join("Длительность аудио недоступна; трек пропущен при подготовке звуковых волн, это не ошибка чтения", f.bool("versionProven", "Версия источника подтверждена", "Версия источника не подтверждена"))
                 else -> null
             }
             "MusicCompare" -> when {

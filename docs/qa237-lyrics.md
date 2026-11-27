@@ -18,3 +18,5 @@ Terminal checkpoints preserve original completion time and never restore a clear
 
 ## IV — integrated QA candidate 1.7.238 (298)
 Owner authorized final internal QA release cycle. Navigation verification includes a new Compose assertion for paused lyrics task progress and exactly advertised resume/cancel dispatch; archive profile covers all lyrics data tests, safety, lint, device-test compilation and QA ARM64 receipt. No stable qualification claimed. Run profiles sequentially on the same release SHA because combined dispatch is unavailable via the connected GitHub action. Real network, device recovery, visual and playback QA remain mandatory. Signing/delivery only after exact QA_ONLY handoff and verification.
+
+IV.1 integration run #297 failed (724 cases, one failure in JournalSourceInventoryTest): two new waveform duration log emitters lacked specific explanations. Add structured explanations that distinguish duration read failure from a skipped missing-duration track, preserve raw severity and expose version proof only when present, plus a regression. No assertions removed or skipped. Repeat navigation only after terminal failure and label removal.

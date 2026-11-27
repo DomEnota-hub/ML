@@ -58,6 +58,17 @@ class StructuredLogExplanationTest {
         val projection = LogDisplay.readable(entry("Perf", "LIBRARY_PROJECTIONS · MUSIC_BROWSE[initial=1,input=2,access=0,done=3,aborted=1,reuse=5,totalMs=25,maxMs=10]"))
         assertTrue(projection.contains("завершено 3")); assertTrue(projection.contains("повторно использовано 5"))
     }
+    @Test fun waveformDurationReadFailureAndMissingAreDistinct() {
+        val failure = entry("AudioWaveform", "WAVEFORM_DURATION_READ_FAILED", "DEBUG")
+        val missing = entry("AudioWaveform", "WAVEFORM_DURATION_MISSING versionProven=true", "DEBUG")
+        assertTrue(LogDisplay.readable(failure).contains("Ошибка чтения длительности"))
+        assertTrue(LogDisplay.readable(missing).contains("трек пропущен"))
+        assertTrue(LogDisplay.readable(missing).contains("Версия источника подтверждена"))
+        assertTrue(LogDisplay.readable(entry("AudioWaveform", "WAVEFORM_DURATION_MISSING versionProven=false")).contains("Версия источника не подтверждена"))
+        assertFalse(LogDisplay.readable(entry("AudioWaveform", "WAVEFORM_DURATION_MISSING")).contains("Версия источника"))
+        assertEquals("Звуковые волны", LogDisplay.groupName(failure))
+        assertEquals(LogTone.DEBUG, failure.tone)
+    }
     @Test fun unknownTagsAndDownloadNamesNeverBecomeFalseSuccess() {
         val unknown = entry("FuturePrivateTag", "MP3 stream verified · name=private")
         assertFalse(LogDisplay.readable(unknown).contains("проверку"))

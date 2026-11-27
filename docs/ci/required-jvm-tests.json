@@ -579,6 +579,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.StructuredLogExplanationTest#waveformDurationReadFailureAndMissingAreDistinct": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.logging.TaskJournalDisplayTest#readableTaskEventsNeverEchoUnknownFieldsOrCorrelation": {
     "skipped": false,
     "failed": false
