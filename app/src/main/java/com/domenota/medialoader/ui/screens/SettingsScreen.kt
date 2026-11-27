@@ -513,7 +513,7 @@ fun SettingsScreen(
         !confirmYouTubeSignOut&&!confirmVkSignOut&&!confirmRutubeSignOut&&!trashDialog&&
         !confirmEmptyTrash&&!sessionDialog&&!logsDialog&&!confirmClearAppLog)
     fun setRecoveryLabOpen(value: Boolean) {
-        if (recoveryLabBusy || (value && !com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))) return
+        if ((!value && recoveryLabBusy) || (value && !com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))) return
         if(recoveryLabOpen!=value)AppLog.d("Settings","RECOVERY_LAB open=$value")
         recoveryLabOpen = value
     }
@@ -979,7 +979,7 @@ fun SettingsScreen(
         )
     }
 
-    if ((developerVisible && recoveryLabOpen) || recoveryLabBusy) {
+    if (recoveryLabOpen && (developerVisible || recoveryLabBusy)) {
         androidx.activity.compose.BackHandler { setRecoveryLabOpen(false) }
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal=20.dp,vertical=12.dp)){
@@ -1443,7 +1443,7 @@ fun SettingsScreen(
                 SettingRow(Icons.Rounded.Science, "Лаборатория исправлений",
                     "Инструменты восстановления", grouped = true,
                     iconTone = SettingIconTone.RECOVERY_LAB,
-                    onClick = if (recoveryLabBusy) null else { { setRecoveryLabOpen(true) } })
+                    onClick = { setRecoveryLabOpen(true) })
             }
         }
     }

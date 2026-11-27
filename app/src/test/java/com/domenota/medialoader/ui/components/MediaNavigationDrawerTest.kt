@@ -215,4 +215,19 @@ class MediaNavigationDrawerTest{
         compose.onNodeWithTag("drawer-config-switch-HOME").performScrollTo().assertIsOn()
     }
 
+    @Test fun advancedDrawerEditorHidesAndRestoresExistingSelections(){
+        var advanced by mutableStateOf(false)
+        var configuration by mutableStateOf(DrawerConfiguration.DEFAULT.setVisible(DrawerEntry.BULK_DOWNLOAD,true).setVisible(DrawerEntry.VK_IMAGES,true))
+        val initial=configuration
+        compose.setContent { MaterialTheme {
+            DrawerSettingsScreen(configuration,true,{configuration=it},{},advancedToolsVisible=advanced)
+        } }
+        compose.onNodeWithTag("drawer-config-BULK_DOWNLOAD").assertDoesNotExist()
+        compose.onNodeWithTag("drawer-config-VK_IMAGES").assertDoesNotExist()
+        compose.runOnIdle{advanced=true}
+        compose.onNodeWithTag("drawer-config-switch-BULK_DOWNLOAD").performScrollTo().assertIsOn()
+        compose.onNodeWithTag("drawer-config-switch-VK_IMAGES").performScrollTo().assertIsOn()
+        compose.runOnIdle{advanced=false;assertEquals(initial,configuration)}
+        compose.onNodeWithTag("drawer-config-VK_IMAGES").assertDoesNotExist()
+    }
 }

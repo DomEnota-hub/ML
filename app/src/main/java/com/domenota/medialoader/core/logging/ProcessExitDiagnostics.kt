@@ -27,7 +27,7 @@ object ProcessExitDiagnostics {
                     else -> "reason_${info.reason}"
                 }
                 AppLog.w("ProcessExit",
-                    "Previous process exit · type=$kind · atMs=${info.timestamp} · atLocal=${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",java.util.Locale.US).format(java.util.Date(info.timestamp))} · status=${info.status} · pssKiB=${info.pss}")
+                    "Previous process exit · type=$kind · at=${info.timestamp} · atLocal=${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z",java.util.Locale.US).format(java.util.Date(info.timestamp))} · status=${info.status} · pssKiB=${info.pss}")
             }
             exits.lastOrNull()?.let { prefs.edit().putLong("latest_reported_exit", it.timestamp).apply() }
         }.onFailure { AppLog.w("ProcessExit", "Exit history read unavailable: ${it.javaClass.simpleName}") }

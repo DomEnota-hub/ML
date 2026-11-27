@@ -153,8 +153,9 @@ object AppLog {
             }.getOrDefault("")
         }.ifBlank { "Журнал пуст." }
         // Redact legacy viewer IDs in retained logs before export.
+        val legacyId=Regex("\\bid=[^\\s·]+")
         val safeBody=rawBody.lineSequence().joinToString("\n"){ line ->
-            if("[Viewer]" in line||"[History]" in line)line.replace(Regex("\\bid=[^\\s·]+"),"id=<redacted>") else line
+            if("[Viewer]" in line||"[History]" in line)line.replace(legacyId,"id=<redacted>") else line
         }
         val body = if (includeExplanations) LogExplanation.annotate(safeBody) else safeBody
         return buildString {

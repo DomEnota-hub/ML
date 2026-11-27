@@ -287,14 +287,22 @@ internal fun GalleryModeScreen(
         galleryDefaultQuickItems(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites)
     }
     val visibleDisplayed=grid?.visible.orEmpty()
-    LaunchedEffect(noteQuery,gridReady,visibleDisplayed,noteStatus,ocrStatus){
+    var lastSearchLog by remember(noteQuery,selection,source){mutableStateOf<String?>(null)}
+    var lastSearchLogAt by remember(noteQuery,selection,source){mutableStateOf(0L)}
+    LaunchedEffect(noteQuery,gridReady,visibleDisplayed,noteStatus,ocrStatus,selection,tab,detailOpen){
         val log=com.domenota.medialoader.core.logging.AppLog
-        if(log.isExtended()&&noteQuery.isNotEmpty()&&gridReady&&noteStatus!="PENDING"&&ocrStatus!="PENDING"){
+        // Only the public all-media scope. Never count explicitly opened hidden albums.
+        if(log.isExtended()&&noteQuery.isNotEmpty()&&gridReady&&selection=="all"&&tab==0&&!detailOpen&&noteStatus!="PENDING"&&ocrStatus!="PENDING"){
             delay(200)
-            val filename=visibleDisplayed.count{it.originalName.contains(noteQuery,true)}
-            val notesCount=visibleDisplayed.count{it.id in noteMatches}
-            val ocrCount=visibleDisplayed.count{it.id in ocrMatches}
-            log.d("GallerySearch","SEARCH result=${if(visibleDisplayed.isEmpty())"EMPTY_VISIBLE" else "MATCHES"} filename=$filename notes=$notesCount ocr=$ocrCount noteStatus=$noteStatus ocrStatus=$ocrStatus total=${visibleDisplayed.size}")
+            val counts=withContext(Dispatchers.Default){
+                val public=visibleDisplayed.filter{!it.isPrivate&&!it.hidden}
+                listOf(public.count{it.originalName.contains(noteQuery,true)},public.count{it.id in noteMatches},public.count{it.id in ocrMatches},public.size)
+            }
+            val message="SEARCH result=${if(counts[3]==0)"EMPTY_VISIBLE" else "MATCHES"} filename=${counts[0]} notes=${counts[1]} ocr=${counts[2]} noteStatus=$noteStatus ocrStatus=$ocrStatus total=${counts[3]}"
+            val now=android.os.SystemClock.elapsedRealtime()
+            if(message!=lastSearchLog&&(lastSearchLog==null||now-lastSearchLogAt>=15_000L||ocrStatus in setOf("COMPLETE","EMPTY","ERROR","BLOCKED"))){
+                log.d("GallerySearch",message);lastSearchLog=message;lastSearchLogAt=now
+            }
         }
     }
     val orderedDisplayed=grid?.ordered.orEmpty()

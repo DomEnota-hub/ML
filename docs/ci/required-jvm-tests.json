@@ -8390,6 +8390,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#advancedDrawerEditorHidesAndRestoresExistingSelections": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.components.MediaNavigationDrawerTest#beforeNavigationPreservesScreenStateAndRejectsBlockedOrFailedExit": {
     "skipped": false,
     "failed": false
@@ -9527,6 +9531,14 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.SourceBrowserLinkTest#youtubeShortShareLinkNavigatesAndResolvesCanonicalVideo": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.ThemeModeDialogTest#allThreeModesAreSelectableAndSystemIsDistinct": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.ThemeModeDialogTest#darkPreviewKeepsAllModesAvailable": {
     "skipped": false,
     "failed": false
   },
