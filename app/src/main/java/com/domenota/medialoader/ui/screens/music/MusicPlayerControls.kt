@@ -38,10 +38,16 @@ internal fun MusicPlayerControls(
     bookmarks: (@Composable () -> Unit)? = null,
 ) {
     var scrub by remember(item.id,item.savedUri,durationMs) { mutableStateOf<Float?>(null) }
+    var bookmarksOpen by remember(item.id,item.savedUri,bookmarks != null) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
-            Text("Сейчас играет", Modifier.weight(1f), fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Сейчас играет", Modifier.weight(1f), fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (bookmarks != null) IconButton(onClick = { bookmarksOpen = !bookmarksOpen }) {
+                Icon(if (bookmarksOpen) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                    if (bookmarksOpen) "Свернуть закладки" else "Закладки",
+                    tint = if (bookmarksOpen) musicPlaybackAccent else MaterialTheme.colorScheme.onSurface)
+            }
             MusicStopTimerAction(player != null)
             if (onEdit != null) {
                 IconButton(onClick = onEdit) {
@@ -67,7 +73,7 @@ internal fun MusicPlayerControls(
                 Text(time(scrub?.toLong() ?: positionMs), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(if(durationMs>0L)time(durationMs) else "--:--", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            bookmarks?.invoke()
+            if (bookmarksOpen) bookmarks?.invoke()
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 15.dp), horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically) {

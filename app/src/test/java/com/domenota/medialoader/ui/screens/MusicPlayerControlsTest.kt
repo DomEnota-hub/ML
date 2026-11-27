@@ -2,6 +2,10 @@ package com.domenota.medialoader.ui.screens
 
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.media3.common.MediaItem
@@ -23,6 +27,29 @@ import org.robolectric.annotation.*
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MusicPlayerControlsTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @Test fun bookmarksUseHeaderToggleAndCloseOnTrackChange() {
+        var track by mutableStateOf(DownloadEntity("a", "device", "Track", MediaType.AUDIO,
+            DownloadState.COMPLETED, "content://media/42", null, 0))
+        compose.setContent { MaterialTheme {
+            MusicPlayerControls(track, null, 60_000, 180_000, false, false, Player.REPEAT_MODE_OFF, 1f,
+                onBack = {}, onEqualizer = null, onQueue = {}, onFavorite = null, onEdit = {},
+                bookmarks = { Text("Тестовый список закладок") })
+        } }
+        val button = compose.onNodeWithContentDescription("Закладки")
+        button.assertIsDisplayed()
+        compose.onNodeWithText("Тестовый список закладок").assertDoesNotExist()
+        assertTrue(button.fetchSemanticsNode().boundsInRoot.right <=
+            compose.onNodeWithContentDescription("Остановка воспроизведения").fetchSemanticsNode().boundsInRoot.left)
+        button.performClick()
+        compose.onNodeWithText("Тестовый список закладок").assertExists()
+        compose.onNodeWithContentDescription("Свернуть закладки").performClick()
+        compose.onNodeWithText("Тестовый список закладок").assertDoesNotExist()
+        button.performClick()
+        compose.runOnIdle { track = track.copy(id = "b", savedUri = "content://media/43") }
+        compose.onNodeWithText("Тестовый список закладок").assertDoesNotExist()
+        button.assertIsDisplayed()
+    }
+
     @Test fun playerActionsReachSessionAndSecondaryControlsRemainReachable() {
         val player = ExoPlayer.Builder(compose.activity).build()
         val track = DownloadEntity("a", "device", "Track", MediaType.AUDIO, DownloadState.COMPLETED, "content://media/42", null, 0)

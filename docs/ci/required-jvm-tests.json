@@ -9342,6 +9342,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.MusicPlayerControlsTest#bookmarksUseHeaderToggleAndCloseOnTrackChange": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.MusicPlayerControlsTest#playerActionsReachSessionAndSecondaryControlsRemainReachable": {
     "skipped": false,
     "failed": false

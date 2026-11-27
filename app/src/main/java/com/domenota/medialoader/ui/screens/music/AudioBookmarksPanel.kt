@@ -47,7 +47,6 @@ internal fun AudioBookmarksPanel(
     val accessKey = remember(identity, blocked, privacyEpoch, permissionEpoch, recovery) { Any() }
     var access by remember(accessKey) { mutableStateOf<AudioBookmarkAdmission?>(null) }
     var marks by remember(accessKey) { mutableStateOf<List<AudioBookmark>>(emptyList()) }
-    var open by remember(accessKey) { mutableStateOf(false) }
     var pending by remember(accessKey) { mutableStateOf<Long?>(null) }
     var name by remember(accessKey) { mutableStateOf("") }
     var busy by remember(accessKey) { mutableStateOf(false) }
@@ -97,7 +96,6 @@ internal fun AudioBookmarksPanel(
                 if (currentMedia() != null && accessKey === latestKey) {
                     marks = changed
                     access = fresh
-                    if (pending != null) open = true
                     pending = null
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -126,9 +124,8 @@ internal fun AudioBookmarksPanel(
 
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween) {
-        TextButton(onClick = { open = !open; if (open && !ready) retry++ }) {
-            Text(if (ready) "Закладки (${marks.size})" else "Закладки")
-        }
+        Text(if (ready) "Закладки (${marks.size})" else "Закладки",
+            color = musicPlaybackAccent, style = MaterialTheme.typography.titleSmall)
         IconButton(onClick = {
             val actual = player.duration.takeIf { it > 0 } ?: durationMs
             AudioBookmarkIdentity.position(player.currentPosition, actual)?.let {
@@ -138,56 +135,54 @@ internal fun AudioBookmarksPanel(
             Icon(Icons.Rounded.BookmarkAdd, "Добавить закладку")
         }
     }
-    if (open) {
-        if (!ready) {
-            Text(if (loadingAccess) "Проверка доступа…" else "Закладки недоступны",
-                style = MaterialTheme.typography.bodySmall)
-            if (!loadingAccess) TextButton(onClick = { retry++ }) { Text("Повторить") }
-        } else {
-            val uri = access?.ref?.item?.savedUri
-            var peaks by remember(accessKey, uri, durationMs) { mutableStateOf<FloatArray?>(null) }
-            var loading by remember(accessKey, uri, durationMs) { mutableStateOf(true) }
-            LaunchedEffect(accessKey, uri, durationMs) {
-                if (uri == null || durationMs <= 0) { loading = false; return@LaunchedEffect }
-                val job = currentCoroutineContext()[Job]
-                try {
-                    authorize()
-                    val result = withContext(Dispatchers.IO) {
-                        val parsed = Uri.parse(uri)
-                        val raw = readCachedAudioWaveform(context, parsed, durationMs)
-                            ?: loadAudioWaveform(context, parsed, durationMs, isCancelled = { job?.isActive == false })
-                        raw.takeIf { it.isNotEmpty() }?.let { waveformColumnPeaks(it, 128) }
-                    }
-                    authorize()
-                    if (currentMedia() != null && accessKey === latestKey) peaks = result
-                } catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { peaks = null }
-                finally { loading = false }
-            }
-            val valid = marks.filter { AudioBookmarkIdentity.position(it.positionMs, durationMs) != null }
-            val fractions = valid.map { (it.positionMs.toDouble() / durationMs).toFloat() }
-            val wave = peaks
-            if (wave != null && durationMs > 0) {
-                AudioWaveform(wave, (positionMs.toDouble() / durationMs).toFloat().coerceIn(0f, 1f),
-                    onSeekFraction = { fraction ->
-                        val position = (fraction.toDouble() * durationMs).toLong().coerceIn(0, durationMs - 1)
-                        val nearest = valid.minByOrNull { kotlin.math.abs(it.positionMs - position) }
-                        seek(nearest?.positionMs?.takeIf { kotlin.math.abs(it - position) <= durationMs * 0.025 } ?: position)
-                    }, accentColor = musicPlaybackAccent, markers = fractions, dragSeek = false)
-            } else Text(if (loading) "Загрузка звуковой волны…" else "Звуковая волна недоступна",
-                style = MaterialTheme.typography.bodySmall)
-            if (marks.isEmpty()) Text("Нет закладок", style = MaterialTheme.typography.bodySmall)
-            marks.forEach { mark ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).clickable(enabled = mark in valid && seekAvailable && !busy) { seek(mark.positionMs) }
-                        .padding(vertical = 8.dp)) {
-                        Text(mark.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(bookmarkTime(mark.positionMs), style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    IconButton(onClick = { perform { store.delete(it, mark.id) } }, enabled = !busy) {
-                        Icon(Icons.Rounded.DeleteOutline, "Удалить закладку")
-                    }
+    if (!ready) {
+        Text(if (loadingAccess) "Проверка доступа…" else "Закладки недоступны",
+            style = MaterialTheme.typography.bodySmall)
+        if (!loadingAccess) TextButton(onClick = { retry++ }) { Text("Повторить") }
+    } else {
+        val uri = access?.ref?.item?.savedUri
+        var peaks by remember(accessKey, uri, durationMs) { mutableStateOf<FloatArray?>(null) }
+        var loading by remember(accessKey, uri, durationMs) { mutableStateOf(true) }
+        LaunchedEffect(accessKey, uri, durationMs) {
+            if (uri == null || durationMs <= 0) { loading = false; return@LaunchedEffect }
+            val job = currentCoroutineContext()[Job]
+            try {
+                authorize()
+                val result = withContext(Dispatchers.IO) {
+                    val parsed = Uri.parse(uri)
+                    val raw = readCachedAudioWaveform(context, parsed, durationMs)
+                        ?: loadAudioWaveform(context, parsed, durationMs, isCancelled = { job?.isActive == false })
+                    raw.takeIf { it.isNotEmpty() }?.let { waveformColumnPeaks(it, 128) }
+                }
+                authorize()
+                if (currentMedia() != null && accessKey === latestKey) peaks = result
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { peaks = null }
+            finally { loading = false }
+        }
+        val valid = marks.filter { AudioBookmarkIdentity.position(it.positionMs, durationMs) != null }
+        val fractions = valid.map { (it.positionMs.toDouble() / durationMs).toFloat() }
+        val wave = peaks
+        if (wave != null && durationMs > 0) {
+            AudioWaveform(wave, (positionMs.toDouble() / durationMs).toFloat().coerceIn(0f, 1f),
+                onSeekFraction = { fraction ->
+                    val position = (fraction.toDouble() * durationMs).toLong().coerceIn(0, durationMs - 1)
+                    val nearest = valid.minByOrNull { kotlin.math.abs(it.positionMs - position) }
+                    seek(nearest?.positionMs?.takeIf { kotlin.math.abs(it - position) <= durationMs * 0.025 } ?: position)
+                }, accentColor = musicPlaybackAccent, markers = fractions, dragSeek = false)
+        } else Text(if (loading) "Загрузка звуковой волны…" else "Звуковая волна недоступна",
+            style = MaterialTheme.typography.bodySmall)
+        if (marks.isEmpty()) Text("Нет закладок", style = MaterialTheme.typography.bodySmall)
+        marks.forEach { mark ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).clickable(enabled = mark in valid && seekAvailable && !busy) { seek(mark.positionMs) }
+                    .padding(vertical = 8.dp)) {
+                    Text(mark.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(bookmarkTime(mark.positionMs), style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = { perform { store.delete(it, mark.id) } }, enabled = !busy) {
+                    Icon(Icons.Rounded.DeleteOutline, "Удалить закладку")
                 }
             }
         }
