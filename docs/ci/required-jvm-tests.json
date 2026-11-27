@@ -6262,6 +6262,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.LyricsBatchPlanTest#terminalCheckpointPreservesActualCompletionTime": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.MusicLoudnessTest#absoluteAndRelativeGatesExcludeSilentTail": {
     "skipped": false,
     "failed": false

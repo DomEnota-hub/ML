@@ -100,8 +100,8 @@ internal class LocalTrackLyrics(private val context:Context) {
             try {
                 retriever.setDataSource(context,uri)
                 LyricsTrackSignature(
-                    row.recognizedTitle ?: retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE) ?: row.sourceAudioTitle.orEmpty(),
-                    row.recognizedArtist ?: retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST) ?: row.sourceAudioArtist.orEmpty(),
+                    row.recognizedTitle?.takeIf{it.isNotBlank()} ?: retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_TITLE)?.takeIf{it.isNotBlank()} ?: row.sourceAudioTitle?.takeUnless{it.equals(row.originalName,true)||it.equals(row.originalName.substringBeforeLast('.'),true)}.orEmpty(),
+                    row.recognizedArtist?.takeIf{it.isNotBlank()} ?: retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ARTIST)?.takeIf{it.isNotBlank()&&it!="<unknown>"} ?: row.sourceAudioArtist.orEmpty(),
                     row.recognizedAlbum ?: retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_ALBUM),
                     retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L)
             } finally { retriever.release() }

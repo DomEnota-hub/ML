@@ -30,6 +30,14 @@ class LyricsBatchPlanTest {
         assertTrue(plan.failed.isEmpty())
         assertEquals(TaskStatus.COMPLETE,LyricsBatchPlan.fresh(keys.take(1)).advance(LyricsBatchOutcome.DOWNLOADED).finish().status)
     }
+    @Test fun terminalCheckpointPreservesActualCompletionTime() {
+        val plan=LyricsBatchPlan.fresh(keys.take(1),now=100L).advance(LyricsBatchOutcome.CACHED).finish(200L)
+        val restored=LyricsBatchCodec.decode(LyricsBatchCodec.encode(plan))
+        assertEquals(200L,restored.finishedAt)
+        assertEquals(TaskStatus.COMPLETE,restored.status)
+        assertEquals(plan,restored)
+        assertEquals(300L,LyricsBatchPlan.fresh(keys,now=100L).terminal(TaskStatus.CANCELLED,300L).finishedAt)
+    }
     @Test fun invalidCheckpointRejectsRawAddressesAndUnprovenResults() {
         assertTrue(runCatching{LyricsBatchPlan.fresh(listOf("content://media/audio/123"))}.isFailure)
         val valid=LyricsBatchPlan.fresh(keys)

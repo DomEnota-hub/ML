@@ -338,7 +338,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         else if(row.active)LinearProgressIndicator(Modifier.fillMaxWidth().height(5.dp),color=color,trackColor=MaterialTheme.colorScheme.outlineVariant)
     }
     if(row.errors>0)Text(if(row.kind==TaskKind.OCR) "Ошибки файлов: ${row.errors}" else "Ошибки обработки: ${row.errors}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.error)
-    if(row.status.terminal)row.details?.outcomes?.let{v->Text("Создано: "+v.generated+" · В кэше: "+v.cached+" · Пропущено: "+v.skipped,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+    if(row.status.terminal)row.details?.outcomes?.let{v->Text((if(row.kind==TaskKind.LYRICS)"Получено: " else "Создано: ")+v.generated+" · "+(if(row.kind==TaskKind.LYRICS)"Уже доступны: " else "В кэше: ")+v.cached+" · Пропущено: "+v.skipped,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
     TaskCommands(row,command)
 }
 @OptIn(ExperimentalLayoutApi::class)
@@ -381,13 +381,14 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
     details?.outcomes?.let{outcomes->
         Text("Результат обработки",style=MaterialTheme.typography.titleSmall)
         DetailLine("Проверено",outcomes.checked.toString())
-        DetailLine("Создано",outcomes.generated.toString())
-        DetailLine("Уже в кэше",outcomes.cached.toString())
+        DetailLine(if(row.kind==TaskKind.LYRICS)"Получено" else "Создано",outcomes.generated.toString())
+        DetailLine(if(row.kind==TaskKind.LYRICS)"Уже доступны" else "Уже в кэше",outcomes.cached.toString())
         DetailLine("Пропущено",outcomes.skipped.toString())
         if(row.kind==TaskKind.WAVEFORM&&outcomes.skipped>0)Text("Пропуски не равны ошибкам: для части треков длительность могла быть недоступна",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        if(row.kind==TaskKind.LYRICS&&outcomes.skipped>0)Text("Пропуски: нет однозначного текста, недостаточно метаданных или версия недоступна",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         DetailLine("Ошибки",outcomes.failed.toString())
     }
-    if(row.errors>0||row.status==TaskStatus.FAILED){
+    if(row.errors>0||row.status==TaskStatus.FAILED||row.kind==TaskKind.LYRICS&&details?.failure!=null){
         val failure=details?.failure
         Text(failure?.label?:"Причина не сохранена",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)
         if(details?.outcomes==null&&row.errors>0)DetailLine("Ошибки",row.errors.toString())

@@ -15,6 +15,7 @@ internal object LyricsBatchCoordinator {
     private val idle=TaskReporter.create(TaskOwner.LYRICS,TaskKind.LYRICS,"lyrics-idle")
     private var initialized=false
     private var job:Job?=null
+    private var activeToken:TaskCorrelation?=null
     private var plan:LyricsBatchPlan?=null
     @Volatile private var stop=Stop.NONE
 
@@ -35,9 +36,16 @@ internal object LyricsBatchCoordinator {
                 else {
                     // If a process stopped after the checkpoint but before history flush,
                     // the same correlation restores the actual terminal row, not a new job.
-                    if(restored!=null)reporter(restored.token).report(restored.status,
-                        files=countProgress(restored.cursor,restored.keys.size),errors=restored.outcomes.failed,
-                        details=restored.details(true))
+                    if(restored!=null) {
+                        val id=taskId(TaskOwner.LYRICS,restored.token.value)
+                        val ended=requireNotNull(restored.finishedAt)
+                        val history=TaskCenter.registry.history.value
+                        if(ended>history.clearedAt && history.rows.none{it.id==id}){
+                            TaskCenter.registry.record(TaskOwner.LYRICS,TaskSnapshot(id,TaskKind.LYRICS,restored.status,
+                                files=countProgress(restored.cursor,restored.keys.size),errors=restored.outcomes.failed,
+                                updatedAt=ended,details=restored.details(true)))
+                        }
+                    }
                     showIdle()
                 }
             }
@@ -50,16 +58,16 @@ internal object LyricsBatchCoordinator {
             when(command){TaskCommand.RESUME->launch(Action.NEW);TaskCommand.RETRY->launch(Action.RETRY);else->Unit}
         })
     }
-    private fun showPaused(value:LyricsBatchPlan,recovered:Boolean=false) {
+    private fun showPaused(value:LyricsBatchPlan,recovered:Boolean=false,failure:TaskFailure?=null) {
         reporter(value.token).report(TaskStatus.PAUSED,files=countProgress(value.cursor,value.keys.size),
-            errors=value.outcomes.failed,details=value.details(recovered),commands=setOf(TaskCommand.RESUME,TaskCommand.CANCEL),onCommand={command->
+            errors=value.outcomes.failed,details=value.details(recovered).let{if(failure!=null)it.copy(failure=failure)else it},commands=setOf(TaskCommand.RESUME,TaskCommand.CANCEL),onCommand={command->
                 when(command){TaskCommand.RESUME->launch(Action.RESUME,value.token);TaskCommand.CANCEL->launch(Action.CANCEL_PAUSED,value.token);else->Unit}
             })
     }
     @Synchronized private fun launch(action:Action,expected:TaskCorrelation?=null) {
         if(job!=null)return
         val previous=plan
-        if(expected!=null&&(previous?.token!=expected||previous.status.terminal))return
+        if(expected!=null&&(previous==null||previous.token!=expected||previous.status.terminal))return
         if(action==Action.RETRY&&previous?.failed.isNullOrEmpty())return
         if(action in setOf(Action.RESUME,Action.CANCEL_PAUSED)&&previous==null)return
         if(action in setOf(Action.NEW,Action.RETRY)&&previous!=null&&!previous.status.terminal)return
@@ -68,10 +76,10 @@ internal object LyricsBatchCoordinator {
         val report=reporter(token)
         idle.remove()
         val task=scope.launch(start=CoroutineStart.LAZY){ execute(action,previous,token,report) }
-        job=task;task.start()
+        activeToken=token;job=task;task.start()
     }
-    @Synchronized private fun requestStop(value:Stop) {
-        if(job!=null&&stop==Stop.NONE)stop=value
+    @Synchronized private fun requestStop(token:TaskCorrelation,value:Stop) {
+        if(job!=null&&activeToken==token&&stop==Stop.NONE)stop=value
     }
     private suspend fun execute(action:Action,previous:LyricsBatchPlan?,token:TaskCorrelation,report:TaskReporter) {
         var current=if(action==Action.RESUME||action==Action.CANCEL_PAUSED)previous else null
@@ -86,13 +94,13 @@ internal object LyricsBatchCoordinator {
             report.report(status,files=value?.let{countProgress(it.cursor,it.keys.size)},errors=value?.outcomes?.failed?:0,
                 wait=wait,stage=stage,details=value?.details(recovered)?:TaskDetails(correlation=token,trigger=TaskTrigger.USER),
                 commands=commands,onCommand={command->when(command){
-                    TaskCommand.CANCEL->requestStop(Stop.CANCEL);TaskCommand.PAUSE->requestStop(Stop.PAUSE);else->Unit
+                    TaskCommand.CANCEL->requestStop(token,Stop.CANCEL);TaskCommand.PAUSE->requestStop(token,Stop.PAUSE);else->Unit
                 }})
         }
         fun checkpoint(value:LyricsBatchPlan){store.save(value);current=value;synchronized(this){plan=value}}
         try {
             if(action==Action.CANCEL_PAUSED){
-                checkpoint(requireNotNull(current).copy(status=TaskStatus.CANCELLED))
+                checkpoint(requireNotNull(current).terminal(TaskStatus.CANCELLED))
             } else {
                 publish(TaskStatus.WAITING,TaskWait.CATALOG)
                 val catalog=LyricsBatchCatalog.read(app,::keepGoing)
@@ -140,14 +148,14 @@ internal object LyricsBatchCoordinator {
                                 when(result){
                                     is LyricsLookup.RetryLater->{
                                         val now=System.currentTimeMillis()
-                                        val delta=result.seconds.coerceIn(1L,Long.MAX_VALUE/2000)*1000
+                                        val delta=result.seconds.coerceIn(1L,Long.MAX_VALUE/2000)*1000+1000L
                                         checkpoint(value.copy(retryNotBefore=maxOf(value.retryNotBefore,now+delta)))
                                         continue
                                     }
                                     is LyricsLookup.Matches->{
                                         val hit=LrclibProtocol.automatic(target.signature,result.hits)
                                         val lyrics=hit?.lyrics
-                                        if(lyrics!=null&&!hit.candidate.instrumental){
+                                        if(hit!=null&&lyrics!=null&&!hit.candidate.instrumental){
                                             publish(TaskStatus.RUNNING,stage=TaskStage.SAVING)
                                             outcome=if(local.saveNetwork(access,target,lyrics,::allowed)!=null)LyricsBatchOutcome.DOWNLOADED
                                                 else if(local.read(access,::allowed)!=null)LyricsBatchOutcome.CACHED
@@ -177,7 +185,7 @@ internal object LyricsBatchCoordinator {
             withContext(NonCancellable) {
                 val saved=current
                 if(saved!=null&&stop==Stop.CANCEL&&!saved.status.terminal){
-                    runCatching{checkpoint(saved.copy(status=TaskStatus.CANCELLED))}
+                    runCatching{checkpoint(saved.terminal(TaskStatus.CANCELLED))}
                         .onFailure{finalFailure=TaskFailure.CACHE_WRITE}
                 }
                 val value=current
@@ -197,9 +205,9 @@ internal object LyricsBatchCoordinator {
                         details=value.details(recovered).copy(failure=finalFailure))
                 }
                 synchronized(this@LyricsBatchCoordinator){
-                    job=null;stop=Stop.NONE
+                    job=null;activeToken=null;stop=Stop.NONE
                     val live=plan
-                    if(live!=null&&!live.status.terminal)showPaused(live,recovered) else showIdle()
+                    if(live!=null&&!live.status.terminal)showPaused(live,recovered,finalFailure) else showIdle()
                 }
             }
         }

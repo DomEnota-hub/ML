@@ -28,9 +28,15 @@ class PhoneMediaLibrary(context: Context) {
 
     internal suspend fun scanSnapshot(mode: AppMode, previous: PhoneMediaSnapshot? = null,
         protectedPhysicalKeys: Set<String> = emptySet(),
-        requireComplete:Boolean=false,
         onProgress: (suspend (PhoneMediaSnapshot) -> Unit)? = null,
-    ): PhoneMediaSnapshot = withContext(Dispatchers.IO) {
+    ): PhoneMediaSnapshot = scanSnapshotImpl(mode,previous,protectedPhysicalKeys,false,onProgress)
+
+    internal suspend fun scanCompleteAudioSnapshot(protectedPhysicalKeys:Set<String>):PhoneMediaSnapshot =
+        scanSnapshotImpl(AppMode.MUSIC,null,protectedPhysicalKeys,true,null)
+
+    private suspend fun scanSnapshotImpl(mode:AppMode,previous:PhoneMediaSnapshot?,
+        protectedPhysicalKeys:Set<String>,requireComplete:Boolean,
+        onProgress:(suspend (PhoneMediaSnapshot)->Unit)?):PhoneMediaSnapshot = withContext(Dispatchers.IO) {
         com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
             com.domenota.medialoader.core.logging.LibraryWork.MEDIASTORE_SCAN)
         val editedAudio = AudioEditedTags.marked(context)

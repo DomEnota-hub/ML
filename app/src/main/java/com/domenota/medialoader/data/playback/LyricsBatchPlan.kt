@@ -12,15 +12,17 @@ internal data class LyricsBatchPlan(
     val token:TaskCorrelation, val startedAt:Long, val keys:List<String>,
     val cursor:Int=0, val outcomes:TaskOutcomes=TaskOutcomes(),
     val failed:List<String> = emptyList(), val status:TaskStatus=TaskStatus.PAUSED,
-    val retryNotBefore:Long=0L,
+    val retryNotBefore:Long=0L, val finishedAt:Long?=null,
 ) {
     init {
         require(startedAt>=0 && retryNotBefore>=0 && keys.size<=50000)
         require(keys.distinct().size==keys.size && keys.all{it.matches(Regex("[0-9a-f]{64}"))})
         require(cursor in 0..keys.size && outcomes.checked==cursor)
         require(failed.distinct().size==failed.size && failed.size==outcomes.failed)
-        require(failed.all{it in keys.take(cursor).toHashSet()})
+        val processed=keys.take(cursor).toHashSet()
+        require(failed.all{it in processed})
         require(status==TaskStatus.PAUSED || status.terminal)
+        require(status.terminal==(finishedAt!=null) && (finishedAt==null || finishedAt>=startedAt))
         if(status==TaskStatus.COMPLETE || status==TaskStatus.PARTIAL)require(cursor==keys.size)
     }
     fun advance(result:LyricsBatchOutcome):LyricsBatchPlan {
@@ -33,7 +35,11 @@ internal data class LyricsBatchPlan(
         }
         return copy(cursor=cursor+1,outcomes=next,failed=if(result==LyricsBatchOutcome.FAILED)failed+keys[cursor] else failed)
     }
-    fun finish()=copy(status=if(outcomes.failed>0||outcomes.skipped>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE)
+    fun terminal(value:TaskStatus,now:Long=System.currentTimeMillis()):LyricsBatchPlan {
+        require(value.terminal)
+        return copy(status=value,finishedAt=maxOf(now,startedAt))
+    }
+    fun finish(now:Long=System.currentTimeMillis())=terminal(if(outcomes.failed>0||outcomes.skipped>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE,now)
     fun details(recovered:Boolean=false)=TaskDetails(correlation=token,startedAt=startedAt,trigger=TaskTrigger.USER,
         outcomes=outcomes,recovered=recovered,failure=TaskFailure.UNKNOWN.takeIf{outcomes.failed>0})
     companion object {
@@ -47,7 +53,7 @@ internal object LyricsBatchCodec {
         .put("token",plan.token.value).put("started",plan.startedAt).put("keys",JSONArray(plan.keys))
         .put("cursor",plan.cursor).put("cached",plan.outcomes.cached).put("downloaded",plan.outcomes.generated)
         .put("skipped",plan.outcomes.skipped).put("failedCount",plan.outcomes.failed)
-        .put("failed",JSONArray(plan.failed)).put("status",plan.status.name).put("retryNotBefore",plan.retryNotBefore)
+        .put("failed",JSONArray(plan.failed)).put("status",plan.status.name).put("retryNotBefore",plan.retryNotBefore).put("finishedAt",plan.finishedAt?:JSONObject.NULL)
     fun decode(o:JSONObject):LyricsBatchPlan {
         require(o.getInt("schema")==1)
         fun keys(name:String):List<String> {
@@ -57,7 +63,8 @@ internal object LyricsBatchCodec {
         }
         return LyricsBatchPlan(requireNotNull(TaskCorrelation.parse(o.getString("token"))),o.getLong("started"),
             keys("keys"),o.getInt("cursor"),TaskOutcomes(o.getInt("cached"),o.getInt("downloaded"),o.getInt("skipped"),o.getInt("failedCount")),
-            keys("failed"),TaskStatus.valueOf(o.getString("status")),o.optLong("retryNotBefore",0L))
+            keys("failed"),TaskStatus.valueOf(o.getString("status")),o.optLong("retryNotBefore",0L),
+            if(o.isNull("finishedAt"))null else o.getLong("finishedAt"))
     }
 }
 internal class LyricsBatchStore(context:Context) {

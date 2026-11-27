@@ -48,7 +48,7 @@ internal class LyricsBatchCatalog private constructor(
                 if(gate.allowsLyricsRef(app,ref))appRefs.add(ref)
             }
             checkCurrent()
-            val phone=PhoneMediaLibrary(app).scanSnapshot(AppMode.MUSIC,protectedPhysicalKeys=gate.lyricsProtectedKeys(),requireComplete=true)
+            val phone=PhoneMediaLibrary(app).scanCompleteAudioSnapshot(gate.lyricsProtectedKeys())
             checkCurrent()
             val phoneRefs=mutableListOf<LibraryMediaRef>()
             for(row in phone.items){
