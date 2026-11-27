@@ -1,6 +1,12 @@
 package com.domenota.medialoader.ui.screens
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,13 +24,21 @@ internal fun DownloadNetworkDialog(current: DownloadNetworkPolicy, onDismiss: ()
     var thresholdMenu by remember { mutableStateOf(false) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Условия сети") },
         text = {
-            Column {
-                DownloadNetworkMode.entries.forEach { mode ->
-                    val choose = { draft = draft.copy(mode = mode) }
-                    Row(Modifier.fillMaxWidth().clickable(onClick = choose),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = draft.mode == mode, onClick = choose)
-                        Text(mode.label, Modifier.weight(1f))
+            Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.selectableGroup(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    DownloadNetworkMode.entries.forEach { mode ->
+                        val detail=when(mode){
+                            DownloadNetworkMode.ANY->"Wi-Fi и мобильная сеть"
+                            DownloadNetworkMode.WIFI->"Все загрузки ждут Wi-Fi"
+                            DownloadNetworkMode.LARGE_WIFI->"Ограничение для файлов заданного размера"
+                        }
+                        val icon=when(mode){
+                            DownloadNetworkMode.ANY->Icons.Rounded.SwapHoriz
+                            DownloadNetworkMode.WIFI->Icons.Rounded.Wifi
+                            DownloadNetworkMode.LARGE_WIFI->Icons.Rounded.Download
+                        }
+                        SettingsChoiceCard(mode.label,detail,draft.mode==mode,icon,{draft=draft.copy(mode=mode)})
                     }
                 }
                 if (draft.mode == DownloadNetworkMode.LARGE_WIFI) {

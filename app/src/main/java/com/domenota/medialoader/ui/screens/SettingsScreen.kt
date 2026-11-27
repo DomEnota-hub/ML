@@ -577,7 +577,7 @@ fun SettingsScreen(
             }) { Text("Проверить") }
         },
         dismissButton = {
-            TextButton(onClick = { onInstagramSignOut(); confirmInstagramSignOut = false }) { Text("Выйти") }
+            TextButton(onClick = { onInstagramSignOut(); confirmInstagramSignOut = false }) { Text("Выйти", color = MaterialTheme.colorScheme.error) }
         },
     )
 
@@ -586,7 +586,7 @@ fun SettingsScreen(
         title = { Text("Выйти из YouTube?") },
         text = { Text("Сохранённая для yt-dlp сессия YouTube будет удалена.") },
         confirmButton = {
-            TextButton(onClick = { onYouTubeSignOut(); confirmYouTubeSignOut = false }) { Text("Выйти") }
+            TextButton(onClick = { onYouTubeSignOut(); confirmYouTubeSignOut = false }) { Text("Выйти", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = { TextButton(onClick = { confirmYouTubeSignOut = false }) { Text("Отмена") } },
     )
@@ -596,7 +596,7 @@ fun SettingsScreen(
         title = { Text("Выйти из VK?") },
         text = { Text("Сессия загрузчика и cookies ВК во встроенном браузере будут удалены. Сессии других источников сохранятся.") },
         confirmButton = {
-            TextButton(onClick = { onVkSignOut(); confirmVkSignOut = false }) { Text("Выйти") }
+            TextButton(onClick = { onVkSignOut(); confirmVkSignOut = false }) { Text("Выйти", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = { TextButton(onClick = { confirmVkSignOut = false }) { Text("Отмена") } },
     )
@@ -606,7 +606,7 @@ fun SettingsScreen(
         title = { Text("Выйти из RUTUBE?") },
         text = { Text("Сохранённая веб-сессия RUTUBE будет удалена.") },
         confirmButton = {
-            TextButton(onClick = { onRutubeSignOut(); confirmRutubeSignOut = false }) { Text("Выйти") }
+            TextButton(onClick = { onRutubeSignOut(); confirmRutubeSignOut = false }) { Text("Выйти", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = { TextButton(onClick = { confirmRutubeSignOut = false }) { Text("Отмена") } },
     )
@@ -615,10 +615,11 @@ fun SettingsScreen(
         onDismissRequest = { sessionValue = ""; sessionDialog = false },
         title = { Text("Ввести sessionid") },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Это секретный ключ доступа к аккаунту. Вставляй только свой sessionid и никому его не отправляй. Работу сессии проверим по ссылке после сохранения.")
                 OutlinedTextField(
                     value = sessionValue,
+                    modifier = Modifier.fillMaxWidth(),
                     onValueChange = { sessionValue = it; sessionInvalid = false },
                     label = { Text("sessionid") },
                     visualTransformation = PasswordVisualTransformation(),
@@ -662,6 +663,7 @@ fun SettingsScreen(
                 TextButton(onClick = { folderDialog = false; onSelectFolder() }) { Text("Выбрать в проводнике") }
                 OutlinedTextField(
                     value = folderName,
+                    modifier = Modifier.fillMaxWidth(),
                     onValueChange = { folderName = it },
                     label = { Text("Папка внутри Pictures") },
                     singleLine = true,
@@ -689,7 +691,7 @@ fun SettingsScreen(
         title = { Text("Очистить историю?") },
         text = { Text("Будут удалены только записи обычной истории загрузок. Скачанные файлы и корзина останутся без изменений.") },
         confirmButton = {
-            TextButton(onClick = { onClearHistory(); confirmClear = false }) { Text("Очистить") }
+            TextButton(onClick = { onClearHistory(); confirmClear = false }) { Text("Очистить", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
     )
@@ -791,40 +793,16 @@ fun SettingsScreen(
         generalFolder=downloadFolder,
         onDismiss = { sourceProfilesDialog = false },
     )
-    if (instagramModeDialog) AlertDialog(
-        onDismissRequest = { instagramModeDialog = false },
-        title = { Text("Режим загрузки") },
-        text = {
-            Column {
-                listOf(
-                    false to ("Ручной" to "Instagram и YouTube: открывать окно выбора перед загрузкой"),
-                    true to ("Автоматический" to "Instagram: через «Поделиться» сохранять фото и видео без извлечения музыки. YouTube: при отправке ссылки загружать видео в приоритетном качестве."),
-                ).forEach { (automatic, descriptions) ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            InstagramShareSettings.setAutomatic(context, automatic)
-                            instagramModeDialog = false
-                        }.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(
-                            selected = automaticInstagram == automatic,
-                            onClick = {
-                                InstagramShareSettings.setAutomatic(context, automatic)
-                                    instagramModeDialog = false
-                            },
-                        )
-                        Column(Modifier.padding(start = 8.dp)) {
-                            Text(descriptions.first, style = MaterialTheme.typography.titleMedium)
-                            Text(descriptions.second, style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { instagramModeDialog = false }) { Text("Закрыть") } },
-    )
+    if (instagramModeDialog) SettingsChoiceDialog(
+        title = "Режим загрузки", selected = automaticInstagram,
+        options = listOf(
+            SettingsChoice(false,"Ручной","Instagram и YouTube: выбор перед загрузкой",Icons.Rounded.Tune),
+            SettingsChoice(true,"Автоматический","Instagram: фото и видео без извлечения музыки. YouTube: видео в приоритетном качестве.",Icons.Rounded.Bolt),
+        ), onDismiss = { instagramModeDialog = false },
+    ) { automatic ->
+        InstagramShareSettings.setAutomatic(context, automatic)
+        instagramModeDialog = false
+    }
 
     if (spareAuthorizationDialog) AlertDialog(
         onDismissRequest = { spareAuthorizationDialog = false },
@@ -854,104 +832,45 @@ fun SettingsScreen(
         confirmButton = { TextButton(onClick = { spareAuthorizationDialog = false }) { Text("Закрыть") } },
     )
 
-    if (musicSourceDialog) AlertDialog(
-        onDismissRequest = { musicSourceDialog = false },
-        title = { Text("Источник полной песни") },
-        text = {
-            Column {
-                listOf(
-                    FullSongSource.AUTO to ("Автоматически" to "Сначала основной; при ошибке, тайм-ауте или пустой выдаче — резервный"),
-                    FullSongSource.HITMOZ to ("Основной" to "Искать только на основном источнике"),
-                    FullSongSource.MUZMO to ("Резервный" to "Искать только на резервном источнике"),
-                ).forEach { (source, labels) ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            onMusicSourceChange(source)
-                            musicSourceDialog = false
-                        }.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = musicSource == source, onClick = {
-                            onMusicSourceChange(source)
-                            musicSourceDialog = false
-                        })
-                        Column(Modifier.padding(start = 8.dp)) {
-                            Text(labels.first, style = MaterialTheme.typography.titleMedium)
-                            Text(labels.second, style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { musicSourceDialog = false }) { Text("Закрыть") } },
-    )
+    if (musicSourceDialog) SettingsChoiceDialog(
+        title = "Источник полной песни", selected = musicSource,
+        options = listOf(
+            SettingsChoice(FullSongSource.AUTO,"Автоматически","Сначала основной; при ошибке, тайм-ауте или пустой выдаче — резервный",Icons.Rounded.SwapHoriz),
+            SettingsChoice(FullSongSource.HITMOZ,"Основной","Искать только на основном источнике",Icons.Rounded.MusicNote),
+            SettingsChoice(FullSongSource.MUZMO,"Резервный","Искать только на резервном источнике",Icons.Rounded.LibraryMusic),
+        ), onDismiss = { musicSourceDialog = false },
+    ) { source ->
+        onMusicSourceChange(source)
+        musicSourceDialog = false
+    }
 
-    if (recognitionDialog) AlertDialog(
-        onDismissRequest = { recognitionDialog = false },
-        title = { Text("Распознавание музыки") },
-        text = {
-            Column {
-                listOf(
-                    MusicRecognitionMode.AUTO to ("Автоматически" to "После загрузки определить трек и записать метаданные"),
-                    MusicRecognitionMode.MANUAL to ("Только вручную" to "Запускать из меню скачанного MP3"),
-                    MusicRecognitionMode.OFF to ("Выключено" to "Не обращаться к сервису распознавания"),
-                ).forEach { (mode, labels) ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            onMusicRecognitionModeChange(mode)
-                            recognitionDialog = false
-                        }.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(
-                            selected = musicRecognitionMode == mode,
-                            onClick = {
-                                onMusicRecognitionModeChange(mode)
-                                recognitionDialog = false
-                            },
-                        )
-                        Column(Modifier.padding(start = 8.dp)) {
-                            Text(labels.first, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                labels.second,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { recognitionDialog = false }) { Text("Закрыть") } },
-    )
+    if (recognitionDialog) SettingsChoiceDialog(
+        title = "Распознавание музыки", selected = musicRecognitionMode,
+        options = listOf(
+            SettingsChoice(MusicRecognitionMode.AUTO,"Автоматически","После загрузки определить трек и записать метаданные",Icons.Rounded.Hearing),
+            SettingsChoice(MusicRecognitionMode.MANUAL,"Только вручную","Запускать из меню скачанного MP3",Icons.Rounded.Tune),
+            SettingsChoice(MusicRecognitionMode.OFF,"Выключено","Не обращаться к сервису распознавания",Icons.Rounded.CloseFullscreen),
+        ), onDismiss = { recognitionDialog = false },
+    ) { mode ->
+        onMusicRecognitionModeChange(mode)
+        recognitionDialog = false
+    }
 
     if (aiModelsDialog) AiModelManagerDialog(onDismiss = { aiModelsDialog = false })
 
-    if (videoThumbnailDialog) AlertDialog(
-        onDismissRequest = { videoThumbnailDialog = false },
-        title = { Text("Миниатюра видео") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                VideoThumbnailMode.entries.forEach { mode ->
-                    val choose = {
-                        videoPreferences.thumbnailMode = mode
-                        thumbnailMode = mode
-                        videoThumbnailDialog = false
-                    }
-                    Row(Modifier.fillMaxWidth().clickable(onClick = choose).padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = thumbnailMode == mode, onClick = choose)
-                        Text(mode.label, Modifier.padding(start = 8.dp))
-                    }
-                }
-                Text("Если обложка источника недоступна, используем кадр из видео. Настройка действует и на ранее скачанные видео.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        confirmButton = { TextButton(onClick = { videoThumbnailDialog = false }) { Text("Закрыть") } },
-    )
+    if (videoThumbnailDialog) SettingsChoiceDialog(
+        title = "Миниатюра видео", selected = thumbnailMode,
+        options = listOf(
+            SettingsChoice(VideoThumbnailMode.SOURCE,VideoThumbnailMode.SOURCE.label,"Оригинальная обложка публикации",Icons.Rounded.InsertPhoto),
+            SettingsChoice(VideoThumbnailMode.FRAME,VideoThumbnailMode.FRAME.label,"Миниатюра из содержимого видео",Icons.Rounded.SmartDisplay),
+        ), onDismiss = { videoThumbnailDialog = false },
+        footer = "Если обложка источника недоступна, используем кадр из видео. Настройка действует и на ранее скачанные видео.",
+        preview = { ThumbnailChoicePreview(it) },
+    ) { mode ->
+        videoPreferences.thumbnailMode = mode
+        thumbnailMode = mode
+        videoThumbnailDialog = false
+    }
 
     if (themeDialog) ThemeModeDialog(themeMode.orEmpty(),{themeDialog=false}){key->
         if(themeMode!=key){

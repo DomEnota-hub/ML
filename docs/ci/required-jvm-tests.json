@@ -9258,7 +9258,15 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.LibraryModeScreensTest#galleryClearAndBackCloseSearchWithoutLeavingLibrary": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.LibraryModeScreensTest#galleryFavoritesAndSearchGiveViewerExactlyTheVisibleQueue": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.LibraryModeScreensTest#musicClearAndBackCloseSearchWithoutLeavingLibrary": {
     "skipped": false,
     "failed": false
   },
@@ -9547,6 +9555,14 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.ThemeModeDialogTest#darkPreviewKeepsAllModesAvailable": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.ThemeModeDialogTest#semanticChoiceCardWorksInDarkTheme": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.ThemeModeDialogTest#thumbnailChoicesExposeSelectionAndChangeThroughWholeCard": {
     "skipped": false,
     "failed": false
   },

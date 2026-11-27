@@ -35,7 +35,7 @@ class TaskCenterUiTest {
         } }
         compose.onNodeWithText("История").performClick()
         compose.onNodeWithText("Генерация звуковых волн").performClick()
-        compose.onNodeWithText("Создано").assertExists()
-        compose.onNodeWithText("Уже в кэше").assertExists()
+        compose.onNodeWithText("Создано:").assertExists()
+        compose.onNodeWithText("Уже в кэше:").assertExists()
     }
 }

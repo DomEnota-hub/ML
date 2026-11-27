@@ -188,6 +188,51 @@ class LibraryModeScreensTest {
         assertEquals("p" to "Updated", renamed)
     }
 
+    @Test fun galleryClearAndBackCloseSearchWithoutLeavingLibrary() {
+        val media=listOf(file("a","Beach.jpg"),file("b","Other.jpg"))
+        var visible by mutableStateOf(true)
+        compose.setContent { MaterialTheme {
+            GalleryModeScreen(media,LibrarySource.APP,false,null,emptyList(),emptyList(),{},
+                {_,_->},{},{_,_->},{_,_->},{"folder"},{},{},{_,_->},{},
+                searchVisible=visible,onCloseSearch={visible=false})
+        } }
+        compose.onNodeWithText("Поиск фото и видео").performTextInput("Beach")
+        compose.onNodeWithContentDescription("Other.jpg").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Очистить поиск").performClick()
+        compose.onNodeWithText("Поиск фото и видео").assertExists()
+        compose.onNodeWithContentDescription("Other.jpg").assertExists()
+        compose.onNodeWithText("Поиск фото и видео").performTextInput("Beach")
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("Поиск фото и видео").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Other.jpg").assertExists()
+        compose.runOnIdle { visible=true }
+        compose.onNodeWithContentDescription("Очистить поиск").assertDoesNotExist()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("Поиск фото и видео").assertDoesNotExist()
+    }
+
+    @Test fun musicClearAndBackCloseSearchWithoutLeavingLibrary() {
+        val media=listOf(file("a","Moonlight.mp3",MediaType.AUDIO),file("b","Other.mp3",MediaType.AUDIO))
+        var visible by mutableStateOf(true)
+        compose.setContent { MaterialTheme {
+            MusicModeScreen(media,media,emptyList(),{},false,null,{_,_->},{},{"new"},{_,_->},{},{_,_->},{_,_->},{_,_,_->},{},{},
+                searchVisible=visible,onCloseSearch={visible=false})
+        } }
+        compose.onNodeWithText("Поиск музыки").performTextInput("Moonlight")
+        compose.onNodeWithTag("music-track-b").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Очистить поиск").performClick()
+        compose.onNodeWithText("Поиск музыки").assertExists()
+        compose.onNodeWithTag("music-track-b").assertExists()
+        compose.onNodeWithText("Поиск музыки").performTextInput("Moonlight")
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("Поиск музыки").assertDoesNotExist()
+        compose.onNodeWithTag("music-track-b").assertExists()
+        compose.runOnIdle { visible=true }
+        compose.onNodeWithContentDescription("Очистить поиск").assertDoesNotExist()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("Поиск музыки").assertDoesNotExist()
+    }
+
     @Composable
     private fun Music(items: List<DownloadEntity>, all: List<DownloadEntity>, playlists: List<MediaPlaylist>,
         onOpen: (String, List<String>) -> Unit = { _, _ -> },
