@@ -29,7 +29,6 @@ object LogDisplay {
     private val eventPattern = Regex(
         """^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?) \[([A-Z]+)] \[([^]]+)] (.*)$""",
     )
-    private val multipleSpaces = Regex("""\s+""")
 
     fun entries(raw: String): List<DisplayLogEntry> {
         val entries = mutableListOf<DisplayLogEntry>()
@@ -126,7 +125,7 @@ object LogDisplay {
 
     /** Never include private log fields, URLs or filenames in the readable event title. */
     fun readable(entry: DisplayLogEntry): String =
-        TaskJournalDisplay.readable(entry) ?: StructuredLogExplanation.readable(entry) ?: LogExplanation.forRecord(entry.original, entry.stack)?.meaning
+        TaskJournalDisplay.readable(entry) ?: StructuredLogExplanation.readable(entry) ?: legacyExplanation(entry)
             ?: when (entry.tone) {
                 LogTone.ERROR -> "Зафиксирована ошибка. Подробности доступны в техническом журнале."
                 LogTone.WARN -> "Зафиксировано предупреждение. Подробности доступны в техническом журнале."
@@ -134,6 +133,18 @@ object LogDisplay {
                 LogTone.INFO -> "Событие приложения. Подробности доступны в техническом журнале."
                 LogTone.DEBUG -> "Техническое диагностическое событие."
             }
+
+
+    // Old rules can inspect the stack for known crash/network events, but must
+    // not mistake arbitrary unknown tags or download filenames for event names.
+    private val legacyTags = setOf("Muzmo", "HitMoz", "MusicSource", "MusicWebView", "MusicAds",
+        "Recognition", "MusicArtwork", "Thumbnail", "App", "Crash", "Settings", "Logs",
+        "Instagram", "InstagramProfile", "Diagnostics", "BrowserWebView", "MuzmoWebView", "Resolve")
+    private fun legacyExplanation(entry: DisplayLogEntry): String? {
+        if (entry.tag !in legacyTags) return null
+        if (entry.tag == "Crash") return LogExplanation.forRecord(entry.original, entry.stack)?.meaning
+        return LogExplanation.forRecord(entry.original, entry.stack)?.meaning
+    }
 
     /** A short safe grouping label; never contains filenames or remote hosts. */
     fun groupName(entry: DisplayLogEntry): String = when (entry.tag) {

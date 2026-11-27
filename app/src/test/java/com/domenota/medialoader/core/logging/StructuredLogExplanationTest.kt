@@ -45,4 +45,25 @@ class StructuredLogExplanationTest {
         val a = entry("Thumbnail", "Fetch · host=private · status=403", "DEBUG")
         assertEquals(2, LogDisplay.compact(listOf(a,a)).single().repeats)
     }
+
+    @Test fun additionalCurrentSourceStatesStayDistinct() {
+        val waiting = LogDisplay.readable(entry("OCR", "OCR_RUN phase=WAITING_CHARGE indexed=5 total=20"))
+        assertTrue(waiting.contains("Ожидание зарядки"))
+        val exit = LogDisplay.readable(entry("ProcessExit", "Previous process exit · type=JAVA_CRASH", "WARN"))
+        assertTrue(exit.contains("Аварийное завершение"))
+        val folder = LogDisplay.readable(entry("FolderVisibility", "STOP id=private confirmed=2 total=3", "WARN"))
+        assertTrue(folder.contains("2 из 3")); assertFalse(folder.contains("private"))
+        val counters = LogDisplay.readable(entry("Perf", "LIBRARY_WORK · COMPOSITION=3 MEDIASTORE_SCAN=8 MEDIASTORE_QUERY=9 THUMBNAIL_DECODE=2 LIBRARY_INDEX_BUILD=1"))
+        assertTrue(counters.contains("Сканирований: 8")); assertTrue(counters.contains("Запросов: 9"))
+        val projection = LogDisplay.readable(entry("Perf", "LIBRARY_PROJECTIONS · MUSIC_BROWSE[initial=1,input=2,access=0,done=3,aborted=1,reuse=5,totalMs=25,maxMs=10]"))
+        assertTrue(projection.contains("завершено 3")); assertTrue(projection.contains("повторно использовано 5"))
+    }
+    @Test fun unknownTagsAndDownloadNamesNeverBecomeFalseSuccess() {
+        val unknown = entry("FuturePrivateTag", "MP3 stream verified · name=private")
+        assertFalse(LogDisplay.readable(unknown).contains("проверку"))
+        val started = entry("Download", "Started · name=Completed.mp3")
+        assertTrue(LogDisplay.readable(started).contains("ещё не подтверждено"))
+        val attempt = entry("HitMoz", "MP3 HTTP attempt 2/3", "DEBUG")
+        assertTrue(LogDisplay.readable(attempt).contains("2 из 3"))
+    }
 }

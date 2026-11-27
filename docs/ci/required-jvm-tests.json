@@ -499,6 +499,34 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.StructuredLogExplanationTest#additionalCurrentSourceStatesStayDistinct": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.StructuredLogExplanationTest#numericFieldsFromInlineAndSeparatedRecords": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.StructuredLogExplanationTest#privacyAndNonTerminalState": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.StructuredLogExplanationTest#threadIsSeparateAndOriginalIsPreserved": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.StructuredLogExplanationTest#threadedThumbnailCompactionStillMatches": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.StructuredLogExplanationTest#unknownOrInvalidFieldsDoNotInventValues": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.StructuredLogExplanationTest#unknownTagsAndDownloadNamesNeverBecomeFalseSuccess": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.logging.TaskJournalDisplayTest#readableTaskEventsNeverEchoUnknownFieldsOrCorrelation": {
     "skipped": false,
     "failed": false

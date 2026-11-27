@@ -8,6 +8,7 @@ package com.domenota.medialoader.core.logging
 internal object StructuredLogExplanation {
     private val inlineField = Regex("""(?:^|[ ,])([A-Za-z][A-Za-z0-9_]*)=([A-Za-z0-9_-]+)(?=$|[ ,])""")
     private val firstWord = Regex("""^[A-Za-z_][A-Za-z0-9_]*""")
+    private val fieldKey = Regex("[A-Za-z][A-Za-z0-9_]*")
     private val inlineTags = setOf("Perf", "OCR", "Settings", "VideoPlayer", "GallerySearch",
         "MediaNotes", "DuplicateScanMetrics", "DuplicateUI", "FolderVisibility", "NOMEDIA_SAF",
         "VideoEditorNav", "MusicCompare", "MusicDuplicates", "PhotoOCR", "PhotoCutout", "AiOrtPerf",
@@ -25,7 +26,9 @@ internal object StructuredLogExplanation {
             }
             for (segment in entry.metadata.split(" · ")) {
                 val key = segment.substringBefore('=', "")
-                if (key.matches(Regex("[A-Za-z][A-Za-z0-9_]*"))) add(key, segment.substringAfter('='))
+                if (entry.tag == "Perf" && entry.event == "LIBRARY_WORK") {
+                    for (match in inlineField.findAll(segment)) add(match.groupValues[1], match.groupValues[2])
+                } else if (key.matches(fieldKey)) add(key, segment.substringAfter('='))
             }
             if (entry.tag in inlineTags) {
                 for (match in inlineField.findAll(entry.event)) add(match.groupValues[1], match.groupValues[2])
@@ -55,7 +58,7 @@ internal object StructuredLogExplanation {
     private val phases = mapOf("RUNNING" to "Выполняется", "CANCELLED" to "Сеанс отменён",
         "COMPLETE" to "Завершено", "COMPLETED" to "Завершено", "FAILED" to "Ошибка",
         "WAITING" to "Ожидание", "START" to "Начато", "CACHE" to "Получены данные кеша",
-        "PUBLISHED" to "Результат опубликован", "PARTIAL" to "Частично завершено", "PAUSED" to "На паузе")
+        "PUBLISHED" to "Результат опубликован", "PARTIAL" to "Частично завершено", "PAUSED" to "На паузе", "WAITING_CHARGE" to "Ожидание зарядки", "DISCARDED" to "Результат отброшен", "ERROR" to "Ошибка")
     private val blocks = mapOf("CATALOG" to "Каталог", "RECENT" to "Недавние", "BROWSE" to "Просмотр", "RANK" to "Рейтинг")
     private val guards = mapOf("ALIASES" to "Связи файлов", "PUBLIC_ROWS" to "Открытая медиатека",
         "AUDIO_SESSION" to "Аудиосессия", "ASSIGNMENTS" to "Связи коллекций",
@@ -110,16 +113,16 @@ internal object StructuredLogExplanation {
                 f.countProgress("indexed", "total", "Проиндексировано"), metric("failed", "Не обработано"),
                 metric("unverified", "Не проверено"), ms()) else null
             "Perf" -> when (key) {
-                "UI_STALL" -> join("Зафиксирована задержка интерфейса", metric("blockedMs", "Задержка", " мс"), metric("heapUsedMiB", "Память приложения", " МиБ"))
-                "UI_RECOVERED" -> join("Отзывчивость интерфейса восстановлена", metric("blockedMs", "Длительность задержки", " мс"))
+                "UI_STALL" -> join("Зафиксирована задержка интерфейса", metric("blockedMs", "Задержка", " мс"), screenLabel(f["screen"]), metric("heapUsedMiB", "Память приложения", " МиБ"))
+                "UI_RECOVERED" -> join("Отзывчивость интерфейса восстановлена", metric("blockedMs", "Длительность задержки", " мс"), screenLabel(f["screen"]))
                 "FRAME_GAPS" -> join("Измерены интервалы между кадрами интерфейса", metric("windowMs", "Период наблюдения", " мс"), metric("over50ms", "Интервалов более 50 мс"), metric("worstMs", "Максимум", " мс"))
                 "DETAIL" -> join("Снимок показателей памяти и работы приложения", metric("heapUsedMiB", "Использовано", " МиБ"), metric("heapMaxMiB", "Лимит", " МиБ"), metric("gcCount", "Сборок мусора"), metric("gcBlockingTimeMs", "Блокировки сборки мусора", " мс"))
                 "READ_MODEL_GUARD" -> join("Проверка условий публикации данных", f.label("kind", guards), f.label("reason", guardReasons), f.bool("retained", "Прежние данные сохранены", "Прежние данные не сохранены"), metric("repeatedSuppressed", "Свернутых повторов"))
                 "MUSIC_READ_MODEL" -> join("Состояние данных музыкального раздела", f.label("block", blocks), f.bool("ready", "Готово", "Не готово"), f.bool("loading", "Идёт подготовка", nullText), f.bool("error", "Отмечена ошибка", "Ошибок не отмечено"), metric("count", "Записей"))
                 "MUSIC_REFRESH" -> join("Обновление данных музыки", f.label("block", blocks), phase(), metric("count", "Записей"), ms())
-                "BEGIN", "END" -> join(if (key == "BEGIN") "Начато измерение операции" else "Завершено измерение операции", actionLabel(f["action"]), ms())
+                "BEGIN", "END" -> join(if (key == "BEGIN") "Начато измерение операции" else "Завершено измерение операции", actionLabel(f["action"]), screenLabel(f["screen"]), ms())
                 "LIBRARY_WORK" -> join("Счётчики работы медиатеки", metric("MEDIASTORE_SCAN", "Сканирований"), metric("MEDIASTORE_QUERY", "Запросов"), metric("THUMBNAIL_DECODE", "Миниатюр"), metric("LIBRARY_INDEX_BUILD", "Построений индекса"))
-                "LIBRARY_PROJECTIONS" -> "Снимок показателей подготовки данных медиатеки. Подробные счётчики сохранены в технической записи."
+                "LIBRARY_PROJECTIONS" -> projections(entry.metadata)
                 "RECOVERY_GATE" -> join("Проверка условий восстановления каталога", metric("activeScans", "Активных сканирований"))
                 "RECOVERY_REFRESH_REQUEST" -> join("Запрошено обновление каталога после восстановления", metric("pendingMediaChanges", "Ожидающих изменений"))
                 "RECOVERY_SCAN_DECISION" -> join("Определены условия сканирования при восстановлении", mode(), f.bool("force", "Принудительное обновление", "Обычное обновление"))
@@ -127,9 +130,9 @@ internal object StructuredLogExplanation {
             }
             "ProcessExit" -> if (event == "Previous process exit") join("Android зарегистрировал завершение предыдущего процесса",
                 f.label("type", mapOf("LOW_MEMORY" to "Нехватка памяти", "ANR" to "Приложение не отвечало",
-                    "CRASH" to "Аварийное завершение", "CRASH_NATIVE" to "Сбой нативного кода",
+                    "CRASH" to "Аварийное завершение", "JAVA_CRASH" to "Аварийное завершение", "CRASH_NATIVE" to "Сбой нативного кода", "NATIVE_CRASH" to "Сбой нативного кода",
                     "USER_REQUESTED" to "Запрошено пользователем")) ?: "Причина не расшифрована",
-                metric("pssKiB", "Память PSS", " КиБ")) else null
+                metric("pssKiB", "Память PSS", " КиБ")) else if (event.startsWith("Exit history read unavailable:")) "Android не предоставил историю завершений процесса." else null
             "Settings" -> when (key) {
                 "THEME" -> join("Изменено оформление приложения", f.label("selected", mapOf("dark" to "Тёмное", "light" to "Светлое", "system" to "Системное")))
                 "OCR_ENABLED" -> join("Настройка распознавания текста", f.bool("value", "Включено", "Выключено"))
@@ -179,7 +182,7 @@ internal object StructuredLogExplanation {
                 "PLAYER_CREATED" -> "Создан экземпляр видеоплеера."
                 "PLAYER_STATE" -> join("Состояние видеоплеера", f.label("state", mapOf("1" to "Неактивен", "2" to "Буферизация", "3" to "Готов", "4" to "Воспроизведение завершено")), f.bool("playing", "Воспроизводится", "Не воспроизводится"), metric("positionMs", "Позиция", " мс"))
                 "PLAYER_TIMELINE" -> join("Обновлена временная шкала видео", metric("confirmedMs", "Подтверждённая длительность", " мс"))
-                "PLAYER_LIFECYCLE" -> "Изменилось состояние жизненного цикла видеоплеера."
+                "PLAYER_LIFECYCLE" -> join("Изменилось состояние жизненного цикла видеоплеера", f.label("event", mapOf("ON_START" to "Запуск", "ON_RESUME" to "Возврат", "ON_PAUSE" to "Приостановка", "ON_STOP" to "Остановка", "ON_DESTROY" to "Уничтожение компонента")))
                 "PLAYER_RELEASE" -> join("Запрошено освобождение видеоплеера", metric("positionMs", "Позиция", " мс"))
                 "PLAYER_COMPOSE_REMOVED" -> "Компонент видеоплеера удалён с экрана."
                 "PLAYER_RELEASE_FINISHED" -> join("Завершена операция освобождения видеоплеера", f.bool("success", "Успешно", "Не подтверждено"), metric("durationMs", "Длительность", " мс"))
@@ -196,8 +199,17 @@ internal object StructuredLogExplanation {
                 event.startsWith("ONNX CPU cutout completed,") -> join("Выделение объекта на фото завершено", ms())
                 else -> null
             }
-            "PhotoOCR" -> if (event.startsWith("stage=") || event.startsWith("glyphs_full=") || event.startsWith("symbol_candidates=") || event.startsWith("selected_glyph_count=") || event.startsWith("result")) "Диагностический этап распознавания текста на изображении." else null
-            "AiOrtPerf" -> if (event.startsWith("model=")) join("Измерение работы AI-модели", metric("session_init_ms", "Подготовка сеанса", " мс"), metric("elapsedMs", "Длительность", " мс")) else null
+            "PhotoOCR" -> when {
+                event.startsWith("stage=") -> join("Этап распознавания текста изображения",
+                    f.label("stage", mapOf("auto" to "Автоматический", "sparse" to "Разреженный текст", "block" to "Блок текста", "contrast-sparse" to "Контрастный разреженный текст"))
+                        ?: when { f["stage"]?.startsWith("caption-") == true -> "Область подписи"; f["stage"]?.startsWith("band-") == true -> "Полоса изображения"; else -> null })
+                event.startsWith("glyphs_full=") -> join("Сопоставлены варианты распознавания символов", metric("glyphs_full", "Полное изображение"), metric("glyphs_caption", "Область подписи"), metric("accepted", "Принято"))
+                event.startsWith("symbol_candidates=") -> join("Получены кандидаты символов", metric("symbol_candidates", "Кандидатов"))
+                event.startsWith("selected_glyph_count=") -> join("Выбраны распознанные символы", metric("selected_glyph_count", "Символов"))
+                event.startsWith("result") -> "Получен результат распознавания изображения."
+                else -> null
+            }
+            "AiOrtPerf" -> if (event.startsWith("model=")) join("Измерение работы AI-модели", f.label("model", mapOf("LAMA" to "Восстановление фона LaMa", "SAM_ENCODER" to "Кодировщик SAM", "SAM_DECODER" to "Декодировщик SAM", "DEXNET" to "DEXNET")), metric("session_init_ms", "Подготовка сеанса", " мс"), metric("inference_ms", "Вычисление", " мс"), metric("ort_run_ms", "Вычисление ONNX", " мс"), metric("total_ms", "Всего", " мс")) else null
             "VideoEditorNav" -> when (key) {
                 "EDITOR_OPEN_REQUEST" -> "Запрошено открытие видеоредактора."
                 "EDITOR_NAVIGATE" -> "Выполняется переход в видеоредактор."
@@ -223,17 +235,106 @@ internal object StructuredLogExplanation {
             "Thumbnail" -> when (event) {
                 "Local preview unavailable" -> join("Локальная миниатюра недоступна", f.bool("remoteFallback", "Допускается удалённый источник", "Удалённый источник не используется"))
                 "Local thumbnail decode failed" -> "Не удалось декодировать локальную миниатюру."
-                else -> null
+                "Fetch" -> when (f.number("status")) {
+                    200L -> "Сервер изображения ответил успешно; показ миниатюры проверяется отдельно."
+                    403L -> "Сервер изображения отказал в доступе (HTTP 403)."
+                    else -> join("Получен ответ на запрос миниатюры", metric("status", "Код HTTP"))
+                }
+                else -> if (event.startsWith("Image host=")) when {
+                    entry.metadata == "Thumbnail URL host not supported" -> "Источник изображения не поддерживается правилами приложения."
+                    entry.metadata.startsWith("Thumbnail HTTP 403") -> "Сервер изображения отказал в доступе (HTTP 403)."
+                    else -> "Зафиксирована проблема получения изображения. Точная причина сохранена в технической записи."
+                } else null
             }
             "Download" -> when (event) {
                 "Retry queued" -> "Повторная попытка загрузки добавлена в очередь."
                 "Completed" -> join("Загрузка завершена, файл сохранён", metric("bytes", "Размер", " байт"))
+                "Queued" -> "Загрузка поставлена в очередь."
+                "Started" -> "Задача загрузки начата; получение файла ещё не подтверждено."
+                "Failed" -> "Загрузка завершилась ошибкой. Причина может быть указана в соседних событиях."
+                "Engine transfer begin" -> "Начата передача файла сетевым модулем."
+                "Engine transfer finished" -> "Сетевой модуль закончил передачу; сохранение файла подтверждается отдельно."
                 else -> null
             }
+            "YouTube" -> youtube(event, f)
+            "MusicArtwork" -> when {
+                event == "Cover load" -> join("Запрос обложки композиции", metric("ms", "Длительность", " мс"))
+                event.startsWith("Cover URLs in results:") -> "Проверено наличие адресов обложек в результатах."
+                event == "Catalog lookup unavailable" -> "Поиск обложки в каталоге недоступен."
+                event == "Catalog cover applied" -> "Применена обложка из каталога."
+                else -> null
+            }
+            "MusicSource" -> when {
+                event == "Full-song request accepted" -> "Принят запрос поиска полной композиции."
+                event.startsWith("Full-song window launched;") -> "Открыто окно поиска полной композиции."
+                event == "Automatic search fallback" -> "Выбран резервный способ поиска музыки."
+                else -> null
+            }
+            "MusicWebView" -> when (event) {
+                "Blocked advertising resource" -> "Отфильтрован рекламный ресурс страницы."
+                "Resource request" -> "Запрошен ресурс музыкальной страницы; это не обязательно аудиофайл."
+                "HTTP error" -> join("Сервер отклонил запрос встроенного браузера", metric("code", "Код HTTP"), f.bool("mainFrame", "Основная страница", "Вспомогательный ресурс"))
+                else -> null
+            }
+            "Recognition" -> when {
+                event == "MP3 metadata saved" -> "Метаданные MP3 сохранены."
+                event == "Preview music result" -> "Получен предварительный результат распознавания музыки."
+                event.startsWith("Direct ID") && event.contains("unavailable; trying MP3 remux") -> "Прямое распознавание недоступно; выбран резервный способ подготовки аудио."
+                event.startsWith("MP3 cover/tag pass failed;") -> "Обработка обложки и тегов не удалась; выполняется повтор только для аудиотегов."
+                else -> null
+            }
+            "HitMoz", "Muzmo" -> music(event, f)
             else -> null
         }
     }
     private const val nullText = "Подготовка не выполняется"
+    private fun youtube(event: String, f: Fields): String? = when {
+        event == "Analyze start" -> "Начат анализ ссылки YouTube."
+        event == "Analyze attempt" -> "Выполняется попытка получения сведений о видео."
+        event == "Analyze attempt completed" -> "Попытка анализа завершена; наличие форматов подтверждается отдельно."
+        event == "Analyze process" -> "Запущен процесс анализа ссылки."
+        event == "Analyze diagnostics" -> "Записаны диагностические показатели анализа видео."
+        event == "Analyze format sources" -> "Проверены источники доступных форматов видео."
+        event == "Analyze result" || event == "Analyze success" -> join("Получен результат анализа ссылки YouTube", f.metric("count", "Форматов"))
+        event == "Analyze bounded enhancement" -> "Выполняется дополнительная ограниченная проверка форматов."
+        event == "Browser Web proof did not provide formats" -> "Браузер не предоставил подтверждённых форматов видео."
+        event == "Initializing yt-dlp runtime" -> "Подготавливается механизм анализа YouTube."
+        event == "yt-dlp runtime ready" -> "Механизм анализа YouTube подготовлен."
+        event == "yt-dlp update requested" -> "Запрошено обновление механизма анализа YouTube."
+        event.startsWith("yt-dlp update failed:") -> "Обновление механизма анализа YouTube не выполнено."
+        event.startsWith("Обновлён:") -> "Механизм анализа YouTube обновлён."
+        event.startsWith("Automatic yt-dlp refresh skipped:") -> "Автоматическое обновление пропущено: механизм недавно обновлялся."
+        event == "Web session saved" -> "Данные браузерного сеанса сохранены; вход в аккаунт этим не подтверждён."
+        event == "Local token bridge" -> "Используется локальный механизм подготовки данных запроса YouTube."
+        event == "Download start" -> "Начата операция получения видео YouTube."
+        event == "Download client" -> "Выбран способ получения видео YouTube."
+        event == "Download success" -> "Модуль получения видео сообщил об успехе; сохранение файла подтверждается отдельно."
+        event.startsWith("Download got HTTP ") -> "Сервер вернул HTTP-ответ при получении видео."
+        event.startsWith("Retrying download with web_embedded") -> "Выполняется повтор получения видео через альтернативный клиент."
+        event.startsWith("Download fallback failed:") -> "Резервный способ получения видео не сработал."
+        else -> null
+    }
+    private fun music(event: String, f: Fields): String? = when {
+        event == "WebView browser agent synchronized" -> "Параметры сетевых запросов согласованы с браузером."
+        event == "MP3 task" -> "Подготовлена задача получения аудиофайла."
+        event == "Chromium Cronet MP3 transport initialized" -> "Подготовлен сетевой механизм для получения аудио."
+        event == "Music extraction started" -> "Начато извлечение списка композиций."
+        event == "Browser navigation" -> "Выполняется переход на музыкальную страницу."
+        event == "Browser MP3 handoff" -> "Браузер передал запрос аудиофайла модулю загрузки."
+        event == "Browser link action" -> "Обработано действие со ссылкой музыкальной страницы."
+        event.startsWith("Cronet network error") -> "Сетевой запрос не выполнен; следующая попытка использует системный механизм Android."
+        event.startsWith("CDN temporarily avoided") -> "Один из серверов передачи временно исключён из выбора."
+        event.startsWith("MP3 request recovered on attempt ") -> "Повторная попытка сетевого запроса восстановила получение аудиоданных; сохранение ещё не подтверждено."
+        event.startsWith("DOM scan found no usable songs") || event.startsWith("DOM yielded no song rows") -> "Не удалось извлечь пригодный список песен; это не доказывает их отсутствие."
+        event == "Native music results parsed" || event == "DOM search rows parsed" -> join("Получен список композиций со страницы", f.metric("count", "Записей"))
+        event == "MP3 response" && f.number("status") != null -> join("Получен ответ на запрос аудиофайла", f.metric("status", "Код HTTP"), f.metric("length", "Размер ответа", " байт"), f.metric("elapsedMs", "Ожидание", " мс"))
+        event == "MP3 stream verified" -> join("Аудиопоток прошёл проверку формата; сохранение подтверждается отдельно", f.metric("bytes", "Размер", " байт"))
+        event.startsWith("MP3 HTTP attempt ") -> {
+            val m = Regex("""^MP3 HTTP attempt (\d{1,3})/(\d{1,3})$""").matchEntire(event)
+            if (m == null) null else "Попытка получения MP3: " + m.groupValues[1] + " из " + m.groupValues[2]
+        }
+        else -> null
+    }
     private fun actionLabel(action: String?): String? = when (action?.substringBefore(':')) {
         "screen_enter" -> "Вход на экран"
         "screen_data_ready" -> "Данные экрана готовы"
@@ -242,20 +343,68 @@ internal object StructuredLogExplanation {
         "activity_first_pre_draw" -> "Подготовка первого кадра"
         "mode_switch" -> "Переключение раздела"
         "mode_switch_dispatch" -> "Передача команды переключения раздела"
+        "trim_boundary_decode" -> "Декодирование границы обрезки видео"
+        "editor_waveform" -> "Звуковая волна редактора"
+        "source_switch" -> "Переключение источника файлов"
+        "source_switch_dispatch" -> "Передача команды переключения источника"
+        "timeline_thumbnail_batch" -> "Подготовка миниатюр временной шкалы"
+        "video_trim_gesture" -> "Изменение границы обрезки видео"
         else -> null
+    }
+    private fun screenLabel(screen: String?): String? = when (screen?.substringBefore(':')) {
+        "home" -> "Главный экран"
+        "settings" -> "Настройки"
+        "downloads" -> "Загрузки"
+        "viewer" -> "Просмотр медиа"
+        "initial", "startup" -> "Запуск"
+        "task-center" -> "Центр задач"
+        "music-duplicates" -> "Дубликаты музыки"
+        "visual-duplicates" -> "Дубликаты фото и видео"
+        "photo-editor", "batch-photo-editor" -> "Редактор фото"
+        "video-editor", "video_editor_metadata" -> "Редактор видео"
+        "audio-editor" -> "Редактор аудио"
+        "private", "vault" -> "Личный раздел"
+        "collections" -> "Коллекции"
+        "favorites" -> "Избранное"
+        "simple-archive" -> "Архив"
+        "trash", "trash-viewer" -> "Корзина"
+        "equalizer" -> "Эквалайзер"
+        "drawer-settings" -> "Настройка меню"
+        "browser" -> "Браузер"
+        "bulk" -> "Массовая загрузка"
+        "vk-community" -> "Сообщество VK"
+        "media-passport" -> "Сведения о файле"
+        "playlist-add" -> "Добавление в плейлист"
+        "music-search" -> "Поиск музыки"
+        "diagnostics" -> "Диагностика"
+        "media-review" -> "Просмотр изменений медиатеки"
+        else -> null
+    }
+    private val projectionPattern = Regex("""([A-Z_]+)\[initial=\d+,input=\d+,access=\d+,done=(\d+),aborted=(\d+),reuse=(\d+),totalMs=\d+,maxMs=\d+]""")
+    private fun projections(metadata: String): String {
+        val summaries = projectionPattern.findAll(metadata).mapNotNull { m ->
+            val label = guards[m.groupValues[1]] ?: return@mapNotNull null
+            val counts = m.groupValues.drop(2).map { it.toLongOrNull() ?: return@mapNotNull null }
+            label + ": завершено " + counts[0] + ", прервано " + counts[1] + ", повторно использовано " + counts[2]
+        }.toList()
+        return (listOf("Показатели подготовки данных медиатеки") + summaries).joinToString(" · ")
     }
     private fun folder(key: String?, f: Fields): String? {
         val direction = f.label("direction", mapOf("HIDE" to "Скрытие", "SHOW" to "Возврат видимости"))
         return when (key) {
             "ATTEMPT_BEGIN" -> "Начата попытка операции с видимостью файлов."
             "MOVE_PORT", "MOVE_PHASE", "MOVE_BIND", "BINDING_STEP", "REFERENCE_READ" ->
-                join("Этап исторической операции с файлами", direction, f.bool("success", "Этап успешен", "Этап не подтверждён"), f.metric("elapsedMs", "Длительность", " мс"))
-            "MOVE_FILE" -> join("Обработка отдельного файла в исторической операции архива", direction, f.bool("confirmed", "Подтверждено", "Не подтверждено"), f.metric("bytes", "Размер", " байт"))
+                join("Этап операции с файлами", direction, f.bool("success", "Этап успешен", "Этап не подтверждён"), f.metric("elapsedMs", "Длительность", " мс"))
+            "MOVE_FILE" -> join("Обработка отдельного файла в операции архива", direction, f.bool("confirmed", "Подтверждено", "Не подтверждено"), f.metric("bytes", "Размер", " байт"))
             "PREFLIGHT_V2" -> join("Предварительная проверка файлов", f.countProgress("ready", "total", "Готово"), f.metric("problems", "Проблем"))
             "PLAN_SIZE_MISMATCH" -> "Обнаружено расхождение размеров плана операции; успешное выполнение не подтверждено."
             "INVENTORY_REJECTED" -> "Инвентаризация отклонена; файл не принят в операцию."
             "FOREGROUND_REQUEST" -> join("Запрошена фоновая служба файловой операции", f.bool("accepted", "Запрос принят", "Запрос не принят"))
-            "FOREGROUND_STOP" -> "Фоновая служба файловой операции остановлена."
+            "FOREGROUND_STOP" -> join("Фоновая служба файловой операции остановлена", f.bool("journalPending", "Журнал операции ещё не закрыт", "Незакрытый журнал не отмечен"))
+            "STOP" -> join("Операция видимости остановлена", f.countProgress("confirmed", "total", "Подтверждено"))
+            "ANDROID_APPROVAL" -> join("Системное подтверждение файловой операции", f.bool("requested", "Запрошено", "Не запрошено"), f.bool("approved", "Получено", "Не получено"))
+            "PROGRESS_OBSERVER_REJECTED" -> "Не удалось передать состояние файловой операции наблюдателю."
+            "RECOVERY_SCAN_DECISION" -> join("Определена необходимость обновления каталога после операции", f.bool("force", "Требуется принудительное обновление", "Принудительное обновление не требуется"))
             "PAUSE_REQUESTED" -> "Запрошена безопасная пауза файловой операции."
             "PAUSE_CHECKPOINT" -> join("Контрольная точка паузы", f.countProgress("confirmed", "total", "Подтверждено"), f.bool("journalDurable", "Журнал сохранён", "Сохранение журнала не подтверждено"))
             "RECOVERY_PLAN" -> join("План восстановления файловой операции", direction, f.bool("verified", "Проверен", "Не проверен"))
