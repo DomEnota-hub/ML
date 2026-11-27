@@ -2226,7 +2226,11 @@ fun MediaLoaderApp(
     // the 1.7.211 DEX had invoke-direct/range constructors with 256/257 register words.
     // StableLibraryNavHost still observes the latest callbacks; only their ownership changes.
     val libraryRoutes = listOf(
-            LibraryRouteContent("task-center") { com.domenota.medialoader.ui.screens.tasks.TaskCenterScreen(journalAllowed=journalUnlocked,canReadJournal={JournalAccess.allowed(uiPrefs)}) { navController.popBackStack() } },
+            LibraryRouteContent("task-center") {
+                val focusOcr=navController.currentBackStackEntry?.savedStateHandle?.get<Boolean>("focus_ocr")==true
+                com.domenota.medialoader.ui.screens.tasks.TaskCenterScreen(journalAllowed=journalUnlocked,
+                    canReadJournal={JournalAccess.allowed(uiPrefs)},ocr=galleryOcr,initialOcrFocus=focusOcr) { navController.popBackStack() }
+            },
             LibraryRouteContent(AppDestination.Home.route) {
                 CompositionLocalProvider(LocalDrawerAdmission provides drawerAdmission.takeIf{currentRoute==AppDestination.Home.route}){
                 modeStates.SaveableStateProvider(appMode.name) {
@@ -2279,6 +2283,10 @@ fun MediaLoaderApp(
                 else if (appMode == AppMode.GALLERY) GalleryModeScreen(
                     notes=passportNotes,
                     ocr=galleryOcr,
+                    onOpenOcrTask={
+                        navController.navigate("task-center"){launchSingleTop=true}
+                        navController.currentBackStackEntry?.savedStateHandle?.set("focus_ocr",true)
+                    },
                     unifiedDrawerRoutes=true,
                     onSimpleArchive = { archiveActions.archiveSelection(it, ArchiveEntrySource.GALLERY) },
                     onArchiveFolder = { archiveActions.archiveVirtualFolder(it, ArchiveEntrySource.GALLERY) },

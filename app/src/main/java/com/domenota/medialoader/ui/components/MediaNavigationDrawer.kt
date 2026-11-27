@@ -248,13 +248,16 @@ private fun DrawerContents(active:DrawerEntry?,available:Set<DrawerEntry>,config
             }
         }
         HorizontalDivider(color=colors.outlineVariant)
-        for ((index, entry) in visible.withIndex()) {
-            if (configuration == DrawerConfiguration.DEFAULT &&
-                entry in setOf(DrawerEntry.FAVORITES, DrawerEntry.SETTINGS) && index > 0) {
-                HorizontalDivider(color=colors.outlineVariant)
+        var first=true
+        for (id in configuration.displayItems(visible.toSet())) {
+            val entry=DrawerConfiguration.entry(id)
+            if(entry==null) {
+                HorizontalDivider(Modifier.padding(horizontal=8.dp,vertical=5.dp).testTag("drawer-separator-" + id),color=colors.outlineVariant)
+            } else {
+                DrawerRow(entry,active==entry,entry in available,onSelect,
+                    if(first)Modifier.focusRequester(firstFocus)else Modifier)
+                first=false
             }
-            DrawerRow(entry,active==entry,entry in available,onSelect,
-                if(index==0)Modifier.focusRequester(firstFocus)else Modifier)
         }
     }
     LaunchedEffect(fullyOpen,visible.firstOrNull()){

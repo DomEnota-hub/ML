@@ -17,6 +17,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.text.font.FontWeight
+import com.domenota.medialoader.ui.screens.gallery.GalleryOcrController
+import com.domenota.medialoader.ui.screens.gallery.OcrTaskChargeSetting
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -91,7 +96,7 @@ private fun kindIcon(kind:TaskKind):ImageVector=when(kind) {
     }
 }
 @Composable
-internal fun TaskCenterScreen(journalAllowed:Boolean=false,canReadJournal:()->Boolean={false},onBack: () -> Unit) {
+internal fun TaskCenterScreen(journalAllowed:Boolean=false,canReadJournal:()->Boolean={false},ocr:GalleryOcrController?=null,initialOcrFocus:Boolean=false,onBack: () -> Unit) {
     ReportDrawerScreen(true)
     val tasks by TaskCenter.registry.tasks.collectAsStateWithLifecycle()
     val live by TaskCenter.registry.liveTasks.collectAsStateWithLifecycle()
@@ -102,19 +107,21 @@ internal fun TaskCenterScreen(journalAllowed:Boolean=false,canReadJournal:()->Bo
     BackHandler(enabled=settingsOpen){settingsOpen=false}
     if(settingsOpen)TaskSettingsScreen{settingsOpen=false}
     else TaskCenterContent(tasks,live,known,onBack,{settingsOpen=true},TaskCenter.registry::dispatch,
-        onJournal=if(journalAllowed){{token->if(canReadJournal())related=token}}else null)
+        onJournal=if(journalAllowed){{token->if(canReadJournal())related=token}}else null,ocr=ocr,initialOcrFocus=initialOcrFocus)
     related?.takeIf{journalAllowed}?.let{token->RelatedTaskJournal(token,canReadJournal){related=null}}
 }
 
 /** One real task projection; cards never start or infer executor actions. */
 @Composable
 internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,known:Set<TaskOwner>,
-    onBack:()->Unit,onSettings:()->Unit,dispatch:(String,TaskCommand)->Boolean,onJournal:((TaskCorrelation)->Unit)?=null) {
+    onBack:()->Unit,onSettings:()->Unit,dispatch:(String,TaskCommand)->Boolean,onJournal:((TaskCorrelation)->Unit)?=null,
+    ocr:GalleryOcrController?=null,initialOcrFocus:Boolean=false) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var filter by rememberSaveable { mutableIntStateOf(0) }
-    var errorsOnly by rememberSaveable { mutableStateOf(false) }
+    var historyFilter by rememberSaveable { mutableIntStateOf(0) }
     var focus by rememberSaveable { mutableStateOf<String?>(null) }
     var openSections by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var closedSections by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     val snackbar=remember { SnackbarHostState() }
     val scope=rememberCoroutineScope()
     val command:(String,TaskCommand)->Unit={id,action->if(!dispatch(id,action))scope.launch{snackbar.showSnackbar("Действие недоступно")}}
@@ -124,15 +131,20 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
     val history=remember(tasks){TaskCenterPresentation.history(tasks)}
     val errors=remember(tasks){TaskCenterPresentation.errors(tasks)}
     val liveKinds=remember(live){live.groupBy{it.kind}}
-    val visible=remember(tab,filter,errorsOnly,active,waiting,paused,history,errors,focus){
+    val visible=remember(tab,filter,historyFilter,active,waiting,paused,history,errors,focus){
         TaskCenterPresentation.focusFirst(when(tab){
             1->when(filter){1->active;2->waiting;3->paused;else->active+waiting+paused}
-            2->if(errorsOnly)errors else history
+            2->when(historyFilter){1->errors;2->TaskCenterPresentation.partial(tasks);else->history}
             else->emptyList()
         },focus)
     }
-    fun openTask(row:TaskSnapshot){if(row.idle)return;focus=row.id;filter=0;errorsOnly=false;tab=if(row.status.terminal)2 else 1}
+    fun openTask(row:TaskSnapshot){if(row.idle)return;focus=row.id;filter=0;historyFilter=0;tab=if(row.status.terminal)2 else 1}
     val activeCount=active.size+waiting.size+paused.size
+    val overviewTasks=remember(active,waiting,paused,live,initialOcrFocus){
+        val rows=active+waiting+paused
+        val ocrRow=live.firstOrNull{it.kind==TaskKind.OCR}
+        if(initialOcrFocus&&ocrRow!=null)listOf(ocrRow)+rows.filter{it.id!=ocrRow.id} else rows
+    }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically) {
             IconButton(onBack){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
@@ -141,7 +153,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         }
         TabRow(selectedTabIndex=tab){
             listOf("Обзор",if(activeCount>0)"Задачи: $activeCount" else "Задачи","История").forEachIndexed{index,label->
-                Tab(selected=tab==index,onClick={tab=index;focus=null;filter=0;errorsOnly=false},
+                Tab(selected=tab==index,onClick={tab=index;focus=null;filter=0;historyFilter=0},
                     selectedContentColor=MaterialTheme.colorScheme.primary,
                     unselectedContentColor=MaterialTheme.colorScheme.onSurfaceVariant,text={Text(label)})
             }
@@ -150,44 +162,54 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
             verticalArrangement=Arrangement.spacedBy(10.dp)){
             if(tab==0){
                 item("summary"){
-                    Card(Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp)){
-                        Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(9.dp)){
-                            Text("Состояние процессов",style=MaterialTheme.typography.titleMedium)
+                    Surface(Modifier.fillMaxWidth(),shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surfaceContainer){
+                        Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(5.dp)){
+                            Text("Состояние процессов",style=MaterialTheme.typography.titleSmall)
                             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(5.dp)){
                                 TaskCounter("Активные",active.size,statusColor(TaskStatus.RUNNING),Modifier.weight(1f)){focus=null;filter=1;tab=1}
                                 TaskCounter("Ожидают",waiting.size,statusColor(TaskStatus.WAITING),Modifier.weight(1f)){focus=null;filter=2;tab=1}
-                                TaskCounter("Ошибки истории",errors.size,statusColor(TaskStatus.FAILED),Modifier.weight(1f)){focus=null;errorsOnly=true;tab=2}
+                                TaskCounter("На паузе",paused.size,statusColor(TaskStatus.PAUSED),Modifier.weight(1f)){focus=null;filter=3;tab=1}
+                                TaskCounter("Ошибки",errors.size,statusColor(TaskStatus.FAILED),Modifier.weight(1f)){focus=null;historyFilter=1;tab=2}
                             }
-                            if(paused.isNotEmpty())TextButton({focus=null;filter=3;tab=1}){Text("Приостановлено: ${paused.size}")}
                         }
                     }
                 }
+                if(overviewTasks.isNotEmpty()) {
+                    item("active-title"){Text(if(initialOcrFocus)"Задачи и распознавание текста" else "Сейчас в работе",style=MaterialTheme.typography.titleMedium)}
+                    items(overviewTasks,key={"overview-"+it.id}){row->
+                        TaskCard(row,initialOcrFocus&&row.kind==TaskKind.OCR,command,onJournal,ocr=ocr)
+                    }
+                }
+                if(initialOcrFocus && overviewTasks.none{it.kind==TaskKind.OCR} && ocr!=null) item("ocr-focus-setting"){
+                    OcrTaskChargeSetting(ocr,Modifier.padding(horizontal=8.dp))
+                }
                 item("process-header"){Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                     Text("Процессы приложения",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
-                    TextButton({openSections=if(openSections.size==TaskSection.entries.size)arrayListOf()else ArrayList(TaskSection.entries.map{it.name})}){Text(if(openSections.size==TaskSection.entries.size)"Свернуть" else "Развернуть")}
+                    TextButton({val all=openSections.size==TaskSection.entries.size;openSections=if(all)arrayListOf()else ArrayList(TaskSection.entries.map{it.name});closedSections=if(all)ArrayList(TaskSection.entries.map{it.name})else arrayListOf()}){Text(if(openSections.size==TaskSection.entries.size)"Свернуть" else "Развернуть")}
                 }}
                 items(TaskSection.entries,key={it.name}){section->
                     val sectionRows=section.kinds.flatMap{liveKinds[it].orEmpty()}
                     val running=TaskCenterPresentation.active(sectionRows).size
                     val pending=TaskCenterPresentation.waiting(sectionRows).size
                     val sleeping=TaskCenterPresentation.paused(sectionRows).size
-                    val opened=section.name in openSections
+                    val opened=section.name in openSections || (section.name !in closedSections && (running+pending+sleeping>0 || initialOcrFocus&&section==TaskSection.LIBRARY))
                     val unknown=section.kinds.any{TaskCenterPresentation.owner(it) !in known && liveKinds[it].isNullOrEmpty()}
                     val summary=buildList {
                         if(running>0)add("$running в работе")
                         if(pending>0)add("$pending ожидает")
                         if(sleeping>0)add("$sleeping на паузе")
-                    }.joinToString(", ").ifBlank{if(unknown)"Нет данных о состоянии" else "Нет задач"}
+                    }.joinToString(", ").ifBlank{if(unknown)"Состояние неизвестно" else "Нет задач"}
                     val color=sectionColor(section)
-                    Card(Modifier.fillMaxWidth(),shape=RoundedCornerShape(18.dp)){
-                        Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
+                    Surface(Modifier.fillMaxWidth(),shape=RoundedCornerShape(10.dp),color=MaterialTheme.colorScheme.surfaceContainerLow){
+                        Column(Modifier.padding(horizontal=10.dp,vertical=4.dp),verticalArrangement=Arrangement.spacedBy(3.dp)){
                             Row(Modifier.fillMaxWidth().clickable{
                                 openSections=ArrayList(if(opened)openSections-section.name else openSections+section.name)
+                                closedSections=ArrayList(if(opened)closedSections+section.name else closedSections-section.name)
                             }.heightIn(min=48.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
                                 CategoryIcon(sectionIcon(section),color)
                                 Column(Modifier.weight(1f)){
                                     Text(section.label,style=MaterialTheme.typography.titleMedium)
-                                    Text(summary,style=MaterialTheme.typography.bodySmall,color=when{running>0->statusColor(TaskStatus.RUNNING);pending>0->statusColor(TaskStatus.WAITING);else->MaterialTheme.colorScheme.onSurfaceVariant})
+                                    Text(summary,style=MaterialTheme.typography.labelSmall,color=when{running>0->statusColor(TaskStatus.RUNNING);pending>0->statusColor(TaskStatus.WAITING);else->MaterialTheme.colorScheme.onSurfaceVariant})
                                 }
                                 Icon(if(opened)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(opened)"Свернуть" else "Развернуть",tint=MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -199,7 +221,8 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                                         Icon(kindIcon(kind),null,Modifier.size(20.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
                                         Column(Modifier.weight(1f)){
                                             Text(kind.label,style=MaterialTheme.typography.bodyMedium)
-                                            Text(TaskCenterPresentation.idleLabel(kind,known),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                            if(TaskCenterPresentation.owner(kind) !in known)Text("Неизвестно",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                            else Text("—",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 } else {
@@ -213,7 +236,16 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                                             if(!row.idle)Icon(Icons.Rounded.ChevronRight,"К задаче",tint=MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
-                                    if(rows.size>2)TextButton({focus=null;filter=0;tab=1}){Text("Все задачи (${rows.size})")}
+                                    if(rows.size>2)TextButton({focus=null;filter=0;tab=1}){Text("Все задачи ("+rows.size+")")}
+                                }
+                                if(kind==TaskKind.OCR&&ocr!=null&&overviewTasks.none{it.kind==TaskKind.OCR})OcrTaskChargeSetting(ocr)
+                                if(kind==TaskKind.WAVEFORM)TaskCenterPresentation.latestConfirmed(tasks,kind)?.let{last->
+                                    val result=last.details?.outcomes
+                                    if(result!=null)Column(Modifier.fillMaxWidth().clickable{openTask(last)}.padding(start=30.dp,bottom=4.dp)){
+                                        Text("Последний сохранённый результат · "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(last.updatedAt)),style=MaterialTheme.typography.labelSmall)
+                                        Text("В кэше: "+result.cached+" · Создано: "+result.generated+" · Пропущено: "+result.skipped+" · Ошибки: "+result.failed,
+                                            style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                             }
                         }
@@ -225,15 +257,16 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                         if(tab==1)listOf("Все","Активные","Ожидают","На паузе").forEachIndexed{index,label->
                             FilterChip(selected=filter==index,onClick={filter=index;focus=null},label={Text(label)})
                         }else{
-                            FilterChip(selected=!errorsOnly,onClick={errorsOnly=false;focus=null},label={Text("Все")})
-                            FilterChip(selected=errorsOnly,onClick={errorsOnly=true;focus=null},label={Text("Ошибки")})
+                            FilterChip(selected=historyFilter==0,onClick={historyFilter=0;focus=null},label={Text("Все")})
+                            FilterChip(selected=historyFilter==1,onClick={historyFilter=1;focus=null},label={Text("Ошибки")})
+                            FilterChip(selected=historyFilter==2,onClick={historyFilter=2;focus=null},label={Text("Частичные")})
                         }
                     }
                 }
                 if(visible.isEmpty())item("empty"){
                     Text("Нет задач",Modifier.padding(16.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                items(visible,key={it.id}){row->TaskCard(row,focus==row.id,command,onJournal)}
+                items(visible,key={it.id}){row->TaskCard(row,focus==row.id,command,onJournal,ocr=ocr)}
             }
         }
         SnackbarHost(snackbar)
@@ -245,13 +278,14 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         Text(label,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-@Composable private fun TaskCard(row:TaskSnapshot,focused:Boolean,command:(String,TaskCommand)->Unit,onJournal:((TaskCorrelation)->Unit)?){
+@Composable private fun TaskCard(row:TaskSnapshot,focused:Boolean,command:(String,TaskCommand)->Unit,onJournal:((TaskCorrelation)->Unit)?,ocr:GalleryOcrController?=null){
     var expanded by rememberSaveable(row.id,focused){mutableStateOf(focused)}
     var limit by rememberSaveable(row.id){mutableIntStateOf(10)}
     val canExpand=TaskCenterPresentation.expandable(row)
     val section=TaskSection.entries.first{row.kind in it.kinds}
-    Card(Modifier.fillMaxWidth(),shape=RoundedCornerShape(16.dp)){
-        Column(Modifier.padding(12.dp),verticalArrangement=Arrangement.spacedBy(7.dp)){
+    val timeline=row.status.terminal
+    Surface(Modifier.fillMaxWidth(),shape=RoundedCornerShape(if(timeline)8.dp else 16.dp),color=if(timeline)MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceContainer){
+        Column(Modifier.padding(if(timeline)8.dp else 12.dp),verticalArrangement=Arrangement.spacedBy(if(timeline)3.dp else 6.dp)){
             Row(Modifier.fillMaxWidth().then(if(canExpand)Modifier.clickable{expanded=!expanded}else Modifier),
                 verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
                 CategoryIcon(kindIcon(row.kind),sectionColor(section))
@@ -261,7 +295,8 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                 }
                 if(canExpand)Icon(if(expanded)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(expanded)"Свернуть" else "Развернуть")
             }
-            TaskRowContent(row,false,command)
+            TaskRowContent(row,timeline,command)
+            if(row.kind==TaskKind.OCR&&ocr!=null&&!timeline){HorizontalDivider();OcrTaskChargeSetting(ocr)}
             if(expanded&&canExpand){
                 TaskResultDetails(row,onJournal)
                 row.children.take(limit).forEachIndexed{index,child->
@@ -285,15 +320,16 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         Column(Modifier.weight(1f)){
             Text(if(row.idle)"Не запущено" else if(row.status==TaskStatus.WAITING&&row.wait!=null)"Ожидание: ${row.wait.label}" else if(compact&&row.status==TaskStatus.COMPLETE)"Готово" else row.status.label,
                 style=MaterialTheme.typography.bodySmall,color=color)
-            TaskCenterPresentation.progressText(row)?.let{Text(it,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+            TaskCenterPresentation.progressText(row)?.let{Text(it,style=if(compact)MaterialTheme.typography.labelSmall else MaterialTheme.typography.titleMedium,color=MaterialTheme.colorScheme.onSurface)}
         }
-        if(TaskCenterPresentation.showBar(row)&&progress!=null)Text("${(progress*100).toInt()}%",style=MaterialTheme.typography.labelMedium,color=color)
+        if(TaskCenterPresentation.showBar(row)&&progress!=null)Text("${(progress*100).toInt()}%",style=if(compact)MaterialTheme.typography.labelMedium else MaterialTheme.typography.headlineSmall,color=color)
     }
     if(TaskCenterPresentation.showBar(row)){
-        if(progress!=null)LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth().height(4.dp),color=color)
-        else if(row.active)LinearProgressIndicator(Modifier.fillMaxWidth().height(4.dp),color=color)
+        if(progress!=null)LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth().height(5.dp),color=color,trackColor=MaterialTheme.colorScheme.outlineVariant)
+        else if(row.active)LinearProgressIndicator(Modifier.fillMaxWidth().height(5.dp),color=color,trackColor=MaterialTheme.colorScheme.outlineVariant)
     }
-    if(compact&&row.errors>0)Text("Ошибки: ${row.errors}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.error)
+    if(row.errors>0)Text("Ошибки: ${row.errors}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.error)
+    if(row.status.terminal)row.details?.outcomes?.let{v->Text("Создано: "+v.generated+" · В кэше: "+v.cached+" · Пропущено: "+v.skipped,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
     TaskCommands(row,command)
 }
 @OptIn(ExperimentalLayoutApi::class)
@@ -302,6 +338,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
     FlowRow(horizontalArrangement=Arrangement.spacedBy(3.dp)){
         row.commands.forEach{action->
             TextButton({command(row.id,action)}){
+                if(action==TaskCommand.PAUSE||action==TaskCommand.RESUME){Icon(if(action==TaskCommand.PAUSE)Icons.Rounded.Pause else Icons.Rounded.PlayArrow,null,Modifier.size(18.dp));Spacer(Modifier.width(4.dp))}
                 Text(when{row.idle&&action==TaskCommand.RESUME->"Начать";action==TaskCommand.RETRY&&row.kind==TaskKind.DOWNLOAD&&row.children.isEmpty()&&row.files==null->"Повторить загрузку";else->action.label})
             }
         }
@@ -328,7 +365,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         DetailLine("Создано",outcomes.generated.toString())
         DetailLine("Уже в кэше",outcomes.cached.toString())
         DetailLine("Пропущено",outcomes.skipped.toString())
-        if(row.kind==TaskKind.WAVEFORM&&outcomes.skipped>0)Text("Нет подтверждённой длительности",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        if(row.kind==TaskKind.WAVEFORM&&outcomes.skipped>0)Text("Пропуски не равны ошибкам: для части треков длительность могла быть недоступна",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         DetailLine("Ошибки",outcomes.failed.toString())
     }
     if(row.errors>0||row.status==TaskStatus.FAILED){

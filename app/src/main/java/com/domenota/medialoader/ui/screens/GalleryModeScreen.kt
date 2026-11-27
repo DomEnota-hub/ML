@@ -102,6 +102,7 @@ internal fun GalleryModeScreen(
     notes: com.domenota.medialoader.ui.screens.organization.MediaPassportNotes? = null,
     ocr: GalleryOcrController? = null,
     onCloseSearch: (() -> Unit)? = null,
+    onOpenOcrTask: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -611,12 +612,17 @@ internal fun GalleryModeScreen(
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
                         leadingIcon = { Icon(Icons.Rounded.Search, null) },
-                        trailingIcon = if (search.isNotEmpty()) ({ IconButton({ search = "" }) { Icon(Icons.Rounded.Close, "Очистить поиск") } }) else null)
+                        trailingIcon = {
+                            Row(verticalAlignment=Alignment.CenterVertically) {
+                                if(search.isNotEmpty())IconButton({search=""}){Icon(Icons.Rounded.Close,"Очистить поиск")}
+                                if(!detailOpen && ocr!=null && onOpenOcrTask!=null)GalleryOcrIndicator(ocr,onOpenOcrTask)
+                            }
+                        })
                     if (searchVisible == true && !detailOpen && noteQuery.isNotEmpty())
                         noteSearchNotice?.let { Text(it,Modifier.padding(horizontal=17.dp,vertical=4.dp),
                             style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
                     if (searchVisible == true && !detailOpen && ocr != null)
-                        GalleryOcrControls(ocr,Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=4.dp))
+                        GalleryOcrNotice(ocr,Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=2.dp))
                     if (searchVisible == true && !detailOpen && onOpenDuplicates != null)
                         DuplicateSearchShortcut(onOpenDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading || (tab==0 && !gridReady), message, settingsError ?: error,

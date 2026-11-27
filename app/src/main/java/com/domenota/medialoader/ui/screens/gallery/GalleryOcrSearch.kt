@@ -5,6 +5,11 @@ import android.os.SystemClock
 import com.domenota.medialoader.core.logging.AppLog
 import com.domenota.medialoader.data.tasks.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,7 +28,10 @@ internal enum class GalleryOcrPhase { WAITING_ACCESS, WAITING_CATALOG, PAUSED, W
 internal enum class OcrSearchStatus { COMPLETE, PARTIAL, NOT_READY, BLOCKED }
 internal data class OcrSearchResult(val ids:Set<String>,val status:OcrSearchStatus)
 internal data class GalleryOcrProgress(val phase: GalleryOcrPhase = GalleryOcrPhase.WAITING_ACCESS,
-    val done: Int = 0, val total: Int = 0, val failed: Int = 0, val unverified: Int = 0)
+    val done: Int = 0, val total: Int = 0, val failed: Int = 0, val unverified: Int = 0) {
+    val complete get() = phase == GalleryOcrPhase.COMPLETE && done == total && failed == 0 && unverified == 0
+    val fraction get() = total.takeIf { it > 0 && done in 0..it }?.let { done.toFloat()/it }
+}
 
 /** Single execution with durable checkpoints; future task center observes it. */
 internal class GalleryOcrController(context: Context) {
@@ -220,45 +228,50 @@ internal fun rememberGalleryOcr(
     return controller
 }
 
+/** Search affordance only; the existing controller owns execution. */
 @Composable
-internal fun GalleryOcrControls(controller: GalleryOcrController, modifier: Modifier = Modifier) {
-    val progress = controller.progress
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween) {
-            Column(Modifier.weight(1f)) {
-                Text("Поиск по тексту на фото", style=MaterialTheme.typography.titleSmall)
-                val status = when (progress.phase) {
-                    GalleryOcrPhase.WAITING_ACCESS -> "Ожидание доступа"
-                    GalleryOcrPhase.WAITING_CATALOG -> "Подготовка медиатеки"
-                    GalleryOcrPhase.PAUSED -> "Приостановлено"
-                    GalleryOcrPhase.WAITING_CHARGE -> "Ожидание зарядки"
-                    GalleryOcrPhase.WAITING_ENERGY -> "Режим энергосбережения"
-                    GalleryOcrPhase.RUNNING -> "Индексация"
-                    GalleryOcrPhase.COMPLETE -> "Готово"
-                    GalleryOcrPhase.PARTIAL -> "Частично готово"
-                    GalleryOcrPhase.ERROR -> "Ошибка индексации"
-                }
-                Text(status + " · " + progress.done + "/" + progress.total, style=MaterialTheme.typography.bodySmall)
-                if (progress.failed > 0 || progress.unverified > 0)
-                    Text("Не обработано: " + (progress.failed + progress.unverified), style=MaterialTheme.typography.bodySmall)
-            }
-            if (controller.enabled && progress.phase in setOf(GalleryOcrPhase.PARTIAL,GalleryOcrPhase.ERROR))
-                TextButton(controller::retry) { Text("Повторить") }
-            else TextButton(controller::toggle) { Text(if (controller.enabled) "Пауза" else if(progress.done > 0) "Продолжить" else "Начать") }
+internal fun GalleryOcrIndicator(controller: GalleryOcrController, onOpen:()->Unit) {
+    val p=controller.progress
+    if(p.complete)return
+    val fraction=p.fraction
+    val tint=MaterialTheme.colorScheme.primary
+    Box(Modifier.size(48.dp).clickable(role=Role.Button,onClickLabel="Открыть задачу распознавания текста",onClick=onOpen),
+        contentAlignment=Alignment.Center) {
+        if(fraction!=null) {
+            CircularProgressIndicator(progress={fraction},modifier=Modifier.size(32.dp),color=tint,
+                trackColor=MaterialTheme.colorScheme.outlineVariant,strokeWidth=2.dp)
+            Text((fraction*100).toInt().toString()+"%",style=MaterialTheme.typography.labelSmall,
+                color=tint,fontWeight=FontWeight.SemiBold)
+        } else Icon(Icons.Rounded.Info,"Индекс текста не готов",tint=tint)
+    }
+}
+@Composable
+internal fun GalleryOcrNotice(controller: GalleryOcrController,modifier:Modifier=Modifier) {
+    val p=controller.progress
+    if(p.complete)return
+    val status=when {
+        !controller.enabled->"Индексация приостановлена или не запущена."
+        p.phase==GalleryOcrPhase.WAITING_CHARGE->"Ожидание зарядки."
+        p.phase==GalleryOcrPhase.WAITING_ENERGY->"Ожидание отключения энергосбережения."
+        p.phase==GalleryOcrPhase.WAITING_ACCESS->"Ожидание доступа."
+        p.phase==GalleryOcrPhase.WAITING_CATALOG->"Подготовка медиатеки."
+        p.phase==GalleryOcrPhase.ERROR->"Ошибка индексации."
+        p.phase==GalleryOcrPhase.PARTIAL->"Индекс готов частично."
+        else->"Индексация текста."
+    }
+    Text(status+" Поиск по тексту пока доступен не для всех фото.",modifier,
+        style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+}
+@Composable
+internal fun OcrTaskChargeSetting(controller:GalleryOcrController,modifier:Modifier=Modifier) {
+    val global by TaskHistoryStore.settings.collectAsState()
+    Row(modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
+        horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text("OCR только при зарядке",style=MaterialTheme.typography.bodyMedium)
+            Text(if(global.charging)"Задано общим условием Центра задач" else "Условие фоновой индексации",
+                style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (progress.total > 0) LinearProgressIndicator(
-            progress = { (progress.done.toFloat()/progress.total).coerceIn(0f,1f) },
-            modifier = Modifier.fillMaxWidth())
-        Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically,
-            horizontalArrangement=Arrangement.SpaceBetween) {
-            val global by TaskHistoryStore.settings.collectAsState()
-            Column(Modifier.weight(1f)) {
-                Text("OCR только при зарядке", style=MaterialTheme.typography.bodySmall)
-                if(global.charging) Text("Задано Центром задач",style=MaterialTheme.typography.labelSmall,
-                    color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Switch(checked=global.charging || controller.chargeOnly,enabled=!global.charging,onCheckedChange=controller::updateChargeOnly)
-        }
+        Switch(checked=global.charging||controller.chargeOnly,enabled=!global.charging,onCheckedChange=controller::updateChargeOnly)
     }
 }

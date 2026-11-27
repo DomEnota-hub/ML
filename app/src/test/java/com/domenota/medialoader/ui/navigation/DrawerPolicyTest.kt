@@ -133,4 +133,33 @@ class DrawerPolicyTest{
         assertTrue(DrawerEntry.VK_IMAGES in restored.entries(true,true))
         assertFalse(DrawerEntry.BULK_DOWNLOAD in DrawerConfiguration.DEFAULT.entries(true,true))
     }
+
+    @Test fun dividersMigrateWithoutReorderingCustomLayoutAndPersistRemoval() {
+        val old=DrawerEntry.entries.joinToString(","){it.name+":1"}
+        val standard=DrawerConfiguration.decode(old)
+        assertEquals(DrawerEntry.entries.toList(),standard.order)
+        assertEquals(2,standard.layout.count{DrawerConfiguration.isDivider(it)})
+        val custom=DrawerConfiguration.decode("MUSIC:1,HOME:1,GALLERY:1,SETTINGS:1")
+        assertEquals(DrawerEntry.MUSIC,custom.order.first())
+        assertFalse(custom.layout.any{DrawerConfiguration.isDivider(it)})
+        val moved=standard.moveItem("DIVIDER_1",DrawerEntry.GALLERY.name)
+        assertEquals(standard.order,moved.order)
+        assertEquals(moved,DrawerConfiguration.decode(moved.encode()))
+        val none=moved.removeDivider("DIVIDER_1").removeDivider("DIVIDER_2")
+        assertFalse(none.layout.any{DrawerConfiguration.isDivider(it)})
+        assertEquals(none,DrawerConfiguration.decode(none.encode()))
+        assertEquals(none.order,none.addDivider().order)
+    }
+    @Test fun dividersRespectHiddenEntriesAndNeverRenderEmptyZones() {
+        val defaults=DrawerConfiguration.DEFAULT
+        val front=defaults.moveItem("DIVIDER_1",DrawerEntry.HOME.name)
+        val back=front.moveItem("DIVIDER_2",DrawerEntry.VK_IMAGES.name)
+        val display=back.displayItems(drawerAvailableEntries(false))
+        assertFalse(display.any{DrawerConfiguration.isDivider(it)})
+        val adjacent=defaults.moveItem("DIVIDER_2","DIVIDER_1")
+        val shown=adjacent.displayItems(drawerAvailableEntries(false))
+        assertEquals(1,shown.count{DrawerConfiguration.isDivider(it)})
+        assertEquals(adjacent.entries(false).map{it.name},shown.filterNot{DrawerConfiguration.isDivider(it)})
+        assertFalse("JOURNAL" in shown)
+    }
 }

@@ -9,6 +9,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,19 +45,19 @@ internal fun DrawerSettingsScreen(
     val colors = MaterialTheme.colorScheme
     val edge = with(LocalDensity.current) { 56.dp.toPx() }
     var draft by remember { mutableStateOf(configuration) }
-    var dragged by remember { mutableStateOf<DrawerEntry?>(null) }
+    var dragged by remember { mutableStateOf<String?>(null) }
     var dragCenter by remember { mutableFloatStateOf(0f) }
     var viewportTop by remember { mutableFloatStateOf(0f) }
     var viewportBottom by remember { mutableFloatStateOf(0f) }
-    val centers = remember { mutableStateMapOf<DrawerEntry, Float>() }
+    val centers = remember { mutableStateMapOf<String, Float>() }
     val admitted = remember(developerAllowed,advancedToolsVisible) { drawerAvailableEntries(developerAllowed,advancedToolsVisible) }
-    val entries = draft.order.filter { it in admitted }
+    val entries = draft.editableItems(admitted)
 
     LaunchedEffect(configuration) {
         if (dragged == null) draft = configuration
     }
     LaunchedEffect(developerAllowed,advancedToolsVisible) {
-        if (dragged?.let { it !in admitted } == true) {
+        if (dragged?.let { it !in draft.editableItems(admitted) } == true) {
             dragged = null
             draft = configuration
         }
@@ -66,9 +68,9 @@ internal fun DrawerSettingsScreen(
     }
     fun moveToFinger() {
         val moving = dragged ?: return
-        val target = draft.order.asSequence().filter { it in admitted && it in centers }
+        val target = draft.editableItems(admitted).asSequence().filter { it in centers }
             .minByOrNull { abs((centers[it] ?: dragCenter) - dragCenter) } ?: return
-        if (target != moving) draft = draft.move(moving, target)
+        if (target != moving) draft = draft.moveItem(moving, target)
     }
     fun finishDrag() {
         if (dragged != null) {
@@ -111,16 +113,18 @@ internal fun DrawerSettingsScreen(
         }) {
             Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                entries.forEach { entry ->
-                    key(entry) {
-                        val enabled = entry in draft.visible
-                        val fixed = entry in mandatoryDrawerEntries
-                        val activeDrag = dragged == entry
+                entries.forEach { id ->
+                    key(id) {
+                        val entry=DrawerConfiguration.entry(id)
+                        val label=entry?.label ?: "Разделитель"
+                        val enabled = entry != null && entry in draft.visible
+                        val fixed = entry != null && entry in mandatoryDrawerEntries
+                        val activeDrag = dragged == id
                         val iconTint = if (enabled) colors.primary else colors.onSurfaceVariant
                         Surface(
-                            modifier = Modifier.fillMaxWidth().testTag("drawer-config-${entry.name}")
+                            modifier = Modifier.fillMaxWidth().testTag("drawer-config-" + id)
                                 .onGloballyPositioned { coordinates ->
-                                    centers[entry] = coordinates.positionInRoot().y + coordinates.size.height / 2f
+                                    centers[id] = coordinates.positionInRoot().y + coordinates.size.height / 2f
                                 },
                             color = if (activeDrag) colors.primaryContainer else colors.surfaceContainer,
                             shape = RoundedCornerShape(14.dp),
@@ -129,41 +133,51 @@ internal fun DrawerSettingsScreen(
                             Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(horizontal = 12.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Icon(drawerEntryIcon(entry), null, Modifier.size(24.dp), tint = iconTint)
-                                Text(entry.label, Modifier.weight(1f), color = if (enabled) colors.onSurface else colors.onSurfaceVariant)
-                                Switch(checked = enabled, enabled = !fixed && dragged == null,
-                                    onCheckedChange = { save(draft.setVisible(entry, it)) },
-                                    modifier = Modifier.testTag("drawer-config-switch-${entry.name}")
-                                        .semantics { contentDescription = if (fixed) "${entry.label}: всегда доступно" else entry.label })
-                                Box(Modifier.size(48.dp).testTag("drawer-config-handle-${entry.name}")
+                                if(entry==null) {
+                                    Column(Modifier.weight(1f)) {
+                                        HorizontalDivider(color=colors.outline)
+                                        Text(label,style=MaterialTheme.typography.labelSmall,color=colors.onSurfaceVariant)
+                                    }
+                                    IconButton(onClick={save(draft.removeDivider(id))},enabled=dragged==null) {
+                                        Icon(Icons.Rounded.DeleteOutline,"Удалить разделитель",tint=colors.error)
+                                    }
+                                } else {
+                                    Icon(drawerEntryIcon(entry), null, Modifier.size(24.dp), tint = iconTint)
+                                    Text(label, Modifier.weight(1f), color = if (enabled) colors.onSurface else colors.onSurfaceVariant)
+                                    Switch(checked = enabled, enabled = !fixed && dragged == null,
+                                        onCheckedChange = { save(draft.setVisible(entry, it)) },
+                                        modifier = Modifier.testTag("drawer-config-switch-" + id)
+                                            .semantics { contentDescription = if (fixed) label + ": всегда доступно" else label })
+                                }
+                                Box(Modifier.size(48.dp).testTag("drawer-config-handle-" + id)
                                     .semantics {
-                                        contentDescription = "Переместить ${entry.label}"
+                                        contentDescription = "Переместить " + label
                                         customActions = buildList {
-                                            val index = entries.indexOf(entry)
+                                            val index = entries.indexOf(id)
                                             entries.getOrNull(index - 1)?.let { target ->
                                                 add(CustomAccessibilityAction("Выше") {
-                                                    save(draft.move(entry, target)); true
+                                                    save(draft.moveItem(id, target)); true
                                                 })
                                             }
                                             entries.getOrNull(index + 1)?.let { target ->
                                                 add(CustomAccessibilityAction("Ниже") {
-                                                    save(draft.move(entry, target)); true
+                                                    save(draft.moveItem(id, target)); true
                                                 })
                                             }
                                         }
                                     }
-                                    .pointerInput(entry, developerAllowed,advancedToolsVisible) {
+                                    .pointerInput(id, developerAllowed,advancedToolsVisible) {
                                         detectDragGesturesAfterLongPress(
                                             onDragStart = {
-                                                centers[entry]?.let { center ->
+                                                centers[id]?.let { center ->
                                                     dragCenter = center
-                                                    dragged = entry
+                                                    dragged = id
                                                 }
                                             },
                                             onDragEnd = { finishDrag() },
                                             onDragCancel = { finishDrag() },
                                             onDrag = { change, delta ->
-                                                if (dragged == entry) {
+                                                if (dragged == id) {
                                                     change.consume()
                                                     dragCenter = (dragCenter + delta.y).coerceIn(viewportTop, viewportBottom)
                                                     moveToFinger()
@@ -179,6 +193,10 @@ internal fun DrawerSettingsScreen(
                 }
                 Spacer(Modifier.height(6.dp))
             }
+        }
+        OutlinedButton(onClick={save(draft.addDivider())},enabled=dragged==null && draft.layout.count { DrawerConfiguration.isDivider(it) }<20,
+            modifier=Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=2.dp).testTag("drawer-config-add-divider")) {
+            Icon(Icons.Rounded.Add,null);Text("Добавить разделитель")
         }
         OutlinedButton(
             onClick = { save(DrawerConfiguration.DEFAULT) }, enabled = dragged == null,

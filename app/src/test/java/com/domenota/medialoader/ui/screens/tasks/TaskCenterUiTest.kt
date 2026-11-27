@@ -38,4 +38,20 @@ class TaskCenterUiTest {
         compose.onNodeWithText("Создано:").assertExists()
         compose.onNodeWithText("Уже в кэше:").assertExists()
     }
+
+    @Test fun partialHistoryAndLatestConfirmedResultRemainDistinctFromErrors(){
+        val partial=TaskSnapshot(taskId(TaskOwner.WAVEFORM,"partial"),TaskKind.WAVEFORM,TaskStatus.PARTIAL,
+            files=TaskProgress(2,2),updatedAt=100,details=TaskDetails(TaskCorrelation.create(),10,TaskTrigger.BACKGROUND,outcomes=TaskOutcomes(skipped=2)))
+        val complete=TaskSnapshot(taskId(TaskOwner.WAVEFORM,"complete"),TaskKind.WAVEFORM,TaskStatus.COMPLETE,
+            files=TaskProgress(20,20),updatedAt=50,details=TaskDetails(TaskCorrelation.create(),10,TaskTrigger.PERIODIC,outcomes=TaskOutcomes(20,0)))
+        org.junit.Assert.assertEquals(partial,TaskCenterPresentation.latestConfirmed(listOf(partial,complete),TaskKind.WAVEFORM))
+        org.junit.Assert.assertTrue(TaskCenterPresentation.errors(listOf(partial,complete)).isEmpty())
+        compose.setContent { MaterialTheme(colorScheme=lightColorScheme()){
+            TaskCenterContent(listOf(partial,complete),emptyList(),setOf(TaskOwner.WAVEFORM),{},{},{_,_->false})
+        } }
+        compose.onNodeWithText("История").performClick()
+        compose.onNodeWithText("Частичные").performClick()
+        compose.onNodeWithText("Частично завершено").assertExists()
+        compose.onNodeWithText("2 из 2 треков").assertExists()
+    }
 }

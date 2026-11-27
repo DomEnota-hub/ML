@@ -21,6 +21,9 @@ internal object TaskCenterPresentation {
     fun focusFirst(rows:List<TaskSnapshot>,id:String?)=if(id==null)rows else rows.sortedBy{it.id!=id}
     fun history(rows:List<TaskSnapshot>)=rows.filter{it.status.terminal}.sortedByDescending{it.updatedAt}
     fun errors(rows:List<TaskSnapshot>)=history(rows).filter{it.status==TaskStatus.FAILED||it.errors>0}
+    fun latestConfirmed(rows:List<TaskSnapshot>,kind:TaskKind):TaskSnapshot? =
+        history(rows).firstOrNull { it.kind==kind && it.status in setOf(TaskStatus.COMPLETE,TaskStatus.PARTIAL) && it.details?.outcomes!=null }
+    fun partial(rows:List<TaskSnapshot>)=history(rows).filter{it.status==TaskStatus.PARTIAL}
     fun duration(ms:Long):String {
         val seconds=ms.coerceAtLeast(0)/1000
         return if(seconds>=3600)"${seconds/3600} ч ${seconds/60%60} мин" else if(seconds>=60)"${seconds/60} мин ${seconds%60} с" else "$seconds с"

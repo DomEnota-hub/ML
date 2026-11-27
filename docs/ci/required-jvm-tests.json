@@ -8866,6 +8866,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#dividersMigrateWithoutReorderingCustomLayoutAndPersistRemoval": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#dividersRespectHiddenEntriesAndNeverRenderEmptyZones": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.navigation.DrawerPolicyTest#dragFollowsFingerClampsAndSettlesInBothDirections": {
     "skipped": false,
     "failed": false
@@ -10046,6 +10054,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.screens.gallery.GalleryOcrTaskUiTest#indicatorShowsOnlyRealProgressAndOpensTaskWithoutTogglingIndex": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.gallery.GalleryOcrTaskUiTest#unknownAndPartialProgressNeverBecomeReady": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.screens.gallery.GalleryQuickAccessTest#allFilesShortcutCountsPhotosAndVideosAndKeepsItsRouteIdentity": {
     "skipped": false,
     "failed": false
@@ -10787,6 +10803,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.tasks.TaskCenterUiTest#lightHistoryShowsKnownCountsAfterExpansion": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.tasks.TaskCenterUiTest#partialHistoryAndLatestConfirmedResultRemainDistinctFromErrors": {
     "skipped": false,
     "failed": false
   },
