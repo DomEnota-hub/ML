@@ -20,6 +20,7 @@ internal class WaveformAdmission private constructor(
 ) {
     private val physical=blocked.any{it.startsWith("file:")||it.startsWith("file-stat:")}
     val requiresPhysicalProof get()=physical
+    fun lyricsProtectedKeys():Set<String> = blocked.filterTo(hashSetOf()){it.startsWith("file:")||it.startsWith("file-stat:")}
     private val byUri=rows.groupBy{it.savedUri}
     private val allowedKeys=hashMapOf<String,Pair<String,Set<String>>>()
     fun current(context:Context,repo:MediaRepository):Boolean =
@@ -45,6 +46,12 @@ internal class WaveformAdmission private constructor(
         val allowed=keys.none(blocked::contains)&&DuplicatePrivacyGuard.accepts(context,epoch,key,keys)
         if(allowed)allowedKeys[source]=key to keys
         return allowed
+    }
+    suspend fun allowsLyricsRef(context:Context,ref:com.domenota.medialoader.data.library.LibraryMediaRef):Boolean {
+        val row=ref.item
+        val uri=row.savedUri ?: return false
+        if(row.hidden||row.isPrivate||guard.excluded(ref)||ref.aliases.any(blocked::contains))return false
+        return allows(context,uri,ref.appDownloadId ?: ref.key,ref.aliases)
     }
     companion object {
         suspend fun read(context:Context,repo:MediaRepository):WaveformAdmission {

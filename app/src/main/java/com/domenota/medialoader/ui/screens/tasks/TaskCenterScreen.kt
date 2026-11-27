@@ -69,7 +69,7 @@ private fun kindIcon(kind:TaskKind):ImageVector=when(kind) {
     TaskKind.WAVEFORM,TaskKind.LOUDNESS->Icons.Rounded.GraphicEq
     TaskKind.MODEL->BrainCircuitOutline
     TaskKind.VISUAL_DUPLICATES->Icons.Rounded.PhotoLibrary
-    TaskKind.AUDIO_DUPLICATES->Icons.Rounded.LibraryMusic
+    TaskKind.AUDIO_DUPLICATES,TaskKind.LYRICS->Icons.Rounded.LibraryMusic
 }
 @Composable private fun sectionColor(section:TaskSection):Color {
     val light=MaterialTheme.colorScheme.background.luminance()>.5f

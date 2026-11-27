@@ -9,7 +9,7 @@ internal enum class TaskKind(val label: String) {
     COMMUNITY("Сканирование сообщества"), EXPORT("Экспорт"), BATCH_EDIT("Пакетная обработка"),
     WAVEFORM("Звуковая волна"), MODEL("AI-модель"), VISUAL_DUPLICATES("Дубликаты фото и видео"),
     AUDIO_DUPLICATES("Дубликаты музыки"), OCR("Распознавание текста"), LOUDNESS("Анализ громкости"),
-    FILE_OPERATION("Операция с файлами")
+    FILE_OPERATION("Операция с файлами"), LYRICS("Поиск текстов песен")
 }
 internal enum class TaskStatus(val label: String) {
     RUNNING("Выполняется"), QUEUED("В очереди"), PAUSED("Приостановлено"),
@@ -31,7 +31,7 @@ internal enum class TaskCommand(val label: String) {
 }
 internal enum class TaskOwner {
     DOWNLOADS, BULK, PROFILE, COMMUNITY, EXPORT, BATCH, WAVEFORM, MODEL, VISUAL_SCAN,
-    AUDIO_SCAN, OCR, LOUDNESS, FILES
+    AUDIO_SCAN, OCR, LOUDNESS, FILES, LYRICS
 }
 internal data class TaskProgress(val done: Long, val total: Long?) {
     init { require(done >= 0 && (total == null || total > 0 && done <= total)) }
@@ -253,5 +253,8 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
 
 internal object TaskCenter {
     val registry = TaskRegistry(TaskJournal::write)
-    fun initialize(context: android.content.Context) = TaskHistoryStore.start(context.applicationContext,registry)
+    fun initialize(context: android.content.Context) {
+        TaskHistoryStore.start(context.applicationContext,registry)
+        com.domenota.medialoader.data.playback.LyricsBatchCoordinator.initialize(context.applicationContext)
+    }
 }

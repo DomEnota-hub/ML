@@ -84,6 +84,10 @@ internal class LocalTrackLyrics(private val context:Context) {
             .getOrNull()?.let{LyricsParser.parse(it,LyricsOrigin.IMPORTED)} ?: return null
         return persist(access,version,lyrics,allowed)
     }
+    fun versionKey(access:AudioBookmarkAdmission,allowed:()->Boolean):String? {
+        if(!admitted(access,allowed))return null
+        return key(source(access))?.takeIf{admitted(access,allowed)}
+    }
     /** Extract only tag/recognition metadata from an admitted public source; never a filename or URI. */
     fun networkTarget(access:AudioBookmarkAdmission,manual:Pair<String,String>?=null,allowed:()->Boolean):NetworkLyricsTarget? {
         if(!admitted(access,allowed)) return null

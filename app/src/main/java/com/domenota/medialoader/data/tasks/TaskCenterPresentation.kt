@@ -3,7 +3,7 @@ package com.domenota.medialoader.data.tasks
 internal enum class TaskSection(val label:String, val kinds:List<TaskKind>) {
     DOWNLOADS("Загрузки",listOf(TaskKind.DOWNLOAD,TaskKind.BULK,TaskKind.PROFILE,TaskKind.COMMUNITY)),
     LIBRARY("Медиатека",listOf(TaskKind.OCR,TaskKind.VISUAL_DUPLICATES,TaskKind.FILE_OPERATION)),
-    MUSIC("Музыка",listOf(TaskKind.WAVEFORM,TaskKind.LOUDNESS,TaskKind.AUDIO_DUPLICATES)),
+    MUSIC("Музыка",listOf(TaskKind.WAVEFORM,TaskKind.LOUDNESS,TaskKind.AUDIO_DUPLICATES,TaskKind.LYRICS)),
     EDITORS("Обработка медиа",listOf(TaskKind.EXPORT,TaskKind.BATCH_EDIT)),
     MODELS("AI-модели",listOf(TaskKind.MODEL))
 }
@@ -15,7 +15,7 @@ internal object TaskCenterPresentation {
         TaskKind.DOWNLOAD->TaskOwner.DOWNLOADS;TaskKind.BULK->TaskOwner.BULK;TaskKind.PROFILE->TaskOwner.PROFILE
         TaskKind.COMMUNITY->TaskOwner.COMMUNITY;TaskKind.EXPORT->TaskOwner.EXPORT;TaskKind.BATCH_EDIT->TaskOwner.BATCH
         TaskKind.WAVEFORM->TaskOwner.WAVEFORM;TaskKind.MODEL->TaskOwner.MODEL;TaskKind.VISUAL_DUPLICATES->TaskOwner.VISUAL_SCAN
-        TaskKind.AUDIO_DUPLICATES->TaskOwner.AUDIO_SCAN;TaskKind.OCR->TaskOwner.OCR;TaskKind.LOUDNESS->TaskOwner.LOUDNESS;TaskKind.FILE_OPERATION->TaskOwner.FILES
+        TaskKind.AUDIO_DUPLICATES->TaskOwner.AUDIO_SCAN;TaskKind.OCR->TaskOwner.OCR;TaskKind.LOUDNESS->TaskOwner.LOUDNESS;TaskKind.FILE_OPERATION->TaskOwner.FILES;TaskKind.LYRICS->TaskOwner.LYRICS
     }
     fun idleLabel(kind:TaskKind,known:Set<TaskOwner>)=if(owner(kind) in known)"Нет задач" else "Нет данных о состоянии"
     fun focusFirst(rows:List<TaskSnapshot>,id:String?)=if(id==null)rows else rows.sortedBy{it.id!=id}
@@ -53,7 +53,7 @@ internal object TaskCenterPresentation {
         if(row.children.isNotEmpty()||row.files!=null)"Загрузка группы" else when(row.media){TaskMedia.AUDIO->"Загрузка аудио";TaskMedia.VIDEO->"Загрузка видео";TaskMedia.PHOTO->"Загрузка фото";null->row.kind.label}
     } else if(row.kind==TaskKind.WAVEFORM)"Генерация звуковых волн" else row.kind.label
     fun progressText(row:TaskSnapshot):String? = row.files?.let {
-        val unit=when(row.kind){TaskKind.WAVEFORM,TaskKind.LOUDNESS,TaskKind.AUDIO_DUPLICATES->"треков";TaskKind.OCR->"фото";else->"файлов"}
+        val unit=when(row.kind){TaskKind.WAVEFORM,TaskKind.LOUDNESS,TaskKind.AUDIO_DUPLICATES,TaskKind.LYRICS->"треков";TaskKind.OCR->"фото";else->"файлов"}
         if(it.total!=null) "${it.done} из ${it.total} $unit" else "${it.done} $unit"
     } ?: row.progress?.let { if(it.total!=null) "${bytes(it.done)} / ${bytes(it.total)}" else if(it.done>0) bytes(it.done) else null }
     fun expandable(row:TaskSnapshot)=row.children.isNotEmpty() || row.stage!=null || row.errors>0 || row.details!=null || row.status.terminal

@@ -28,6 +28,7 @@ class PhoneMediaLibrary(context: Context) {
 
     internal suspend fun scanSnapshot(mode: AppMode, previous: PhoneMediaSnapshot? = null,
         protectedPhysicalKeys: Set<String> = emptySet(),
+        requireComplete:Boolean=false,
         onProgress: (suspend (PhoneMediaSnapshot) -> Unit)? = null,
     ): PhoneMediaSnapshot = withContext(Dispatchers.IO) {
         com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
@@ -65,7 +66,9 @@ class PhoneMediaLibrary(context: Context) {
             try {
                 com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
                     com.domenota.medialoader.core.logging.LibraryWork.MEDIASTORE_QUERY)
-                context.contentResolver.query(uri, projection.toTypedArray(), null, null, "date_added DESC, _id DESC")?.use { cursor ->
+                val cursorResult=context.contentResolver.query(uri, projection.toTypedArray(), null, null, "date_added DESC, _id DESC")
+                if(requireComplete)check(cursorResult!=null){"MediaStore unavailable"}
+                cursorResult?.use { cursor ->
                     while (cursor.moveToNext()) {
                         coroutineContext.ensureActive()
                         val indexedRow = mapRow(cursor, type, uri)
@@ -103,12 +106,15 @@ class PhoneMediaLibrary(context: Context) {
                     }
                 }
                 // A revocation during a scan must not publish the rows gathered before it.
+                if(requireComplete)check(accessLevel(type)>=access){"MediaStore access changed"}
                 if (accessLevel(type) >= access) rows.also { completedRows += it } else emptyList()
-            } catch (_: SecurityException) {
+            } catch (denied: SecurityException) {
+                if(requireComplete)throw denied
                 emptyList()
             }
         }
         // Recheck each permission once after the scan, rather than a Binder check for every row.
+        if(requireComplete)check(scannedAccess.all{(type,access)->accessLevel(type)>=access}){"MediaStore access changed"}
         val allowed = scannedAccess.filter { (type, access) -> accessLevel(type) >= access }.keys
         val validated = items.filter { it.mediaType in allowed }
             .sortedWith(compareByDescending<DownloadEntity> { it.createdAtEpochMillis }.thenBy { it.id })
