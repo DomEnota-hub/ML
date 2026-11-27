@@ -215,7 +215,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                                 Column(Modifier.weight(1f)){
                                     Text(section.label,style=MaterialTheme.typography.titleMedium)
                                     Text(summary,style=MaterialTheme.typography.labelSmall,color=when{running>0->statusColor(TaskStatus.RUNNING);pending>0->statusColor(TaskStatus.WAITING);else->MaterialTheme.colorScheme.onSurfaceVariant})
-                                    if(!opened&&section==TaskSection.MUSIC)TaskCenterPresentation.latestConfirmed(tasks,TaskKind.WAVEFORM)?.details?.outcomes?.let{last->Text("Последняя проверка волн: "+last.cached+" в кэше · "+last.skipped+" пропущено · "+last.failed+" ошибок",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
+                                    if(!opened&&section==TaskSection.MUSIC)TaskCenterPresentation.latestConfirmed(tasks,TaskKind.WAVEFORM)?.details?.outcomes?.let{last->Text("Последний проход: "+last.checked+" проверено · "+last.cached+" в кэше · "+last.skipped+" пропущено · "+last.failed+" ошибок",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                                 }
                                 Icon(if(opened)Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,if(opened)"Свернуть" else "Развернуть",tint=MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -249,7 +249,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                                     val result=last.details?.outcomes
                                     if(result!=null)Column(Modifier.fillMaxWidth().clickable{openTask(last)}.padding(start=30.dp,bottom=4.dp)){
                                         Text("Последний сохранённый результат · "+DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(last.updatedAt)),style=MaterialTheme.typography.labelSmall)
-                                        Text("В кэше: "+result.cached+" · Создано: "+result.generated+" · Пропущено: "+result.skipped+" · Ошибки: "+result.failed,
+                                        Text("Проверено: "+result.checked+" · В кэше: "+result.cached+" · Создано: "+result.generated+" · Пропущено: "+result.skipped+" · Ошибки: "+result.failed,
                                             style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
