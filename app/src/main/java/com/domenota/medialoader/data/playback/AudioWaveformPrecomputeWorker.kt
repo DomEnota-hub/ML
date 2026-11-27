@@ -69,6 +69,7 @@ class AudioWaveformPrecomputeWorker(
     private suspend fun processSweep(app:Context):Result {
         val tracks = linkedMapOf<String, Long>()
         val repo=MediaRepository.get(app)
+        if(!TaskHistoryStore.awaitReady())return Result.retry()
         val admission=try { WaveformAdmission.read(app,repo) } catch(e:java.util.concurrent.CancellationException){throw e} catch(_:Exception){return Result.retry()}
         // Never index the application's hidden or private audio history.
         try {
@@ -119,14 +120,16 @@ class AudioWaveformPrecomputeWorker(
         var sweep=restored?.takeIf { it.inventory==inventory && it.total==entries.size }
             ?: WaveformSweep(TaskCorrelation.create(),inventory,entries.size,System.currentTimeMillis(),
                 if(inputData.getBoolean("periodicOrigin",false)) TaskTrigger.PERIODIC else TaskTrigger.BACKGROUND)
+        val resumed=restored?.token==sweep.token
         val report=TaskReporter.create(TaskOwner.WAVEFORM,TaskKind.WAVEFORM,sweep.token.value)
         fun publish(status:TaskStatus=TaskStatus.RUNNING,wait:TaskWait?=null,stage:TaskStage=TaskStage.SCANNING) {
             report.report(status,files=countProgress(sweep.cursor,sweep.total),errors=sweep.outcomes.failed,
-                wait=wait,stage=stage,details=sweep.details(recovered=restored!=null))
+                wait=wait,stage=stage,details=sweep.details(recovered=resumed))
         }
         if(!store.save(sweep)) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
         if(sweep.finished) {
             publish(if(sweep.outcomes.failed>0||sweep.outcomes.skipped>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE)
+            if(!TaskHistoryStore.persistCurrent(TaskCenter.registry))return Result.retry()
             return if(store.clear())Result.success() else Result.retry()
         }
         publish()
@@ -140,7 +143,7 @@ class AudioWaveformPrecomputeWorker(
                     if(!store.save(sweep)) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
                     publish(TaskStatus.WAITING,wait);return Result.retry()
                 }
-                if(!admission.current(app,repo)){publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
+                if(!admission.current(app,repo)){store.save(sweep);publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
                 val (source, knownDuration)=entries[index]
                 val result=try {
                     val uri=Uri.parse(source)
@@ -156,7 +159,7 @@ class AudioWaveformPrecomputeWorker(
                     }
                 } catch(e:java.util.concurrent.CancellationException) { throw e }
                   catch(_:Exception) { WaveformPreparation(emptyList(),WaveformOutcome.FAILED,TaskFailure.IO) }
-                if(!admission.current(app,repo)){publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
+                if(!admission.current(app,repo)){store.save(sweep);publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
                 sweep=sweep.advance(result.outcome,result.failure)
                 publish()
                 if(sweep.cursor%20==0){
@@ -170,7 +173,7 @@ class AudioWaveformPrecomputeWorker(
                 AudioWaveformPrecompute.continueRemaining(app,sweep.token.value)
             } else {
                 publish(if(sweep.outcomes.failed>0||sweep.outcomes.skipped>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE)
-                if(!store.clear())return Result.retry()
+                if(!TaskHistoryStore.persistCurrent(TaskCenter.registry)||!store.clear())return Result.retry()
             }
             return Result.success()
         } catch(e:java.util.concurrent.CancellationException) {
@@ -223,7 +226,7 @@ object AudioWaveformPrecompute {
         request(context)
     }
 
-    /** Queue the next 20 tracks after a successful checkpoint, with no retry back-off. */
+    /** Queue the next bounded slice after a successful checkpoint, with no retry back-off. */
     internal fun continueRemaining(context: Context,token:String) {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             ONCE, ExistingWorkPolicy.APPEND_OR_REPLACE,

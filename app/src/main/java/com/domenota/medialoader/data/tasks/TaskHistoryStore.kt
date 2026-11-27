@@ -13,6 +13,8 @@ import android.util.AtomicFile
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -26,6 +28,9 @@ internal object TaskHistoryStore {
     val settings=mutable.asStateFlow()
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
     private var app: Context?=null
+    private val ready=CompletableDeferred<Boolean>()
+    private val diskGate=Mutex()
+    @Volatile private var historyFile:AtomicFile?=null
     @Synchronized fun start(context: Context, registry: TaskRegistry) {
         if(app!=null)return
         app=context
@@ -34,16 +39,34 @@ internal object TaskHistoryStore {
             prefs.getBoolean("charging",false),prefs.getBoolean("batterySaver",true),prefs.getBoolean("notifications",false))
         registry.configure(mutable.value.retention) { row -> scope.launch { notifyCompletion(context,row) } }
         val file=AtomicFile(File(context.noBackupFilesDir,"task-center-history.json"))
+        historyFile=file
         scope.launch {
-            val restored=runCatching { decode(JSONObject(file.readFully().toString(Charsets.UTF_8))) }.getOrDefault(TaskHistoryData())
-            registry.restore(restored)
-            registry.history.collect { snapshot ->
-                val bytes=encode(snapshot).toString().toByteArray(Charsets.UTF_8)
-                runCatching {
-                    val out=file.startWrite()
-                    try { out.write(bytes); file.finishWrite(out) } catch(e:Exception) { file.failWrite(out); throw e }
-                }
+            val restored=try { decode(JSONObject(file.readFully().toString(Charsets.UTF_8))) }
+            catch(_:java.io.FileNotFoundException) {
+                if(file.baseFile.exists()||File(file.baseFile.path+".bak").exists()||File(file.baseFile.path+".new").exists())null else TaskHistoryData()
+            } catch(_:Exception){null}
+            if(restored==null){
+                com.domenota.medialoader.core.logging.AppLog.w("TaskCenter","History unavailable · existing data retained")
+                ready.complete(false)
+                return@launch
             }
+            try { registry.restore(restored) } catch(_:Exception){ ready.complete(false);return@launch }
+            ready.complete(true)
+            registry.history.collect { persistLatest(registry) }
+        }
+    }
+    suspend fun awaitReady():Boolean=ready.await()
+    /** Terminal checkpoints may only be deleted after the latest history is durable.
+     * Background collector and explicit flush share one writer gate. */
+    suspend fun persistCurrent(registry:TaskRegistry):Boolean = awaitReady() && persistLatest(registry)
+    private suspend fun persistLatest(registry:TaskRegistry):Boolean=withContext(Dispatchers.IO) {
+        diskGate.withLock {
+            val file=historyFile ?: return@withLock false
+            val bytes=encode(registry.history.value).toString().toByteArray(Charsets.UTF_8)
+            runCatching {
+                val out=file.startWrite()
+                try { out.write(bytes);file.finishWrite(out) } catch(e:Exception){file.failWrite(out);throw e}
+            }.onFailure{com.domenota.medialoader.core.logging.AppLog.w("TaskCenter","History write failed")}.isSuccess
         }
     }
     fun update(value: TaskSettings) {
@@ -85,7 +108,7 @@ internal object TaskHistoryStore {
     private fun detailsJson(value:TaskDetails?):Any = value?.let { d ->
         JSONObject().put("correlation",d.correlation?.value?:JSONObject.NULL)
             .put("started",d.startedAt?:JSONObject.NULL).put("trigger",d.trigger?.name?:JSONObject.NULL)
-            .put("failure",d.failure?.name?:JSONObject.NULL).put("outcomes",d.outcomes?.let { c ->
+            .put("failure",d.failure?.name?:JSONObject.NULL).put("recovered",d.recovered).put("outcomes",d.outcomes?.let { c ->
                 JSONObject().put("cached",c.cached).put("generated",c.generated).put("skipped",c.skipped).put("failed",c.failed)
             }?:JSONObject.NULL)
     }?:JSONObject.NULL
@@ -94,7 +117,7 @@ internal object TaskHistoryStore {
             d.optLong("started",-1).takeIf{it>=0},
             TaskTrigger.entries.firstOrNull{it.name==d.optString("trigger")},
             TaskFailure.entries.firstOrNull{it.name==d.optString("failure")},
-            d.optJSONObject("outcomes")?.let { c -> runCatching { TaskOutcomes(c.getInt("cached"),c.getInt("generated"),c.getInt("skipped"),c.getInt("failed")) }.getOrNull() })
+            d.optJSONObject("outcomes")?.let { c -> runCatching { TaskOutcomes(c.getInt("cached"),c.getInt("generated"),c.getInt("skipped"),c.getInt("failed")) }.getOrNull() },d.optBoolean("recovered",false))
     }
     private fun progressJson(value:TaskProgress?):Any = value?.let { JSONObject().put("done",it.done).put("total",it.total?:JSONObject.NULL) }?:JSONObject.NULL
     internal fun decode(json:JSONObject):TaskHistoryData {

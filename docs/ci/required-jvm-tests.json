@@ -7382,6 +7382,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#checkpointRecoveryUsesExplicitMetadata": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#clearingTaskHistoryKeepsActiveWorkAndDoesNotReimportOldTerminalRows": {
     "skipped": false,
     "failed": false
@@ -7423,6 +7427,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#reporterCommandsAreCheckedAgainstLatestSnapshot": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#restoreRetainsNewerPersistedMetadataOverOldTerminalFeed": {
     "skipped": false,
     "failed": false
   },

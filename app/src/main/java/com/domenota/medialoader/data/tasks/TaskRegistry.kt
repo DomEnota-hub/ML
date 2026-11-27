@@ -100,8 +100,12 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
     }
     @Synchronized fun restore(data: TaskHistoryData) {
         val cutoff=maxOf(data.clearedAt,saved.value.clearedAt)
-        val merged=(data.rows+saved.value.rows).filter { it.updatedAt>cutoff }.associateBy { it.id }.values.toList()
-        saved.value=TaskHistoryData(cutoff,merged); rebuild()
+        val merged=data.rows.filter{it.updatedAt>cutoff}.associateBy{it.id}.toMutableMap()
+        for(row in saved.value.rows.filter{it.updatedAt>cutoff}) {
+            val old=merged[row.id]
+            merged[row.id]=if(old!=null&&old.status==row.status&&row.details==null&&old.updatedAt>=row.updatedAt)old else row
+        }
+        saved.value=TaskHistoryData(cutoff,merged.values.toList()); rebuild()
     }
     @Synchronized fun clearHistory() {
         saved.value=TaskHistoryData(System.currentTimeMillis(),emptyList()); rebuild()

@@ -4,6 +4,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TaskRegistryTest {
+    @Test fun restoreRetainsNewerPersistedMetadataOverOldTerminalFeed(){
+        val registry=TaskRegistry()
+        val now=System.currentTimeMillis()
+        val row=row("late",TaskStatus.COMPLETE).copy(updatedAt=now-1000)
+        registry.publish(TaskOwner.DOWNLOADS,listOf(row))
+        val details=TaskDetails(TaskCorrelation.create(),now-5000,TaskTrigger.BACKGROUND,recovered=true)
+        registry.restore(TaskHistoryData(rows=listOf(row.copy(updatedAt=now,details=details))))
+        assertEquals(details,registry.history.value.rows.single().details)
+        assertEquals(now,registry.history.value.rows.single().updatedAt)
+    }
+    @Test fun checkpointRecoveryUsesExplicitMetadata(){
+        val events=mutableListOf<TaskJournalEvent>()
+        val registry=TaskRegistry{events.add(it)}
+        val row=row("resumed").copy(details=TaskDetails(TaskCorrelation.create(),100,TaskTrigger.BACKGROUND,recovered=true))
+        registry.publish(TaskOwner.DOWNLOADS,listOf(row))
+        assertEquals(TaskEvent.RECOVERY,events.single().event)
+    }
     @Test fun restoredTerminalMetadataSurvivesFeedWithoutNewJournalEvent(){
         val events=mutableListOf<TaskJournalEvent>()
         val r=TaskRegistry{events.add(it)}
