@@ -396,7 +396,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                 Text("Фоновые процессы",style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Card(Modifier.fillMaxWidth().padding(top=6.dp),shape=RoundedCornerShape(16.dp)){
                     Column(Modifier.padding(12.dp)){
-                        TaskSettingSwitch("Тяжёлая индексация при зарядке","Учитывать питание устройства",value.charging){TaskHistoryStore.update(value.copy(charging=it))}
+                        TaskSettingSwitch("Фоновая индексация только при зарядке","OCR и звуковые волны",value.charging){TaskHistoryStore.update(value.copy(charging=it))}
                         HorizontalDivider()
                         TaskSettingSwitch("Учитывать энергосбережение","Ожидать подходящих условий",value.batterySaver){TaskHistoryStore.update(value.copy(batterySaver=it))}
                     }

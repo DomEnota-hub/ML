@@ -19,7 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-internal enum class GalleryOcrPhase { WAITING_ACCESS, PAUSED, WAITING_CHARGE, RUNNING, COMPLETE, PARTIAL, ERROR }
+internal enum class GalleryOcrPhase { WAITING_ACCESS, WAITING_CATALOG, PAUSED, WAITING_CHARGE, WAITING_ENERGY, RUNNING, COMPLETE, PARTIAL, ERROR }
 internal enum class OcrSearchStatus { COMPLETE, PARTIAL, NOT_READY, BLOCKED }
 internal data class OcrSearchResult(val ids:Set<String>,val status:OcrSearchStatus)
 internal data class GalleryOcrProgress(val phase: GalleryOcrPhase = GalleryOcrPhase.WAITING_ACCESS,
@@ -57,20 +57,28 @@ internal class GalleryOcrController(context: Context) {
 @Composable
 internal fun rememberGalleryOcr(
     refs: List<LibraryMediaRef>, fingerprints: Map<String,String>, access: Any?,
-    blocked: Set<String>, epoch: Long, ensureCatalog: () -> Unit,
+    blocked: Set<String>, epoch: Long, galleryAccessEpoch: Long, ensureCatalog: () -> Unit,
     validate: suspend (List<String>) -> List<LibraryMediaRef>,
 ): GalleryOcrController {
     val context = LocalContext.current.applicationContext
     val controller = remember(context) { GalleryOcrController(context) }
     val store = remember(context) { GalleryOcrIndex(context) }
     val invalidation by GalleryOcrIndex.invalidations.collectAsState()
-    val token = remember(refs,fingerprints,access,blocked,epoch,invalidation) { access?.let { Any() } }
+    // The incoming catalog includes music and videos. Only photo changes should
+    // invalidate an OCR run; real privacy/permission changes always revoke it.
+    val photos = remember(refs,fingerprints) { GalleryOcrPolicy.photoInputs(refs,fingerprints) }
+    val fence = remember(blocked,epoch,galleryAccessEpoch,invalidation) { Any() }
+    val token = remember(photos,access!=null,fence) { if(access!=null) Any() else null }
+    var lastFence by remember(controller) { mutableStateOf<Any?>(null) }
     val liveToken by rememberUpdatedState(token)
     val liveValidate by rememberUpdatedState(validate)
     val liveEnsure by rememberUpdatedState(ensureCatalog)
     var catalog by remember(token) { mutableStateOf<GalleryOcrCatalog?>(null) }
     LaunchedEffect(token) {
-        if (token != null) catalog = withContext(Dispatchers.Default) { GalleryOcrCatalog(refs,fingerprints,blocked) }
+        if (token != null) {
+            delay(600)
+            catalog = withContext(Dispatchers.Default) { GalleryOcrCatalog(photos.first,photos.second,blocked) }
+        }
     }
     SideEffect {
         controller.address = token
@@ -104,7 +112,7 @@ internal fun rememberGalleryOcr(
         val p=controller.progress
         val idle = !controller.enabled && p.done==0
         val status=if (!controller.enabled) TaskStatus.PAUSED else when(p.phase) {
-            GalleryOcrPhase.WAITING_ACCESS, GalleryOcrPhase.WAITING_CHARGE -> TaskStatus.WAITING
+            GalleryOcrPhase.WAITING_ACCESS, GalleryOcrPhase.WAITING_CATALOG, GalleryOcrPhase.WAITING_CHARGE, GalleryOcrPhase.WAITING_ENERGY -> TaskStatus.WAITING
             GalleryOcrPhase.PAUSED -> TaskStatus.PAUSED
             GalleryOcrPhase.RUNNING -> TaskStatus.RUNNING
             GalleryOcrPhase.COMPLETE -> TaskStatus.COMPLETE
@@ -113,7 +121,9 @@ internal fun rememberGalleryOcr(
         }
         val wait=if(status!=TaskStatus.WAITING) null else when(p.phase) {
             GalleryOcrPhase.WAITING_ACCESS -> TaskWait.PERMISSION
-            GalleryOcrPhase.WAITING_CHARGE -> TaskHistoryStore.waitReason(context) ?: TaskWait.CHARGING
+            GalleryOcrPhase.WAITING_CATALOG -> TaskWait.CATALOG
+            GalleryOcrPhase.WAITING_CHARGE -> TaskWait.CHARGING
+            GalleryOcrPhase.WAITING_ENERGY -> TaskWait.ENERGY_SAVER
             else -> null
         }
         val commands=when { controller.enabled && !status.terminal -> setOf(TaskCommand.PAUSE); !controller.enabled && status==TaskStatus.PAUSED -> setOf(TaskCommand.RESUME); status in setOf(TaskStatus.FAILED,TaskStatus.PARTIAL) -> setOf(TaskCommand.RETRY); else -> emptySet() }
@@ -122,11 +132,15 @@ internal fun rememberGalleryOcr(
         })
     }
     LaunchedEffect(controller.enabled) { if (controller.enabled) liveEnsure() }
-    LaunchedEffect(token,catalog,controller.enabled,controller.chargeOnly,controller.retryNonce) {
+    LaunchedEffect(token,catalog,controller.enabled,controller.retryNonce) {
         val current = catalog
         fun active() = token != null && liveToken === token && GalleryOcrIndex.invalidations.value == invalidation
+        if(lastFence !== fence) {
+            controller.progress = GalleryOcrProgress(phase=GalleryOcrPhase.WAITING_CATALOG)
+            lastFence=fence
+        }
         if (current == null || !active()) {
-            controller.progress = GalleryOcrProgress()
+            controller.progress = controller.progress.copy(phase=GalleryOcrPhase.WAITING_CATALOG)
             return@LaunchedEffect
         }
         val total = current.candidates.size
@@ -148,13 +162,16 @@ internal fun rememberGalleryOcr(
         try {
             if (!controller.enabled && !store.exists()) { publish(GalleryOcrPhase.PAUSED); return@LaunchedEffect }
             ready.addAll(store.reconcile(current,epoch,::active))
+            if (!active()) return@LaunchedEffect
             controller.revision++
             if (!controller.enabled) { publish(GalleryOcrPhase.PAUSED); return@LaunchedEffect }
             for (batch in current.candidates.filterNot { it.key in ready }.chunked(GalleryOcrPolicy.BATCH)) {
                 currentCoroutineContext().ensureActive()
                 if (!active()) return@LaunchedEffect
-                while ((controller.chargeOnly && !GalleryOcrReader.charging(context)) || TaskHistoryStore.waitReason(context)!=null) {
-                    publish(GalleryOcrPhase.WAITING_CHARGE); delay(2000)
+                while (true) {
+                    val reason=TaskHistoryStore.waitReason(context,controller.chargeOnly) ?: break
+                    if(!active()) return@LaunchedEffect
+                    publish(if(reason==TaskWait.CHARGING)GalleryOcrPhase.WAITING_CHARGE else GalleryOcrPhase.WAITING_ENERGY); delay(2000)
                 }
                 publish(GalleryOcrPhase.RUNNING)
                 val verified = liveValidate(batch.map { it.ref.key }).associateBy { it.key }
@@ -162,8 +179,10 @@ internal fun rememberGalleryOcr(
                 for (candidate in batch) {
                     currentCoroutineContext().ensureActive()
                     if (!active()) return@LaunchedEffect
-                    while ((controller.chargeOnly && !GalleryOcrReader.charging(context)) || TaskHistoryStore.waitReason(context)!=null) {
-                        publish(GalleryOcrPhase.WAITING_CHARGE); delay(2000)
+                    while (true) {
+                        val reason=TaskHistoryStore.waitReason(context,controller.chargeOnly) ?: break
+                    if(!active()) return@LaunchedEffect
+                    publish(if(reason==TaskWait.CHARGING)GalleryOcrPhase.WAITING_CHARGE else GalleryOcrPhase.WAITING_ENERGY); delay(2000)
                     }
                     publish(GalleryOcrPhase.RUNNING)
                     try {
@@ -209,9 +228,11 @@ internal fun GalleryOcrControls(controller: GalleryOcrController, modifier: Modi
             Column(Modifier.weight(1f)) {
                 Text("Поиск по тексту на фото", style=MaterialTheme.typography.titleSmall)
                 val status = when (progress.phase) {
-                    GalleryOcrPhase.WAITING_ACCESS -> "Ожидание медиатеки"
+                    GalleryOcrPhase.WAITING_ACCESS -> "Ожидание доступа"
+                    GalleryOcrPhase.WAITING_CATALOG -> "Подготовка медиатеки"
                     GalleryOcrPhase.PAUSED -> "Приостановлено"
                     GalleryOcrPhase.WAITING_CHARGE -> "Ожидание зарядки"
+                    GalleryOcrPhase.WAITING_ENERGY -> "Режим энергосбережения"
                     GalleryOcrPhase.RUNNING -> "Индексация"
                     GalleryOcrPhase.COMPLETE -> "Готово"
                     GalleryOcrPhase.PARTIAL -> "Частично готово"
@@ -230,8 +251,13 @@ internal fun GalleryOcrControls(controller: GalleryOcrController, modifier: Modi
             modifier = Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically,
             horizontalArrangement=Arrangement.SpaceBetween) {
-            Text("Только при зарядке", style=MaterialTheme.typography.bodySmall)
-            Switch(checked=controller.chargeOnly,onCheckedChange=controller::updateChargeOnly)
+            val global by TaskHistoryStore.settings.collectAsState()
+            Column(Modifier.weight(1f)) {
+                Text("OCR только при зарядке", style=MaterialTheme.typography.bodySmall)
+                if(global.charging) Text("Задано Центром задач",style=MaterialTheme.typography.labelSmall,
+                    color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked=global.charging || controller.chargeOnly,enabled=!global.charging,onCheckedChange=controller::updateChargeOnly)
         }
     }
 }

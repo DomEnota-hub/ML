@@ -85,15 +85,22 @@ internal object TaskHistoryStore {
             if(old.notifications!=value.notifications)add("notifications:${value.notifications}")
         }.joinToString(","))
     }
-    fun waitReason(context: Context): TaskWait? {
+    // Applies only to automatic background indexing, not user-requested operations.
+    internal fun indexingWait(settings:TaskSettings,localChargeOnly:Boolean,charging:Boolean,powerSave:Boolean):TaskWait? =
+        when {
+            (settings.charging || localChargeOnly) && !charging -> TaskWait.CHARGING
+            settings.batterySaver && powerSave -> TaskWait.ENERGY_SAVER
+            else -> null
+        }
+    fun waitReason(context: Context,localChargeOnly:Boolean=false): TaskWait? {
         val s=mutable.value
-        if(s.charging) {
+        val charging=if(s.charging || localChargeOnly) {
             val battery=context.registerReceiver(null,IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             val status=battery?.getIntExtra(BatteryManager.EXTRA_STATUS,-1)
-            if(status!=BatteryManager.BATTERY_STATUS_CHARGING && status!=BatteryManager.BATTERY_STATUS_FULL) return TaskWait.CHARGING
-        }
-        if(s.batterySaver && context.getSystemService(PowerManager::class.java)?.isPowerSaveMode==true) return TaskWait.RESOURCE
-        return null
+            status==BatteryManager.BATTERY_STATUS_CHARGING || status==BatteryManager.BATTERY_STATUS_FULL
+        } else true
+        val powerSave=s.batterySaver && context.getSystemService(PowerManager::class.java)?.isPowerSaveMode==true
+        return indexingWait(s,localChargeOnly,charging,powerSave)
     }
     private fun notifyCompletion(context: Context,row:TaskSnapshot) {
         if(!settings.value.notifications || row.kind !in setOf(TaskKind.EXPORT,TaskKind.BATCH_EDIT,TaskKind.OCR,TaskKind.MODEL))return

@@ -38,6 +38,11 @@ internal object GalleryOcrPolicy {
     }
     fun normalized(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKC)
         .lowercase(Locale.ROOT).replace(Regex("\\s+"), " ").trim()
+    fun photoInputs(refs:List<LibraryMediaRef>, fingerprints:Map<String,String>):Pair<List<LibraryMediaRef>,Map<String,String>> {
+        val photos=refs.filter{it.item.mediaType==MediaType.PHOTO}
+        val relevant=buildMap { photos.forEach { ref -> ref.item.savedUri?.let { uri -> fingerprints[uri]?.let{put(uri,it)} } } }
+        return photos to relevant
+    }
     fun publicPhoto(ref: LibraryMediaRef, blocked: Set<String>): Boolean =
         ref.item.mediaType == MediaType.PHOTO && ref.item.state == DownloadState.COMPLETED &&
             !ref.item.isPrivate && !ref.item.hidden && !ref.item.savedUri.isNullOrBlank() &&

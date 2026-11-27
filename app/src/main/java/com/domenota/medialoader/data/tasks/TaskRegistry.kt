@@ -19,7 +19,8 @@ internal enum class TaskStatus(val label: String) {
 }
 internal enum class TaskWait(val label: String) {
     NETWORK("Сеть"), WIFI("Wi-Fi"), CHARGING("Зарядка"), PERMISSION("Разрешение"),
-    STORAGE("Свободное место"), RESOURCE("Освобождение ресурсов"), USER_ACTION("Действие пользователя")
+    STORAGE("Свободное место"), RESOURCE("Освобождение ресурсов"), USER_ACTION("Действие пользователя"),
+    ENERGY_SAVER("Энергосбережение"), CATALOG("Подготовка медиатеки")
 }
 internal enum class TaskStage(val label: String) {
     SCANNING("Проверка"), ENQUEUE("Подготовка очереди"), TRANSFER("Передача"),

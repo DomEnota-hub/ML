@@ -23,6 +23,13 @@ class GalleryOcrIndexTest {
     private fun catalog(vararg refs: LibraryMediaRef) = GalleryOcrCatalog(refs.toList(),emptyMap(),emptySet())
     private fun index() = GalleryOcrIndex(context,"ocr-test-" + UUID.randomUUID() + ".db")
 
+    @Test fun unrelatedMusicChangesDoNotInvalidatePhotoInputs() {
+        val a=ref("a"); val audio=ref("song",MediaType.AUDIO)
+        val original=GalleryOcrPolicy.photoInputs(listOf(a,audio),mapOf("content://test/a" to "v1","content://test/song" to "v1"))
+        assertEquals(original,GalleryOcrPolicy.photoInputs(listOf(a,audio.copy(item=audio.item.copy(title="changed"))),
+            mapOf("content://test/a" to "v1","content://test/song" to "v2")))
+        assertNotEquals(original,GalleryOcrPolicy.photoInputs(listOf(a,audio),mapOf("content://test/a" to "v2")))
+    }
     @Test fun checkpointSurvivesReopeningAndEmptyRecognitionCounts() = runBlocking {
         val a = ref("a"); val b = ref("b")
         val catalog = catalog(a,b)

@@ -10,6 +10,14 @@ import org.json.JSONObject
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[34])
 class TaskHistoryCodecTest {
+    @Test fun indexingWaitDistinguishesLocalGlobalAndEnergyPolicy() {
+        val defaults=TaskSettings(charging=false,batterySaver=true)
+        assertEquals(TaskWait.CHARGING,TaskHistoryStore.indexingWait(defaults,true,false,true))
+        assertEquals(TaskWait.ENERGY_SAVER,TaskHistoryStore.indexingWait(defaults,true,true,true))
+        assertEquals(TaskWait.CHARGING,TaskHistoryStore.indexingWait(defaults.copy(charging=true),false,false,false))
+        assertNull(TaskHistoryStore.indexingWait(defaults,false,false,false))
+        assertNull(TaskHistoryStore.indexingWait(defaults.copy(batterySaver=false),false,false,true))
+    }
     @Test fun typedHistoryRoundTripsWithoutExecutableOrPrivateMetadata(){
         val details=TaskDetails(TaskCorrelation.create(),100,TaskTrigger.BACKGROUND,TaskFailure.CACHE_WRITE,TaskOutcomes(2,1,0,1),true,
             TaskCheckpointSummary().append(TaskOutcomes(2,1,0,1),180))
