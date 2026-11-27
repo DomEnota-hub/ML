@@ -1,0 +1,254 @@
+AiOrtPerf	54	model=LAMA session_init_ms=1
+App	11	ACTIVITY_CREATE
+App	59	Received shared text intent
+App	200	Session started
+Audio	7	Playback failed
+AudioReplace	3	MediaStore metadata not confirmed;
+AudioRoute	26	Preview route
+AudioWaveform	3	BOOKMARK_WAVEFORM
+AudioWaveform	7	Could not decode peaks
+Browser	54	youtube
+BrowserWebView	3	Network error · mainFrame=false
+BrowserWebView	11	Page finished
+BrowserWebView	3	Page started
+BrowserWebView	10	source=youtube · JS console
+Crash	8	Uncaught exception on thread main
+Download	262	Completed
+Download	275	Engine transfer begin
+Download	262	Engine transfer finished
+Download	10	Failed
+Download	271	Queued
+Download	13	Retry queued
+Download	275	Started
+DownloadProgress	1691	id=example · bytes=10 · total=20
+Duplicate	1	Existing downloads found
+DuplicatePrivacy	15	PRIVATE_MOVE
+DuplicateScanMetrics	215	music
+DuplicateUI	12	event=enter
+Editor	2	Audio edit failed
+FloatingVideo	13	Floating window closed
+FolderVisibility	7	ATTEMPT_BEGIN
+FolderVisibility	151	BINDING_STEP
+FolderVisibility	5	FOREGROUND_REQUEST
+FolderVisibility	1	FOREGROUND_STOP
+FolderVisibility	2	INVENTORY_REJECTED
+FolderVisibility	2	MOVE_BATCH_LATENCY
+FolderVisibility	228	MOVE_BIND
+FolderVisibility	104	MOVE_FILE
+FolderVisibility	520	MOVE_PHASE
+FolderVisibility	4368	MOVE_PORT
+FolderVisibility	1	PAUSE_CHECKPOINT
+FolderVisibility	1	PAUSE_REQUESTED
+FolderVisibility	3	PLAN_SIZE_MISMATCH
+FolderVisibility	5	PREFLIGHT_V2
+FolderVisibility	1	RECOVERY_PLAN
+FolderVisibility	168	REFERENCE_READ
+FolderVisibility	1	ROOT_PREFLIGHT
+Gallery	7	Permanently deleted
+GallerySearch	14	SEARCH
+GapiUsage	179	method=gapi
+History	12	Deleted missing-file history record
+History	15	Open prevented
+History	1	Rename failed
+History	2	Rename requested
+HitMoz	6	Browser MP3 handoff
+HitMoz	6	Browser link action
+HitMoz	6	Browser navigation
+HitMoz	6	Browser-selected MP3 queued
+HitMoz	4	CDN temporarily avoided
+HitMoz	11	Chromium Cronet MP3 transport initialized
+HitMoz	6	Cronet network error
+HitMoz	1	DOM scan found no usable songs
+HitMoz	1	DOM yielded no song rows
+HitMoz	7	Initial browser search requested
+HitMoz	21	MP3 HTTP attempt 1/3
+HitMoz	10	MP3 attempt diagnostic · reason=NETWORK_TIMEOUT
+HitMoz	10	MP3 network attempt 1/3 failed
+HitMoz	10	MP3 network failure · reason=NETWORK_TIMEOUT
+HitMoz	21	MP3 redirect HTTP 302
+HitMoz	38	MP3 request
+HitMoz	2	MP3 request recovered on attempt 2
+HitMoz	8	MP3 response · status=200
+HitMoz	21	MP3 response · status=302
+HitMoz	6	MP3 stream verified
+HitMoz	11	MP3 task
+HitMoz	22	MP3 transport · client=cronet
+HitMoz	16	MP3 transport · client=platform-retry
+HitMoz	4	Music extraction awaiting rows
+HitMoz	10	Music extraction started
+HitMoz	6	Native download pressed
+HitMoz	1	Native music extraction empty after page finish
+HitMoz	10	Native music results parsed
+HitMoz	3	Native music search submitted
+HitMoz	1	No usable search results from browser or HTTP fallback
+HitMoz	10	Search document started
+HitMoz	11	WebView browser agent synchronized
+HitMoz	9	WebView page finished
+HitMoz	39	WebView progress
+HitMozWebView	89	JS console
+Instagram	8	GAPI unavailable
+Instagram	171	Media resolved
+Instagram	7	Using existing extractor for this request
+InstagramProfile	1	API feed HTTP 400 · {"spam":true}
+Library	716	App identity index ready
+Library	378	Audio catalog ready
+Library	19	Phone scan cancelled
+Library	2112	Phone scan finished
+Library	78	Phone scan skipped
+Library	2171	Phone scan started
+Library	207	Phone snapshot unchanged
+Library	1	RECOVERY_CATALOG_RESULT
+Logs	1	Detailed performance diagnostics disabled
+Logs	1	Detailed performance diagnostics enabled
+Logs	1	Extended diagnostics disabled
+Logs	1	Extended diagnostics enabled
+MediaNotes	4	NOTE_SAVE
+MissingRecovery	3	Candidate verification
+MissingRecovery	1	Restore failed
+MusicAds	11	Built-in WebView network filter enabled
+MusicArtwork	3	Catalog cover applied
+MusicArtwork	4	Catalog lookup unavailable
+MusicArtwork	10	Cover URLs in results: 1/2
+MusicArtwork	15	Cover load
+MusicCompare	13	alignment elapsedMs=1
+MusicCompare	15	frames cache elapsedMs=1
+MusicCompare	11	frames decoded elapsedMs=1
+MusicCompare	2	fullPcm
+MusicCompare	13	pair ready elapsedMs=1
+MusicCompare	2	verified pair cache MISS
+MusicDuplicates	3	SCAN_HEAP
+MusicSource	1	Automatic search fallback
+MusicSource	5	Full-song request accepted
+MusicSource	4	Full-song window launched;
+MusicWebView	6	Blocked advertising resource
+MusicWebView	5	HTTP error · code=405 · mainFrame=false
+MusicWebView	143	Resource request
+Muzmo	1	DOM search rows parsed
+Muzmo	2	MP3 redirect
+Muzmo	3	MP3 request
+Muzmo	1	MP3 response · status=200
+Muzmo	2	MP3 response · status=302
+Muzmo	1	MP3 stream verified
+Muzmo	1	Page finished
+Muzmo	1	Page started
+Muzmo	1	WebView created
+Muzmo	1	WebView destroyed
+NOMEDIA_SAF	1	stage=EXACT_GRANT_REUSED
+NOMEDIA_SAF	5	stage=INVENTORY_READ
+NOMEDIA_SAF	7	stage=INVENTORY_START
+NOMEDIA_SAF	6	stage=MANAGED_LOCAL_ACCESS
+NOMEDIA_SAF	7	stage=PHYSICAL_FOLDER_RESOLVED
+NOMEDIA_SAF	7	stage=VISIBILITY_ACTION_FAILED
+OCR	29	OCR_RUN phase=CANCELLED indexed=1 total=2 failed=0
+OCR	1384	OCR_RUN phase=RUNNING indexed=1 total=2 failed=0
+OCR	5	OCR_RUN phase=WAITING_CHARGE indexed=1 total=2 failed=0
+OldDownloads	1102	example.jpg · size=10
+Perf	3381	BEGIN
+Perf	1343	DETAIL
+Perf	6219	END
+Perf	2463	FRAME_GAPS
+Perf	434	LIBRARY_PROJECTIONS
+Perf	642	LIBRARY_WORK
+Perf	407	MUSIC_READ_MODEL
+Perf	126	MUSIC_REFRESH
+Perf	11691	READ_MODEL_GUARD
+Perf	16	RECOVERY_GATE
+Perf	6	RECOVERY_REFRESH_REQUEST
+Perf	10	RECOVERY_SCAN_DECISION
+Perf	614	UI_RECOVERED
+Perf	641	UI_STALL
+PhotoCutout	10	ONNX CPU cutout completed, ms=1
+PhotoCutout	10	ONNX CPU cutout started, ms=1
+PhotoOCR	4	glyphs_full=1
+PhotoOCR	2	result
+PhotoOCR	1	selected_glyph_count=1
+PhotoOCR	30	stage=auto
+PhotoOCR	3	symbol_candidates=1
+ProcessExit	9	Previous process exit · type=JAVA_CRASH
+ProcessExit	72	Previous process exit · type=LOW_MEMORY
+ProcessExit	45	Previous process exit · type=USER_REQUESTED
+ProcessExit	87	Previous process exit · type=reason_unknown
+Recognition	6	Applied · source=SHAZAM_DIRECT
+Recognition	1	Applied · source=SOURCE_METADATA
+Recognition	9	Audio window
+Recognition	1	Direct ID unavailable; trying MP3 remux
+Recognition	1	MP3 cover/tag pass failed;
+Recognition	5	MP3 metadata saved
+Recognition	1	Preview music result
+Resolve	182	Begin
+Resolve	180	Completed
+Resolve	2	Provider error
+Settings	2	Developer section disabled
+Settings	2	Developer section enabled
+Settings	1	OCR_CHARGE_ONLY
+Settings	2	OCR_ENABLED
+Settings	6	RECOVERY_LAB
+Settings	2	TASK_OPTIONS
+Settings	6	THEME
+Share	53	Instagram auto-download queued
+Share	53	Instagram automatic share done
+Share	53	Instagram visual auto-download scheduled
+Share	120	Share route
+TaskCenter	2	CANCEL · kind=WAVEFORM · done=1 · total=2
+TaskCenter	96	CHECKPOINT · kind=WAVEFORM · done=1 · total=2
+TaskCenter	5	COMPLETE · kind=DOWNLOAD · done=1 · total=2
+TaskCenter	17	PARTIAL · kind=WAVEFORM · done=1 · total=2
+TaskCenter	5	RESUME · kind=DOWNLOAD · done=1 · total=2
+TaskCenter	32	RESUME · kind=OCR · done=1 · total=2
+TaskCenter	105	RESUME · kind=WAVEFORM · done=1 · total=2
+TaskCenter	5	START · kind=DOWNLOAD · done=1 · total=2
+TaskCenter	19	START · kind=WAVEFORM · done=1 · total=2
+TaskCenter	33	WAIT · kind=OCR · done=1 · total=2
+TaskCenter	11	WAIT · kind=WAVEFORM · done=1 · total=2
+Thumbnail	283	Fetch · status=200
+Thumbnail	189	Fetch · status=403
+Thumbnail	17	Image host=example.invalid · Image unavailable
+Thumbnail	128	Image host=example.invalid · Thumbnail HTTP 403
+Thumbnail	179	Image host=example.invalid · Thumbnail URL host not supported
+Thumbnail	423	Local preview unavailable
+Thumbnail	97	Local thumbnail decode failed
+Trash	103	Duplicate transfer confirmed
+Trash	4	Duplicate transfer not confirmed
+Trash	11	Move completed
+Trash	28	Move requested
+Trash	1	Verified move completed
+VideoEditorNav	2	EDITOR_ENTRY_AUTHORIZED
+VideoEditorNav	1	EDITOR_NAVIGATE
+VideoEditorNav	1	EDITOR_OPEN_REQUEST
+VideoPlayer	93	PLAYER_COMPOSE_REMOVED
+VideoPlayer	94	PLAYER_CREATED
+VideoPlayer	68	PLAYER_LIFECYCLE
+VideoPlayer	93	PLAYER_RELEASE
+VideoPlayer	51	PLAYER_RELEASE_FINISHED
+VideoPlayer	244	PLAYER_STATE
+VideoPlayer	188	PLAYER_TIMELINE
+VideoPreview	1	EDITOR_FIRST_FRAME
+VideoRecognition	1	Audio decoded
+VideoRecognition	1	Finished
+VideoRecognition	1	Saved video recognition started
+Viewer	179	Closed
+Viewer	179	Opened
+YouTube	9	Analyze attempt
+YouTube	3	Analyze attempt completed
+YouTube	1	Analyze bounded enhancement
+YouTube	3	Analyze diagnostics
+YouTube	3	Analyze format sources
+YouTube	3	Analyze process
+YouTube	3	Analyze result
+YouTube	3	Analyze start
+YouTube	2	Analyze success
+YouTube	1	Automatic yt-dlp refresh skipped: example
+YouTube	3	Browser Web proof did not provide formats
+YouTube	2	Download client
+YouTube	1	Download fallback failed: example
+YouTube	1	Download got HTTP 403
+YouTube	2	Download start
+YouTube	1	Download success
+YouTube	5	Initializing yt-dlp runtime
+YouTube	2	Local token bridge
+YouTube	1	Retrying download with web_embedded only
+YouTube	3	Web session saved
+YouTube	5	yt-dlp runtime ready
+YouTube	4	yt-dlp update failed: example
+YouTube	6	yt-dlp update requested
+YouTube	2	Обновлён: example

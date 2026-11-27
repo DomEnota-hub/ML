@@ -363,6 +363,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.JournalCorpusTest#allObservedSignatureFamiliesHaveSpecificExplanations": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.logging.LibraryProjectionCountersTest#boundedCountersDistinguishReasonCompletionCancellationAndReuse": {
     "skipped": false,
     "failed": false

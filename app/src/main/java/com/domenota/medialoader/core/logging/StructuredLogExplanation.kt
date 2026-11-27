@@ -220,7 +220,7 @@ internal object StructuredLogExplanation {
             "VideoRecognition" -> exact("Saved video recognition started" to "Начато распознавание музыки из сохранённого видео.", "Audio decoded" to "Декодирован звук видео.", "Finished" to "Операция распознавания из видео завершена.")
             "GapiUsage" -> if (event == "method=gapi") join("Запрос к сервису извлечения медиа", metric("status", "Код HTTP"), metric("cost", "Стоимость в единицах лимита"), metric("remaining", "Остаток лимита")) else null
             "Browser" -> if (event == "youtube") "Диагностика поиска карточек видео на странице YouTube." else null
-            "BrowserWebView" -> exact("Page started" to "Начата загрузка страницы браузера.", "Page finished" to "Загрузка страницы браузера завершена; содержимое проверяется отдельно.")
+            "BrowserWebView" -> if (event.startsWith("source=") && entry.metadata.startsWith("JS console")) "Диагностическое сообщение сценария браузера." else exact("Page started" to "Начата загрузка страницы браузера.", "Page finished" to "Загрузка страницы браузера завершена; содержимое проверяется отдельно.")
             "HitMozWebView", "MuzmoWebView" -> if (event == "JS console") "Диагностическое сообщение сценария встроенного браузера." else null
             "Instagram" -> exact("Media resolved" to "Получены сведения о материалах Instagram.", "GAPI unavailable" to "Сервис извлечения Instagram недоступен.", "Using existing extractor for this request" to "Для запроса выбран имеющийся механизм извлечения.")
             "Resolve" -> exact("Begin" to "Начата обработка ссылки.", "Provider error" to "Источник вернул ошибку при обработке ссылки.")
