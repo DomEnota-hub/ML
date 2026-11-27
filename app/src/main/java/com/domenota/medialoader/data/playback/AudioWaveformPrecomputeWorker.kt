@@ -25,7 +25,6 @@ import com.domenota.medialoader.ui.components.preparePersistedAudioWaveform
 import java.util.concurrent.TimeUnit
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -47,18 +46,17 @@ class AudioWaveformPrecomputeWorker(
             // Priority single-track request, independent of the backlog of public music.
             // No list, notification, or UI state is exposed.
             return@withContext runCatching {
-                val uri = Uri.parse(requested)
-                val duration = readDurationMs(app, uri).takeIf { it > 0L }
-                    ?: inputData.getLong("durationMs", 0L)
                 val repo=MediaRepository.get(app)
                 val admission=WaveformAdmission.read(app,repo)
-                if(!admission.allows(app,requested,null))return@runCatching Result.failure()
+                if(!admission.allows(app,requested,null)||!admission.current(app,repo))return@runCatching Result.failure()
+                val uri = Uri.parse(requested)
+                val duration = inputData.getLong("durationMs", 0L).takeIf{it>0L} ?: readDurationMs(app,uri)
                 if(duration<=0L)return@runCatching Result.failure()
-                val outcome=preparePersistedAudioWaveform(app,uri){isStopped||!admission.current(app,repo)}
-                if(outcome==WaveformOutcome.FAILED)Result.failure() else Result.success()
+                val outcome=preparePersistedAudioWaveform(app,uri){isStopped||!admission.currentFast(app,repo,requested)}
+                if(!admission.current(app,repo)||outcome==WaveformOutcome.FAILED)Result.failure() else Result.success()
             }.getOrElse {
-                if (it is java.util.concurrent.CancellationException) throw it
-                Result.failure()
+                if (it is java.util.concurrent.CancellationException && isStopped) throw it
+                Result.retry()
             }
         }
         if(inputData.getBoolean("periodicSweep",false)) {
@@ -149,7 +147,7 @@ class AudioWaveformPrecomputeWorker(
                         BackgroundMediaWork.awaitIdle()
                         if(waiting)publish()
                         if(!admission.current(app,repo))throw java.util.concurrent.CancellationException("Visibility changed")
-                        preparePersistedAudioWaveform(app,uri){isStopped||!admission.current(app,repo)}
+                        preparePersistedAudioWaveform(app,uri){isStopped||!admission.currentFast(app,repo,source)}
                     }
                 } catch(e:java.util.concurrent.CancellationException) { throw e }
                   catch(_:Exception) { WaveformOutcome.FAILED }
@@ -168,9 +166,10 @@ class AudioWaveformPrecomputeWorker(
             return Result.success()
         } catch(e:java.util.concurrent.CancellationException) {
             store.save(sweep)
-            // WorkManager may resume this pass; do not fabricate a terminal cancellation.
+            // A privacy generation change is a retry, not a cancelled WorkManager chain.
             publish(TaskStatus.WAITING,TaskWait.RESOURCE)
-            throw e
+            if(isStopped)throw e
+            return Result.retry()
         } catch(_:Exception) {
             store.save(sweep)
             publish(TaskStatus.WAITING,TaskWait.RESOURCE)

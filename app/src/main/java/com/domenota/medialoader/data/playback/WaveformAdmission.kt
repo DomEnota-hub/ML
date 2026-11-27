@@ -15,30 +15,41 @@ import kotlinx.coroutines.flow.first
 internal class WaveformAdmission private constructor(
     val rows:List<DownloadEntity>,private val blocked:Set<String>,private val epoch:Long,
     private val recovery:Long,private val nomedia:NomediaFolderSnapshot,
-    private val archive:SelectiveArchivePrivacySnapshot,private val guard:FolderVisibilityLibraryGuard
+    private val archive:SelectiveArchivePrivacySnapshot,private val guard:FolderVisibilityLibraryGuard,
+    private val simpleRevision:Long
 ) {
     private val physical=blocked.any{it.startsWith("file:")||it.startsWith("file-stat:")}
+    private val byUri=rows.groupBy{it.savedUri}
+    private val allowedKeys=hashMapOf<String,Pair<String,Set<String>>>()
     fun current(context:Context,repo:MediaRepository):Boolean =
-        !HistoricalRecoverySignals.hasPendingJournal(context) &&
+        !HistoricalRecoverySignals.hasPendingJournal(context) && currentFast(context,repo)
+    fun currentFast(context:Context,repo:MediaRepository,source:String?=null):Boolean =
+        !HistoricalRecoverySignals.isRunning.value && SimpleArchiveStore.revisionCurrent(simpleRevision) &&
         HistoricalRecoverySignals.version.value==recovery &&
         DuplicatePrivacyGuard.generation(context)==epoch &&
-        repo.nomediaFolders.snapshot.value==nomedia && repo.selectiveArchive.privacy.value==archive
+        repo.nomediaFolders.snapshot.value==nomedia && repo.selectiveArchive.privacy.value==archive &&
+        (source==null||allowedKeys[source]?.let{DuplicatePrivacyGuard.accepts(context,epoch,it.first,it.second)}==true)
 
     suspend fun allows(context:Context,source:String,id:String?):Boolean {
         val uri=Uri.parse(source)
-        val known=rows.filter { it.savedUri==source }
+        val known=byUri[source].orEmpty()
         if(known.any{it.hidden||it.isPrivate||guard.appExcluded(it)})return false
-        if(known.isEmpty() && (uri.scheme!="content"||uri.authority!="media"))return false
+        if(known.isEmpty() && (uri.scheme!="content"||uri.authority!="media"||"/audio/media/" !in source))return false
         val key=id?:known.firstOrNull()?.id?:source
         val aliases=PublicMediaIdentity.uriKeys(source)+key+"app:$key"
         if(aliases.any(blocked::contains))return false
         val proof=if(physical)PublicMediaIdentity.capture(context,source) else emptySet()
         if(physical&&proof.none{it.startsWith("file-stat:")})return false
-        return (aliases+proof).none(blocked::contains)&&DuplicatePrivacyGuard.accepts(context,epoch,key,aliases+proof)
+        val keys=aliases+proof
+        val allowed=keys.none(blocked::contains)&&DuplicatePrivacyGuard.accepts(context,epoch,key,keys)
+        if(allowed)allowedKeys[source]=key to keys
+        return allowed
     }
     companion object {
         suspend fun read(context:Context,repo:MediaRepository):WaveformAdmission {
             check(!HistoricalRecoverySignals.hasPendingJournal(context))
+            val simpleRevision=SimpleArchiveStore.revision()
+            check(SimpleArchiveStore.revisionCurrent(simpleRevision))
             val epoch=DuplicatePrivacyGuard.generation(context)
             val recovery=HistoricalRecoverySignals.version.value
             val rows=repo.downloads.first()
@@ -59,7 +70,7 @@ internal class WaveformAdmission private constructor(
                     add(row.catalogId);addAll(PublicMediaIdentity.capture(context,row.savedUri))
                 }
             }
-            return WaveformAdmission(rows,blocked,epoch,recovery,nomedia,archive,guard).also{check(it.current(context,repo))}
+            return WaveformAdmission(rows,blocked,epoch,recovery,nomedia,archive,guard,simpleRevision).also{check(it.current(context,repo))}
         }
     }
 }

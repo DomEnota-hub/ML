@@ -22,6 +22,12 @@ import kotlinx.coroutines.withContext
  * Any failure reading the index blocks mutations rather than silently resetting it.
  */
 internal class SimpleArchiveStore(context: Context) {
+    companion object {
+        private val revisionCounter=java.util.concurrent.atomic.AtomicLong()
+        private val writers=java.util.concurrent.atomic.AtomicInteger()
+        internal fun revision():Long=revisionCounter.get()
+        internal fun revisionCurrent(value:Long):Boolean=writers.get()==0&&revisionCounter.get()==value
+    }
     private val file = AtomicFile(File(context.applicationContext.noBackupFilesDir,
         "simple-media-archive-v1.json"))
     private val mutex = Mutex()
@@ -109,6 +115,10 @@ internal class SimpleArchiveStore(context: Context) {
     }
 
     private fun persist(rows: List<SimpleArchiveRecord>) {
+        writers.incrementAndGet();revisionCounter.incrementAndGet()
+        try { persistRows(rows) } finally { revisionCounter.incrementAndGet();writers.decrementAndGet() }
+    }
+    private fun persistRows(rows: List<SimpleArchiveRecord>) {
         val data = JSONObject().put("version", 1).put("files", JSONArray().apply {
             rows.forEach { item -> put(JSONObject()
                 .put("catalogId", item.catalogId)

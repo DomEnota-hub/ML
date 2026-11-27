@@ -109,7 +109,8 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
     private fun rebuild() {
         val now=System.currentTimeMillis()
         val cutoff=if(retentionDays==0) saved.value.clearedAt else maxOf(saved.value.clearedAt,now-retentionDays*86_400_000L)
-        val live=sources.values.flatMap { it.rows }.map { observe(it,now) }
+        val archivedById=saved.value.rows.associateBy{it.id}
+        val live=sources.values.flatMap { it.rows }.map { observe(it,now,archivedById[it.id]) }
         val nested=live.flatMap{it.children}.mapTo(hashSetOf()){it.id}
         val archive=saved.value.rows.filter { it.updatedAt>cutoff && it.id !in nested }.associateBy { it.id }.toMutableMap()
         for(row in live) {
@@ -142,11 +143,11 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
     private fun emit(event:TaskEvent,row:TaskSnapshot,now:Long,command:TaskCommand?=null,forwarded:Boolean?=null) {
         TaskJournalEvent.from(event,row,now,command,forwarded)?.let { runCatching { eventSink(it) } }
     }
-    private fun observe(raw:TaskSnapshot,now:Long):TaskSnapshot {
+    private fun observe(raw:TaskSnapshot,now:Long,archivedRow:TaskSnapshot?):TaskSnapshot {
         if(raw.idle) { observed.remove(raw.id);return raw }
         val previous=observed[raw.id]
         val restarted=previous?.status?.terminal==true&&!raw.status.terminal
-        val archived=saved.value.rows.firstOrNull { it.id==raw.id && it.status==raw.status }
+        val archived=archivedRow?.takeIf{it.status==raw.status}
         val base=if(restarted)null else previous?.details ?: archived?.details
         // Historical terminal feed rows are not fresh events. Never assign an operation token to them.
         val details=raw.details ?: base ?: if(!raw.status.terminal)TaskDetails(TaskCorrelation.create(),now) else null
@@ -154,7 +155,7 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
         val old=previous?.takeIf { !restarted && it.details?.correlation==details?.correlation }
         val event=when {
             details?.correlation==null -> null
-            old==null && row.status.terminal -> if(raw.details?.correlation!=null && archived?.details?.correlation!=details.correlation)terminalEvent(row.status) else null
+            old==null && row.status.terminal -> if(raw.details?.correlation!=null && archived?.details?.correlation!=details?.correlation)terminalEvent(row.status) else null
             old==null -> if(row.status==TaskStatus.WAITING)TaskEvent.WAIT else TaskEvent.START
             old.status!=row.status -> when(row.status) {
                 TaskStatus.RUNNING->TaskEvent.RESUME;TaskStatus.WAITING->TaskEvent.WAIT;TaskStatus.PAUSED->TaskEvent.PAUSE
