@@ -29,7 +29,7 @@ internal object JournalTimeline {
                         e.original.contains(q, true) || e.stack.any { it.contains(q, true) } ||
                             details[i].meaning.contains(q, true) || LogDisplay.groupName(e).contains(q, true)
                     })
-            }.toList()
+            }.sortedWith(compareBy<Row> { raw[it.start].timestamp }.thenBy { it.start }).toList()
             return if (newestFirst) selected.asReversed() else selected
         }
     }
@@ -87,12 +87,19 @@ internal object JournalTimeline {
         return Progress(done, total)
     }
     private fun canGroup(a: DisplayLogEntry, b: DisplayLogEntry): Boolean {
-        if (a.tag != b.tag || a.tag !in setOf("DownloadProgress","OCR","TaskCenter") ||
+        if (a.tag != b.tag ||
             a.tone != b.tone || a.technicalLevel != b.technicalLevel ||
             a.tone == LogTone.ERROR || a.tone == LogTone.WARN ||
             a.stack.any { it.isNotBlank() } || b.stack.any { it.isNotBlank() } ||
             a.timestamp.substringBefore(' ') != b.timestamp.substringBefore(' ') ||
             a.timestamp > b.timestamp) return false
+        // Identical diagnostic observations can be collapsed without implying one operation.
+        // Do not coalesce across hosts, threads, states, or a warning/error.
+        if ((a.tag == "Perf" && a.event.startsWith("READ_MODEL_GUARD")) ||
+            (a.tag == "Thumbnail" && a.event == "Fetch")) {
+            return a.thread == b.thread && a.event == b.event && a.metadata == b.metadata
+        }
+        if (a.tag != "DownloadProgress" && a.tag != "OCR" && a.tag != "TaskCenter") return false
         val x = fields(a); val y = fields(b)
         val identityKey = when (a.tag) {
             "DownloadProgress" -> "id"

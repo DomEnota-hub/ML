@@ -183,7 +183,7 @@ internal object StructuredLogExplanation {
             "OldDownloads" -> join("Историческая запись инвентаризации старых загрузок", metric("size", "Размер", " байт"))
             "History" -> when (event) {
                 "Open aborted", "Share aborted" -> join(if (event == "Open aborted") "Открытие файла остановлено" else "Отправка файла остановлена",
-                    f.label("status", mapOf("MISSING" to "Файл отсутствует", "UNAVAILABLE" to "Доступ к файлу не подтверждён")))
+                    f.label("status", mapOf("MISSING" to "Файл отсутствует", "INACCESSIBLE" to "Нет доступа к файлу", "UNCHECKED" to "Наличие файла не подтверждено", "UNAVAILABLE" to "Доступ к файлу не подтверждён")))
                 "Open failed" -> "Не удалось открыть сохранённый файл."
                 "Share failed" -> "Не удалось отправить сохранённый файл."
                 else -> exact("Open prevented" to "Открытие записи истории не разрешено.", "Deleted missing-file history record" to "Удалена запись истории об отсутствующем файле.",

@@ -3,6 +3,7 @@ package com.domenota.medialoader.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -43,7 +44,8 @@ internal fun AppLogViewer(
         snapshot = withContext(Dispatchers.Default) { JournalTimeline.prepare(rawText) }
     }
     var tone by rememberSaveable { mutableStateOf<String?>(null) }
-    var query by rememberSaveable { mutableStateOf("") }
+    // Search input may contain a filename or private text; do not save it to instance state.
+    var query by remember { mutableStateOf("") }
     var newest by rememberSaveable { mutableStateOf(false) }
     val selected = LogTone.entries.firstOrNull { it.name == tone }
     var rows by remember(snapshot, tone, readable, query, newest) { mutableStateOf<List<JournalTimeline.Row>?>(null) }
@@ -54,7 +56,10 @@ internal fun AppLogViewer(
     val listState = rememberLazyListState()
     LaunchedEffect(tone, readable, query, newest) { listState.scrollToItem(0) }
     val expanded = remember(snapshot) { mutableStateMapOf<Int, Boolean>() }
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    val s = snapshot
+    val shown = rows
+    val controls: @Composable () -> Unit = {
+      Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = readable, onClick = { onReadableChange(true) },
                 label = { Text("Понятный", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
@@ -72,7 +77,7 @@ internal fun AppLogViewer(
                     val count = if (t == null) snapshot?.raw?.size else snapshot?.counts?.get(t) ?: snapshot?.let { 0 }
                     Surface(
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                            .clip(MaterialTheme.shapes.medium).clickable(role = Role.Button) { tone = t?.name },
+                            .clip(MaterialTheme.shapes.medium).selectable(selected = active, role = Role.RadioButton) { tone = t?.name },
                         shape = MaterialTheme.shapes.medium,
                         color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                         border = if (active) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
@@ -98,8 +103,6 @@ internal fun AppLogViewer(
                     tint = MaterialTheme.colorScheme.primary)
             }
         }
-        val s = snapshot
-        val shown = rows
         if (s != null && shown != null) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Записей: " + shown.sumOf { it.count }, style = MaterialTheme.typography.labelSmall,
@@ -113,7 +116,15 @@ internal fun AppLogViewer(
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+      }
+    }
+    BoxWithConstraints(modifier) {
+      // Keep all six tiles available on narrow/short screens without starving the list.
+      val compact = maxHeight < 340.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.25f
+      Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        if (!compact) controls()
         LazyColumn(Modifier.fillMaxWidth().weight(1f), state = listState) {
+            if (compact) item(key = "controls") { controls() }
             if (s == null || shown == null) {
                 item { Text("Подготовка журнала…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             } else {
@@ -136,6 +147,7 @@ internal fun AppLogViewer(
                 if (showPrefix && newest) item(key = "prefix") { OrphanLines(s.prefix) }
             }
         }
+      }
     }
 }
 @Composable
@@ -159,7 +171,16 @@ private fun eventIcon(entry: DisplayLogEntry): ImageVector = when (entry.tag) {
     "Thumbnail", "Gallery", "GallerySearch", "PhotoCutout" -> Icons.Rounded.Image
     "OCR", "PhotoOCR" -> Icons.Rounded.TextFields
     "AudioWaveform", "MusicCompare" -> Icons.Rounded.GraphicEq
-    "TaskCenter" -> Icons.Rounded.ListAlt
+    "TaskCenter" -> when (entry.metadata.split(" · ").filter { it.startsWith("kind=") }.singleOrNull()?.substringAfter('=')) {
+        "WAVEFORM", "LOUDNESS" -> Icons.Rounded.GraphicEq
+        "OCR" -> Icons.Rounded.TextFields
+        "DOWNLOAD", "BULK", "PROFILE", "COMMUNITY" -> Icons.Rounded.Download
+        "VISUAL_DUPLICATES", "AUDIO_DUPLICATES" -> Icons.Rounded.ContentCopy
+        "MODEL" -> Icons.Rounded.Memory
+        "EXPORT", "BATCH_EDIT" -> Icons.Rounded.Edit
+        "FILE_OPERATION" -> Icons.Rounded.Folder
+        else -> Icons.Rounded.ListAlt
+    }
     "Library" -> Icons.Rounded.Folder
     "Perf" -> Icons.Rounded.Speed
     "ProcessExit", "Crash", "App" -> Icons.Rounded.Smartphone
@@ -170,10 +191,14 @@ private fun eventIcon(entry: DisplayLogEntry): ImageVector = when (entry.tag) {
     "DuplicatePrivacy" -> Icons.Rounded.Security
     "VideoPlayer", "FloatingVideo", "VideoRecognition", "VideoEditorNav", "VideoPreview", "Viewer" -> Icons.Rounded.VideoLibrary
     "AiOrtPerf" -> Icons.Rounded.Memory
+    "Diagnostics" -> Icons.Rounded.BugReport
+    "GapiUsage" -> Icons.Rounded.Wifi
+    "MusicPreview", "RemotePreview", "Listening" -> Icons.Rounded.MusicNote
+    "PreviewFrame", "AudioPreview", "AudioSync" -> Icons.Rounded.VideoLibrary
     "Editor" -> Icons.Rounded.Edit
     "Settings" -> Icons.Rounded.Settings
     "Logs" -> Icons.Rounded.Article
-    "Browser", "BrowserWebView", "VKAuth", "RutubeAuth", "YouTubeAuth", "InstagramLogin", "InstagramSession" -> Icons.Rounded.Language
+    "Browser", "BrowserWebView", "VKAuth", "RutubeAuth", "YouTubeAuth", "InstagramLogin", "InstagramSession", "VK", "RUTUBE", "YouTube", "Instagram", "InstagramProfile", "VkCommunity", "VkFavoriteCheck" -> Icons.Rounded.Language
     "Muzmo", "HitMoz", "MusicSource", "MusicWebView", "Recognition", "MusicArtwork", "MusicAds", "Audio", "AudioRoute", "AudioReplace" -> Icons.Rounded.MusicNote
     else -> Icons.Rounded.Info
 }
@@ -218,7 +243,7 @@ private fun TimelineLine(snapshot: JournalTimeline.Snapshot, row: JournalTimelin
                         Text((p.fraction * 100).toInt().toString() + "%", style = MaterialTheme.typography.labelSmall)
                     }
                 }
-                if (row.count > 1) Text(row.count.toString() + " связанных записей", style = MaterialTheme.typography.labelSmall,
+                if (row.count > 1) Text(row.count.toString() + " связанных записей · показана последняя", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary)
             }
             if (expanded) {
@@ -226,13 +251,16 @@ private fun TimelineLine(snapshot: JournalTimeline.Snapshot, row: JournalTimelin
                     .padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     detail.advice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                     Text("Исходные записи", style = MaterialTheme.typography.labelMedium)
-                    // Bound the preview; technical mode retains every record.
-                    val endPreview = minOf(row.end, row.start + 19)
-                    for (i in row.start..endPreview) TechnicalLine(snapshot.recordText(i), snapshot.raw[i].tone, onCopy)
-                    if (endPreview < row.end) Text("Ещё " + (row.end - endPreview) + " записей доступны в техническом режиме.",
-                        style = MaterialTheme.typography.labelSmall)
-                    if (row.count > 1 && onCopy != null) TextButton(onClick = { onCopy(snapshot.text(row)) }) {
-                        Icon(Icons.Rounded.ContentCopy, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text("Копировать группу")
+                    // Page the expansion so no raw record is inaccessible, even in a huge group.
+                    var page by remember(row.start, row.end) { mutableIntStateOf(0) }
+                    val start = row.start + page * 20
+                    val end = minOf(row.end, start + 19)
+                    if (row.count > 20) Text((start - row.start + 1).toString() + "–" +
+                        (end - row.start + 1) + " из " + row.count, style = MaterialTheme.typography.labelSmall)
+                    for (i in start..end) TechnicalLine(snapshot.recordText(i), snapshot.raw[i].tone, onCopy)
+                    if (row.count > 20) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextButton(onClick = { page-- }, enabled = page > 0) { Text("Назад") }
+                        TextButton(onClick = { page++ }, enabled = end < row.end) { Text("Далее") }
                     }
                 }
             }

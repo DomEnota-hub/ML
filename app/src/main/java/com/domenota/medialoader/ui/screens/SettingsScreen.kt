@@ -724,13 +724,26 @@ fun SettingsScreen(
                     modifier = Modifier.weight(1f),
                     onCopy = { raw ->
                         if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
-                            val clip = android.content.ClipData.newPlainText("Запись журнала", raw)
-                            clip.description.extras = android.os.PersistableBundle().apply {
-                                putBoolean("android.content.extra.IS_SENSITIVE", true)
-                            }
-                            if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
-                                context.getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(clip)
-                            }
+                            runCatching {
+                                com.domenota.medialoader.ui.navigation.writePreparedJournalIfAllowed(
+                                    allowed = { com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs) },
+                                    prepare = {
+                                        android.content.ClipData.newPlainText("Запись журнала", raw).apply {
+                                            description.extras = android.os.PersistableBundle().apply {
+                                                putBoolean("android.content.extra.IS_SENSITIVE", true)
+                                            }
+                                        }
+                                    },
+                                    write = { clip ->
+                                        val clipboard = requireNotNull(context.getSystemService(android.content.ClipboardManager::class.java))
+                                        clipboard.setPrimaryClip(clip)
+                                    },
+                                )
+                            }.onSuccess { AppNotice.post(context, "Запись скопирована") }
+                                .onFailure {
+                                    if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                                        AppNotice.post(context, "Не удалось скопировать запись")
+                                }
                         }
                     },
                 )

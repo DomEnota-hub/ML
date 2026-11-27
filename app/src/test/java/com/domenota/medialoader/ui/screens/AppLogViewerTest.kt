@@ -46,4 +46,33 @@ class AppLogViewerTest {
         }
         assertEquals(listOf("refresh","clear","export","close","refresh","clear","export","close"),actions)
     }
+
+    @Test
+    @Config(qualifiers = "w360dp-h800dp")
+    fun readableDetailsCopyOriginalAndSearchModeActuallyRespond() {
+        val original = "2026-11-27 09:00:01 [DEBUG] [DownloadProgress] [thread=worker] id=a · bytes=2 · total=10"
+        var readable by mutableStateOf(true)
+        var copied: String? = null
+        compose.setContent {
+            MaterialTheme(colorScheme = darkColorScheme()) {
+                AppLogViewer(original, readable, { readable = it }, Modifier.fillMaxSize(), onCopy = { copied = it })
+            }
+        }
+        compose.waitUntil(10000) {
+            compose.onAllNodesWithText("Получение данных файла").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Получение данных файла").performClick()
+        compose.onNodeWithContentDescription("Копировать запись").performClick()
+        compose.runOnIdle { assertEquals(original, copied) }
+        compose.onNodeWithText("Технический").performClick()
+        compose.waitUntil(10000) {
+            compose.onAllNodesWithText(original).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("Сначала старые. Изменить порядок").performClick()
+        compose.onNodeWithText("Сначала новые").assertExists()
+        compose.onNode(hasSetTextAction()).performTextInput("несуществующее событие")
+        compose.waitUntil(10000) {
+            compose.onAllNodesWithText("Нет записей по выбранным условиям.").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
 }

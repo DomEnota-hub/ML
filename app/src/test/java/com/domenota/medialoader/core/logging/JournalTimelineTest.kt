@@ -101,4 +101,22 @@ class JournalTimelineTest {
         println("JOURNAL_LARGE_CORPUS records=" + s.raw.size + " generic=" + s.genericCount +
             " prepareMs=" + ms + " heapDeltaBytes=" + (heapAfter - heapBefore) + " groups=" + s.groups.size)
     }
+
+    @Test fun chronologicalSortUsesRecordedTimeAndExactRepeatedObservationsNeverCrossIdentity() {
+        val rows = listOf(
+            line("09:00:03","Thumbnail","Fetch · host=a.invalid · status=403"),
+            line("09:00:04","Thumbnail","Fetch · host=a.invalid · status=403"),
+            line("09:00:05","Thumbnail","Fetch · host=b.invalid · status=403"),
+            line("09:00:01","Perf","READ_MODEL_GUARD kind=ALIASES reason=DISABLED retained=false"),
+            line("09:00:02","Perf","READ_MODEL_GUARD kind=ALIASES reason=DISABLED retained=false"),
+            line("09:00:06","Perf","READ_MODEL_GUARD kind=ALIASES reason=ACCESS retained=false"),
+            line("09:00:07","Thumbnail","Fetch · host=a.invalid · status=403","WARN"),
+            line("09:00:08","Thumbnail","Fetch · host=a.invalid · status=403","WARN"),
+        )
+        val s = JournalTimeline.prepare(rows.joinToString("\n"))
+        assertEquals(listOf(2,1,2,1,1,1),s.groups.map { it.count })
+        assertEquals(listOf(3,4,0,1,2,5,6,7),s.select(null,false,"",false).map{it.start})
+        assertEquals(listOf(7,6,5,2,0,3),s.select(null,true,"",true).map{it.start})
+        assertEquals(rows[4],s.recordText(4))
+    }
 }
