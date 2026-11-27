@@ -21,6 +21,12 @@ runs:
       with:
         distribution: temurin
         java-version: '17'
+    - name: Compute dependency cache fingerprint
+      id: fingerprint
+      shell: bash
+      env:
+        LEGACY_HASH: ${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}
+      run: python3 scripts/ci/cache_fingerprint.py
     - uses: actions/cache@v4
       id: cache
       if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -29,14 +35,17 @@ runs:
           ~/.gradle/caches
           ~/.gradle/wrapper
           ~/.m2/repository/org/robolectric
-        key: ${{ runner.os }}-ml-ci-v1-${{ inputs.lane }}-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-${{ github.event.pull_request.head.sha || github.sha }}
-        # Prefer a successful cache from the same lane. Reuse the JVM cache when its
-        # own lane is cold. Same repo, epoch and Gradle inputs only; Test result
-        # cache stays disabled, no secrets and no dependency repository changes.
+        key: ${{ runner.os }}-ml-ci-v2-${{ inputs.lane }}-${{ inputs.epoch }}-${{ steps.fingerprint.outputs.deps }}-${{ github.event.pull_request.head.sha || github.sha }}
+        # Same Gradle inputs apart from base release metadata. Gradle itself
+        # still checks all task inputs including versionCode/versionName.
+        # Exact legacy keys allow migration without an unbounded restore prefix.
         restore-keys: |
-          ${{ runner.os }}-ml-ci-v1-${{ inputs.lane }}-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-
-          ${{ runner.os }}-ml-ci-v1-jvm-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-${{ github.event.pull_request.head.sha || github.sha }}
-          ${{ runner.os }}-ml-ci-v1-jvm-${{ inputs.epoch }}-${{ hashFiles('**/*.gradle', '**/gradle.properties', 'gradle/wrapper/gradle-wrapper.properties') }}-
+          ${{ runner.os }}-ml-ci-v2-${{ inputs.lane }}-${{ inputs.epoch }}-${{ steps.fingerprint.outputs.deps }}-
+          ${{ runner.os }}-ml-ci-v2-jvm-${{ inputs.epoch }}-${{ steps.fingerprint.outputs.deps }}-
+          ${{ runner.os }}-ml-ci-v1-${{ inputs.lane }}-${{ inputs.epoch }}-${{ steps.fingerprint.outputs.legacy }}-
+          ${{ runner.os }}-ml-ci-v1-jvm-${{ inputs.epoch }}-${{ steps.fingerprint.outputs.legacy }}-
+          ${{ runner.os }}-ml-ci-v1-${{ inputs.lane }}-${{ inputs.epoch }}-${{ steps.fingerprint.outputs.migration }}-
+          ${{ runner.os }}-ml-ci-v1-jvm-${{ inputs.epoch }}-${{ steps.fingerprint.outputs.migration }}-
     - shell: bash
       env:
         LANE: ${{ inputs.lane }}
