@@ -12,7 +12,7 @@ class TaskJournalDisplayTest {
     }
     @Test fun readableTaskEventsNeverEchoUnknownFieldsOrCorrelation(){
         val token=TaskCorrelation.create()
-        val raw="2026-11-27 01:00:00 [INFO] [TaskCenter] COMPLETE · op=${token.value} · kind=WAVEFORM · status=COMPLETE · generated=2 · cached=4 · raw=private/path"
+        val raw="2026-11-27 01:00:00 [INFO] [TaskCenter] [thread=DefaultDispatcher-worker-1] COMPLETE · op=${token.value} · kind=WAVEFORM · status=COMPLETE · generated=2 · cached=4 · raw=private/path"
         val text=LogDisplay.readable(LogDisplay.entries(raw).single())
         assertTrue(text.contains("Создано: 2"));assertTrue(text.contains("В кэше: 4"))
         assertFalse(text.contains(token.value));assertFalse(text.contains("private/path"))
