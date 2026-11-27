@@ -30,7 +30,15 @@ class FocusedTest(unittest.TestCase):
             self.assertEqual(set(selected), {k for k in selected if k.split('#')[0] in bulk} |
                              {c+'#'+m for c,m in isolated})
             self.assertTrue(set(bulk).isdisjoint(c for c,m in runner.expected_methods('full')))
-        a, _, _ = focused.make_plan(('archive',), runner)
+        a, archive_bulk, archive_isolated = focused.make_plan(('archive',), runner)
+        scan_cls = 'com.domenota.medialoader.ui.screens.music.MusicScanModeControlsTest'
+        self.assertNotIn(scan_cls, archive_bulk)
+        self.assertEqual({m for c, m in archive_isolated if c == scan_cls}, {
+            'savedMatchingModeAlwaysContinuesInsteadOfOpeningScopePicker',
+            'resultGroupsUseCorrectRussianGrammaticalForm',
+            'pausedResultsFollowContinueAndOnlyPositiveSavedGroupsCanOpen',
+            'changingModeDoesNotStartAndPauseIsNotFailure',
+        })
         n, _, _ = focused.make_plan(('navigation',), runner)
         combined, _, _ = focused.make_plan(('archive','navigation'), runner)
         self.assertEqual(set(combined), set(a)|set(n))

@@ -21,7 +21,10 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 MUSIC = ('com.domenota.medialoader.ui.screens.music.RecentMusicScreenTest',
-         'com.domenota.medialoader.ui.screens.music.SmartMusicScreenTest')
+         'com.domenota.medialoader.ui.screens.music.SmartMusicScreenTest',
+         # #293: unchanged paused-results UI test hit AppNotIdleException in bulk.
+         # Run every method of this class in a fresh worker; no assertion/skip changes.
+         'com.domenota.medialoader.ui.screens.music.MusicScanModeControlsTest')
 COLLECTION = (
     'com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest',
     'com.domenota.medialoader.ui.screens.organization.LastCollectionCoverPresentationTest',

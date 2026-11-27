@@ -34,3 +34,6 @@ CI v2 подтверждён: chrome QA #45707065400; full qualify #45710936819 
 
 ## Dependency cache correction (QA-233)
 The v2 cache namespace ignores only the two base release version fields in app/build.gradle. All other tracked Gradle inputs, dependency and plugin versions remain part of the fingerprint. Actual Gradle inputs, exact source, tests, Lint and QA receipt verification are unchanged. Legacy restoration is limited to the exact current hash and the verified 1.7.234 → 1.7.235 version-only hash transition. CI 268 attempts 1–2 failed before JVM tests due to Maven Central HTTP 429 after the version bump invalidated the cache. Never reuse test results or release receipts across a new SHA.
+
+### QA-237: Compose isolation
+CI #293 (46047293395) failed in the unchanged MusicScanModeControlsTest.pausedResultsFollowContinueAndOnlyPositiveSavedGroupsCanOpen at line 53 (AppNotIdleException in bulk, 1199 tests, one failed, exact IDs). Treat shared-worker idling interference as a hypothesis, not a confirmed production diagnosis. The existing music/full isolation group now executes all four methods in fresh JVM workers with original assertions and exact inventory; no retry, skip, timeout increase or test deletion. If the isolated check fails, investigate the underlying failure rather than masking it.
