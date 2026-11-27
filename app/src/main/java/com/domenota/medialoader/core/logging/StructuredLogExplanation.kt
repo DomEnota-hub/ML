@@ -153,6 +153,9 @@ internal object StructuredLogExplanation {
                 event.startsWith("frames cache ") -> join("Получены фрагменты аудио из кеша", metric("count", "Фрагментов"), elapsed())
                 event.startsWith("alignment ") -> join("Сопоставление аудиофрагментов", f.bool("aligned", "Выравнивание подтверждено", "Выравнивание не подтверждено"), elapsed())
                 event.startsWith("pair ready ") -> join("Пара аудиозаписей подготовлена для сравнения", elapsed())
+                event.startsWith("verified pair cache HIT") -> join("Использован кеш проверенной пары аудиозаписей", metric("zones", "Зон"))
+                event.startsWith("shortRefine") -> join("Уточнение коротких различий аудиозаписей", metric("candidates", "Кандидатов"), metric("inspected", "Проверено"), metric("spectral", "Спектральных"), metric("pcm", "По аудиоданным"))
+                event.startsWith("fullPcm unavailable") -> "Полное декодирование аудио недоступно; используется предварительная спектральная проверка."
                 event.startsWith("verified pair cache MISS") -> "Проверенная пара не найдена в кеше сравнения."
                 key == "fullPcm" -> join("Сравнение декодированных аудиоданных", metric("firstSamples", "Отсчётов первого"), metric("secondSamples", "Отсчётов второго"))
                 else -> null
@@ -402,7 +405,11 @@ internal object StructuredLogExplanation {
             "MOVE_FILE" -> join("Обработка отдельного файла в операции архива", direction, f.bool("confirmed", "Подтверждено", "Не подтверждено"), f.metric("bytes", "Размер", " байт"))
             "PREFLIGHT_V2" -> join("Предварительная проверка файлов", f.countProgress("ready", "total", "Готово"), f.metric("problems", "Проблем"))
             "PLAN_SIZE_MISMATCH" -> "Обнаружено расхождение размеров плана операции; успешное выполнение не подтверждено."
+            "INVENTORY_MIME_FALLBACK" -> "Тип файла определён резервным способом по расширению."
             "INVENTORY_REJECTED" -> "Инвентаризация отклонена; файл не принят в операцию."
+            "FOREGROUND_CREATE_FAILED" -> "Не удалось создать фоновую службу файловой операции."
+            "FOREGROUND_REENTRANT_REJECT" -> "Повторный запуск фоновой файловой операции отклонён: служба уже работает."
+            "FOREGROUND_TIMEOUT" -> "Android принудительно остановил фоновую файловую операцию по лимиту времени; журнал сохранён, контрольная точка не подтверждена."
             "FOREGROUND_REQUEST" -> join("Запрошена фоновая служба файловой операции", f.bool("accepted", "Запрос принят", "Запрос не принят"))
             "FOREGROUND_STOP" -> join("Фоновая служба файловой операции остановлена", f.bool("journalPending", "Журнал операции ещё не закрыт", "Незакрытый журнал не отмечен"))
             "STOP" -> join("Операция видимости остановлена", f.countProgress("confirmed", "total", "Подтверждено"))

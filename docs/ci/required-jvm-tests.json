@@ -371,6 +371,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.JournalSourceInventoryTest#literalEmittersHaveSpecificExplanations": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.logging.LibraryProjectionCountersTest#boundedCountersDistinguishReasonCompletionCancellationAndReuse": {
     "skipped": false,
     "failed": false

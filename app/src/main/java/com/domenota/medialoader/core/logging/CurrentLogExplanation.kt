@@ -19,6 +19,11 @@ internal object CurrentLogExplanation {
     )
     fun group(tag: String): String? = groups[tag]
     private val rules: Map<String, List<Pair<String, String>>> = mapOf(
+        "TaskCenter" to listOf(
+            "History unavailable" to "История задач недоступна; прежние данные сохранены.",
+            "History write failed" to "Не удалось записать историю задач.",
+            "HISTORY_CLEAR" to "Изменение истории задач применено в памяти."
+        ),
         "InstagramLogin" to listOf(
             "Browser session cookie captured" to "Получены данные браузерного сеанса Instagram; вход требует отдельного подтверждения.",
             "Login page network error" to "Не удалось получить страницу входа Instagram.",
@@ -102,6 +107,7 @@ internal object CurrentLogExplanation {
             "stage=" to "Не удалось сохранить отчёт поиска дубликатов; стадия и диагностика сохранены в технической записи."
         ),
         "AudioWaveform" to listOf(
+            "Editor detail failed" to "Не удалось построить подробную звуковую волну редактора.",
             "Background scan deferred:" to "Фоновая проверка звуковых волн отложена; условие указано в технической записи.",
             "Could not read frames" to "Не удалось прочитать аудиофрагменты для звуковой волны."
         ),
