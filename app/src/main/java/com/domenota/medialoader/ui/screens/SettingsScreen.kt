@@ -787,6 +787,7 @@ fun SettingsScreen(
     })
     if (sourceProfilesDialog) SourceDownloadProfilesDialog(
         selectedSafFolder = downloadFolder.startsWith("Выбранная папка:"),
+        generalFolder=downloadFolder,
         onDismiss = { sourceProfilesDialog = false },
     )
     if (instagramModeDialog) AlertDialog(
