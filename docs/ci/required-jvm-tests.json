@@ -6214,6 +6214,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#importedDocumentIsVersionScopedAndPrivacyRemovalIsTargeted": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#localSidecarRequiresLivePublicSourceAndNeverWritesAudio": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.MusicLoudnessTest#absoluteAndRelativeGatesExcludeSilentTail": {
     "skipped": false,
     "failed": false
@@ -6443,6 +6451,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.playback.TrackLyricsTest#plainAndInvalidInputAreDistinct": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.TrackLyricsTest#readsMillisecondSyltAndRejectsFrameTimestamps": {
     "skipped": false,
     "failed": false
   },

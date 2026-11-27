@@ -72,6 +72,7 @@ internal object DuplicatePrivacyGuard {
             VisualDuplicateScanner.clearForPrivacy(context)
             GalleryOcrIndex.clearForPrivacy(context)
             com.domenota.medialoader.data.recognition.TrackRecognitionCache.clearForPrivacy(context)
+            com.domenota.medialoader.data.playback.LocalTrackLyrics.clearForPrivacy(context,id,identities)
             if (!keepUnrelatedReports) {
                 MusicDuplicateSessionStore.clearForPrivacy(context)
                 DuplicateBackgroundScan.invalidateForPrivacy()

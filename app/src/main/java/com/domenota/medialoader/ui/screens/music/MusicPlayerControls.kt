@@ -36,6 +36,7 @@ internal fun MusicPlayerControls(
     onBack: () -> Unit, onEqualizer: (() -> Unit)?, onQueue: () -> Unit, onFavorite: (() -> Unit)?,
     seekAvailable: Boolean = true, favorite: Boolean = false, onEdit: (() -> Unit)? = null, onRecognize:(()->Unit)?=null, onToggle:(()->Unit)?=null,
     bookmarks: (@Composable () -> Unit)? = null,
+    onLyrics: (() -> Unit)? = null,
 ) {
     var scrub by remember(item.id,item.savedUri,durationMs) { mutableStateOf<Float?>(null) }
     var bookmarksOpen by remember(item.id,item.savedUri,bookmarks != null) { mutableStateOf(false) }
@@ -64,6 +65,11 @@ internal fun MusicPlayerControls(
             maxLines = 2, overflow = TextOverflow.Ellipsis)
         audioArtist(item)?.let { Text(it, Modifier.padding(top = 5.dp, start = 17.dp, end = 17.dp), fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        if (onLyrics != null) TextButton(onClick = onLyrics, modifier = Modifier.padding(top = 4.dp)) {
+            Icon(Icons.Rounded.Lyrics, contentDescription = null, modifier = Modifier.size(19.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Текст песни")
+        }
         Column(Modifier.fillMaxWidth().padding(start = 27.dp, end = 27.dp, top = 25.dp, bottom = 8.dp)) {
             AppSlider(value = scrub ?: (if(durationMs>0L)positionMs.toFloat().coerceIn(0f,durationMs.toFloat()) else 0f),
                 onValueChange = { scrub = it }, modifier = Modifier.fillMaxWidth().height(48.dp), enabled = player != null && durationMs > 0 && seekAvailable,

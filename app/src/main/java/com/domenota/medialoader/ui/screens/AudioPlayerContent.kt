@@ -303,6 +303,8 @@ fun BackgroundAudioPlayer(
     }
 
     if (libraryLayout) {
+        val lyricIdentity = durationState.identity
+        var lyricsOpen by remember(lyricIdentity, bookmarkPermissionEpoch, blockedIdentities) { mutableStateOf(false) }
         val blocked = privateSession || currentItem.id in blockedIdentities || currentIdentityKeys.any(blockedIdentities::contains)
         if (blocked) Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Воспроизведение в «Личном»")
@@ -316,7 +318,15 @@ fun BackgroundAudioPlayer(
                     com.domenota.medialoader.ui.screens.music.AudioBookmarksPanel(
                         controller, durationState.identity!!, positionMs, durationMs, seekAvailable,
                         blockedIdentities, bookmarkPermissionEpoch, onBookmarkRef)
-                }) else null)
+                }) else null,
+                onLyrics = if (onBookmarkRef != null && controller != null && lyricIdentity != null &&
+                    !currentItem.isPrivate && !currentItem.hidden) ({ lyricsOpen = true }) else null)
+        }
+        if (lyricsOpen && !blocked && controller != null && lyricIdentity != null && onBookmarkRef != null) {
+            com.domenota.medialoader.ui.screens.music.TrackLyricsSheet(
+                controller, lyricIdentity, positionMs, durationMs, seekAvailable,
+                blockedIdentities, bookmarkPermissionEpoch, onBookmarkRef,
+                onDismiss = { lyricsOpen = false })
         }
         if (queueOpen && !blocked) ModalBottomSheet(onDismissRequest = { queueOpen = false }) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()

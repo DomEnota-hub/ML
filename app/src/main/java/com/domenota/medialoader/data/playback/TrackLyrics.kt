@@ -169,7 +169,7 @@ internal object LyricsMatch {
     private fun normalized(s:String) = java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFKC)
         .trim().replace(Regex("\\s+")," ").lowercase(Locale.ROOT)
     fun exact(track:LyricsTrackSignature,candidates:List<LyricsCandidate>):LyricsCandidate? {
-        if(!track.eligible || candidates.size>100) return null
+        if(!track.eligible || candidates.size>100 || candidates.groupBy{it.id}.values.any{it.distinct().size>1}) return null
         val album=track.album?.takeIf{it.isNotBlank()} ?: return null
         return candidates.filter { c ->
             val s=c.signature

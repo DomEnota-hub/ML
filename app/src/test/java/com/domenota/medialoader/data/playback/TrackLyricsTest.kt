@@ -28,11 +28,24 @@ class TrackLyricsTest {
         assertEquals("Invented test words",EmbeddedLyrics.read(ByteArrayInputStream(tag))?.plain)
         assertNull(EmbeddedLyrics.read(ByteArrayInputStream(tag.copyOf(12))))
     }
+    @Test fun readsMillisecondSyltAndRejectsFrameTimestamps() {
+        val payload=byteArrayOf(3,101,110,103,2,1,0)+"first".toByteArray()+byteArrayOf(0,0,0,3,-24)+
+            "second".toByteArray()+byteArrayOf(0,0,0,7,-48)
+        fun tag(body:ByteArray):ByteArray {
+            val frame="SYLT".toByteArray()+byteArrayOf(0,0,0,body.size.toByte(),0,0)+body
+            return byteArrayOf(73,68,51,3,0,0,0,0,0,frame.size.toByte())+frame
+        }
+        val result=EmbeddedLyrics.read(ByteArrayInputStream(tag(payload)))!!
+        assertEquals(listOf(1000L,2000L),result.timed.map{it.atMs})
+        val unsupported=payload.copyOf().apply{this[4]=1}
+        assertNull(EmbeddedLyrics.read(ByteArrayInputStream(tag(unsupported))))
+    }
     @Test fun requiresUniqueExactMetadataAndDuration() {
         val s=LyricsTrackSignature("Title","Artist","Album",120000)
         val good=LyricsCandidate(1,s.copy(title=" title ",durationMs=121999))
         assertEquals(good,LyricsMatch.exact(s,listOf(good)))
         assertNull(LyricsMatch.exact(s,listOf(good,good.copy(id=2))))
+        assertNull(LyricsMatch.exact(s,listOf(good,good.copy(signature=s.copy(title="Different")))))
         assertNull(LyricsMatch.exact(s,listOf(good.copy(signature=s.copy(title="Title Live")))))
         assertNull(LyricsMatch.exact(s,listOf(good.copy(signature=s.copy(durationMs=122001)))))
         assertNull(LyricsMatch.exact(s.copy(album=null),listOf(good)))
