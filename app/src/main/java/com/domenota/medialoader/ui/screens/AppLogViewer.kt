@@ -47,14 +47,18 @@ internal fun AppLogViewer(
     // Search input may contain a filename or private text; do not save it to instance state.
     var query by remember { mutableStateOf("") }
     var newest by rememberSaveable { mutableStateOf(false) }
+    var scopeName by rememberSaveable { mutableStateOf(JournalTimeline.Scope.ALL.name) }
+    var scopeOpen by remember { mutableStateOf(false) }
+    val requestedScope=JournalTimeline.Scope.entries.firstOrNull{it.name==scopeName}?:JournalTimeline.Scope.ALL
+    val logScope=if(snapshot?.scopeAvailable(requestedScope)==true)requestedScope else JournalTimeline.Scope.ALL
     val selected = LogTone.entries.firstOrNull { it.name == tone }
-    var rows by remember(snapshot, tone, readable, query, newest) { mutableStateOf<List<JournalTimeline.Row>?>(null) }
-    LaunchedEffect(snapshot, tone, readable, query, newest) {
+    var rows by remember(snapshot, tone, readable, query, newest, logScope) { mutableStateOf<List<JournalTimeline.Row>?>(null) }
+    LaunchedEffect(snapshot, tone, readable, query, newest, logScope) {
         val s = snapshot ?: return@LaunchedEffect
-        rows = withContext(Dispatchers.Default) { s.select(selected, readable, query, newest) }
+        rows = withContext(Dispatchers.Default) { s.select(selected, readable, query, newest, logScope) }
     }
     val listState = rememberLazyListState()
-    LaunchedEffect(tone, readable, query, newest) { listState.scrollToItem(0) }
+    LaunchedEffect(tone, readable, query, newest, logScope) { listState.scrollToItem(0) }
     val expanded = remember(snapshot) { mutableStateMapOf<Int, Boolean>() }
     val s = snapshot
     val shown = rows
@@ -74,7 +78,7 @@ internal fun AppLogViewer(
                 line.forEach { t ->
                     val active = selected == t
                     val color = t?.tint() ?: MaterialTheme.colorScheme.primary
-                    val count = if (t == null) snapshot?.raw?.size else snapshot?.counts?.get(t) ?: snapshot?.let { 0 }
+                    val count = s?.stats(logScope)?.let { if(t==null)it.total else it.counts[t]?:0 }
                     Surface(
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                             .clip(MaterialTheme.shapes.medium).selectable(selected = active, role = Role.RadioButton) { tone = t?.name },
@@ -82,13 +86,34 @@ internal fun AppLogViewer(
                         color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
                         border = if (active) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
                     ) {
-                        Column(Modifier.padding(horizontal = 3.dp, vertical = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(Modifier.fillMaxWidth().heightIn(min=48.dp).padding(horizontal = 3.dp, vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement=Arrangement.Center) {
                             Text(count?.toString() ?: "—", color = color, style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold)
                             Text(when (t) { LogTone.WARN -> "Внимание"; else -> t?.label ?: "Все" },
                                 style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
                         }
+                    }
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment=Alignment.CenterVertically) {
+            Box {
+                TextButton(onClick={scopeOpen=true},contentPadding=PaddingValues(horizontal=6.dp)) {
+                    Icon(Icons.Rounded.FilterList,null,Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(logScope.label)
+                    Icon(Icons.Rounded.ExpandMore,null,Modifier.size(18.dp))
+                }
+                DropdownMenu(expanded=scopeOpen,onDismissRequest={scopeOpen=false}) {
+                    JournalTimeline.Scope.entries.forEach{option->
+                        val label=when(option){
+                            JournalTimeline.Scope.VERSION->option.label+(s?.latestSession?.version?.let{" · "+it}?:"")
+                            JournalTimeline.Scope.SESSION->option.label+(s?.latestSession?.let{" · "+s.raw[it.start].timestamp.substringAfter(' ').substringBefore('.')}?:"")
+                            else->option.label
+                        }
+                        DropdownMenuItem(text={Text(label)},enabled=s?.scopeAvailable(option)==true||option==JournalTimeline.Scope.ALL,
+                            onClick={scopeName=option.name;scopeOpen=false})
                     }
                 }
             }
@@ -110,7 +135,7 @@ internal fun AppLogViewer(
                 Text(if (newest) "Сначала новые" else "Сначала старые", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (readable && s.raw.isNotEmpty()) {
+            if (!readable && logScope==JournalTimeline.Scope.ALL && s.raw.isNotEmpty()) {
                 val perMille = s.genericCount * 1000L / s.raw.size
                 Text("Общие пояснения: " + s.genericCount + " из " + s.raw.size + " · " + perMille / 10 + "," + perMille % 10 + "%",
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -120,7 +145,7 @@ internal fun AppLogViewer(
     }
     BoxWithConstraints(modifier) {
       // Keep all six tiles available on narrow/short screens without starving the list.
-      val compact = maxHeight < 340.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.25f
+      val compact = maxHeight < 410.dp || androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.25f
       Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         if (!compact) controls()
         LazyColumn(Modifier.fillMaxWidth().weight(1f), state = listState) {
@@ -128,7 +153,7 @@ internal fun AppLogViewer(
             if (s == null || shown == null) {
                 item { Text("Подготовка журнала…", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             } else {
-                val showPrefix = !readable && selected == null && s.prefix.isNotBlank() &&
+                val showPrefix = !readable && logScope==JournalTimeline.Scope.ALL && selected == null && s.prefix.isNotBlank() &&
                     (query.isBlank() || s.prefix.contains(query.trim(), true))
                 if (showPrefix && !newest) item(key = "prefix") { OrphanLines(s.prefix) }
                 if (shown.isEmpty() && !showPrefix)
@@ -208,8 +233,11 @@ private fun TimelineLine(snapshot: JournalTimeline.Snapshot, row: JournalTimelin
     onExpand: () -> Unit, onCopy: ((String) -> Unit)?) {
     val entry = snapshot.raw[row.end]
     val detail = snapshot.details[row.end]
-    val segments = remember(detail) { detail.meaning.split(" · ", limit = 2) }
-    val tint = entry.tone.tint()
+    val first=snapshot.raw[row.start]
+    val recovery=if(row.count==2)JournalTimeline.recoveryDurations(first,entry)else null
+    val shortTask= row.count==2&&JournalTimeline.shortTaskPair(first,entry)
+    val segments = remember(detail,entry.tag) { if(entry.tag=="TaskCenter")detail.meaning.split(" · ") else detail.meaning.split(" · ", limit=2) }
+    val tint = (if(recovery!=null)first.tone else entry.tone).tint()
     val line = MaterialTheme.colorScheme.outlineVariant
     Row(Modifier.fillMaxWidth().drawBehind {
         val x = 17.dp.toPx()
@@ -229,21 +257,32 @@ private fun TimelineLine(snapshot: JournalTimeline.Snapshot, row: JournalTimelin
             Column(Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onExpand).padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(segments.first(), Modifier.weight(1f), color = tint,
+                    Text(if(recovery!=null)"Задержка интерфейса" else segments.first(), Modifier.weight(1f), color = tint,
                         style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                         if (expanded) "Свернуть подробности" else "Раскрыть подробности",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                segments.getOrNull(1)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                JournalTimeline.progress(entry)?.let { p ->
+                if(recovery!=null){
+                    Text("Обнаружена задержка: "+recovery.first+" мс",style=MaterialTheme.typography.bodySmall)
+                    Text("Работа восстановлена · "+recovery.second+" мс",style=MaterialTheme.typography.bodySmall,color=LogTone.OK.tint())
+                }else{
+                    val p=JournalTimeline.progress(entry)
+                    val fields=segments.drop(1)
+                    if(entry.tag=="TaskCenter"){
+                        if(p!=null)Text("Проверено: ${p.done} из ${p.total}",style=MaterialTheme.typography.bodySmall)
+                        val remainder=fields.filterNot{p!=null&&it=="${p.done} из ${p.total}"}
+                        remainder.chunked(2).forEach{line->Text(line.joinToString(" · "),style=MaterialTheme.typography.bodySmall)}
+                    }else fields.forEach{Text(it,style=MaterialTheme.typography.bodySmall)}
+                }
+                JournalTimeline.progress(entry)?.takeUnless{JournalTimeline.historicalStart(entry)}?.let { p ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         LinearProgressIndicator(progress = { p.fraction }, modifier = Modifier.weight(1f).height(4.dp),
-                            color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.outlineVariant)
+                            color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.outlineVariant,drawStopIndicator={})
                         Text((p.fraction * 100).toInt().toString() + "%", style = MaterialTheme.typography.labelSmall)
                     }
                 }
-                if (row.count > 1) Text(row.count.toString() + " связанных записей · показана последняя", style = MaterialTheme.typography.labelSmall,
+                if (row.count > 1) Text(if(shortTask||recovery!=null)"Ход выполнения · "+row.count+" события" else row.count.toString() + " связанных записей · показана последняя", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary)
             }
             if (expanded) {

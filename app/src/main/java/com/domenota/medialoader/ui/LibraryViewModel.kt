@@ -1099,7 +1099,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             if (!changedAccess && !invalidate && state.value.loaded) return
             refreshedAt[mode] = now
             state.value = PhoneLibraryState(loaded = true, complete = true, revision = state.value.revision + 1, accessEpoch = accessEpoch, message =
-                if (mode == AppMode.MUSIC) "Разрешите доступ к музыке телефона" else "Разрешите доступ к фото и видео телефона")
+                if (mode == AppMode.MUSIC) "Разреши доступ к музыке телефона" else "Разреши доступ к фото и видео телефона")
             viewModelScope.launch { phoneCache.clear(mode) }
             return
         }
@@ -1223,7 +1223,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             }
             catch (_: Exception) {
                 com.domenota.medialoader.core.logging.AppLog.w("Library", "Phone scan failed · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch")
-                val message = "Не удалось обновить файлы телефона. Проверьте доступ и повторите."
+                val message = "Не удалось обновить файлы телефона. Проверь доступ и повтори попытку."
                 state.value = if (!blocking && state.value.loaded) state.value.copy(loading = false, message = message)
                     else PhoneLibraryState(loaded = true, revision = revision + 1, message = message, accessEpoch = accessEpoch)
             }finally{

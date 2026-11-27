@@ -147,9 +147,9 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
                         Text(result.title,style=MaterialTheme.typography.titleLarge)
                         Text(result.artist,style=MaterialTheme.typography.titleMedium)
                         result.album?.takeIf{it.isNotBlank()}?.let{Text(it,style=MaterialTheme.typography.bodyMedium)}
-                        if(currentMatch.verification==TrackVerification.CONFIRMED)Text(if(outcome?.conflict==true)"Два фрагмента совпали, но были и другие результаты. Проверьте композицию." else "Совпало на двух независимых фрагментах",style=MaterialTheme.typography.bodySmall)
+                        if(currentMatch.verification==TrackVerification.CONFIRMED)Text(if(outcome?.conflict==true)"Два фрагмента совпали, но были и другие результаты. Проверь композицию." else "Совпало на двух независимых фрагментах",style=MaterialTheme.typography.bodySmall)
                         if(currentMatch.verification==TrackVerification.UNCONFIRMED)Text(
-                            if(outcome?.conflict==true)"Результаты разных фрагментов расходились. Проверьте композицию." else "Дополнительное совпадение не подтверждено. Проверьте композицию.",
+                            if(outcome?.conflict==true)"Результаты разных фрагментов расходились. Проверь композицию." else "Дополнительное совпадение не подтверждено. Проверь композицию.",
                             style=MaterialTheme.typography.bodySmall)
                         if(applying)LinearProgressIndicator(Modifier.fillMaxWidth())
                         format?.let{Text("Формат: ${it.label}",style=MaterialTheme.typography.bodySmall)}

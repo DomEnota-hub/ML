@@ -716,7 +716,7 @@ class YoutubeDlAndroid(context: Context) : StreamExtractor, YtDlpDownloader {
             }.also { AppLog.i("YouTube", "Analyze attempt completed · ms=${SystemClock.elapsedRealtime() - started}") }
         } catch (error: TimeoutCancellationException) {
             AppLog.w("YouTube", "Analyze attempt timed out · ms=${SystemClock.elapsedRealtime() - started}")
-            throw ExtractionException("YouTube не ответил за 60 секунд. Проверьте сеть или VPN и повторите анализ.", cause = error)
+            throw ExtractionException("YouTube не ответил за 60 секунд. Проверь сеть или VPN и повтори анализ.", cause = error)
         }
         val output = if (compactOutput) {
             try {
@@ -807,15 +807,15 @@ class YoutubeDlAndroid(context: Context) : StreamExtractor, YtDlpDownloader {
         return when {
             hasCookies && isBotChallenge(error) ->
                 "YouTube отклонил запрос загрузчика проверкой безопасности, хотя вход выполнен. " +
-                    "Попробуйте обновить yt-dlp и повторить анализ. Если ошибка останется — сохраните логи."
+                    "Попробуй обновить yt-dlp и повторить анализ. Если ошибка останется — сохрани логи."
             isAuthRequired(error) ->
-                "YouTube требует вход в аккаунт. Откройте Настройки → Аккаунт YouTube."
+                "YouTube требует вход в аккаунт. Открой Настройки → Аккаунт YouTube."
             isHttp403(error) -> RECOVERY_FAILED_MESSAGE
             isPageReloadRequired(error) ->
-                "YouTube отклонил запрос проигрывателя. Попробуйте «Обновить yt-dlp» в настройках."
-            isFormatUnavailable(error) -> "YouTube не предоставил выбранное качество. Повторите анализ видео."
+                "YouTube отклонил запрос проигрывателя. Попробуй «Обновить yt-dlp» в настройках."
+            isFormatUnavailable(error) -> "YouTube не предоставил выбранное качество. Повтори анализ видео."
             text.contains("No address associated with hostname", ignoreCase = true) ->
-                "Не удалось найти сервер YouTube. Проверьте подключение и повторите попытку."
+                "Не удалось найти сервер YouTube. Проверь подключение и повтори попытку."
             else -> "Не удалось получить видео с YouTube. Подробности доступны в логах."
         }
     }
@@ -873,7 +873,7 @@ class YoutubeDlAndroid(context: Context) : StreamExtractor, YtDlpDownloader {
         const val AUTO_UPDATE_FRESH_MS = 24L * 60L * 60L * 1000L
         const val AUTO_UPDATE_COOLDOWN_MS = 30L * 60L * 1000L
         const val RECOVERY_FAILED_MESSAGE =
-            "YouTube не дал доступ к потоку. yt-dlp и резервный клиент не помогли — откройте Логи для диагностики."
+            "YouTube не дал доступ к потоку. yt-dlp и резервный клиент не помогли — открой Логи для диагностики."
         val AUTH_COOKIE_NAMES = setOf(
             "SAPISID", "APISID", "SID", "HSID", "SSID", "LOGIN_INFO",
             "__Secure-1PAPISID", "__Secure-3PAPISID",

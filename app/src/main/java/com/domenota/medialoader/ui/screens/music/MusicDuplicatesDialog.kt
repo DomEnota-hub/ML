@@ -290,7 +290,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                 selected = saved.selected.intersect(safe); kept = recommendations; scannedAt = saved.scannedAt
                 showingPartial = fromPartial; previous = null; result = r
                 if (r.groups.isNotEmpty()) listState.requestScrollToItem(saved.index.coerceIn(0,r.groups.lastIndex),saved.offset)
-                if (r.skipped > saved.result.skipped) error = "Некоторые файлы изменились. Проверьте результаты или запустите новый поиск."
+                if (r.skipped > saved.result.skipped) error = "Некоторые файлы изменились. Проверь результаты или запусти новый поиск."
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { error = e.message ?: "Не удалось восстановить поиск" }
             finally { scanning = false; restoringSaved = false }
@@ -588,7 +588,7 @@ internal fun MusicDuplicatesDialog(rows: List<DownloadEntity>, linkedIds: Set<St
                             Icon(Icons.Rounded.MusicNote,null,Modifier.size(32.dp),
                                 tint=MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("Поиск ещё не запускался",style=MaterialTheme.typography.titleSmall)
-                            Text("Выберите режим и запустите поиск, чтобы найти похожие треки.",
+                            Text("Выбери режим и запусти поиск, чтобы найти похожие треки.",
                                 color=MaterialTheme.colorScheme.onSurfaceVariant,
                                 style=MaterialTheme.typography.bodySmall)
                         }
@@ -1133,7 +1133,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                     (evaluated[ComparisonZoneKind.SILENT_PADDING]?:0)
                                 Text(if(zones.isEmpty())"Различий не обнаружено" else
                                     "Найдено участков: ${zones.size}",style=MaterialTheme.typography.labelMedium)
-                                if(quietEdges>0)Text("Тихие края: $quietEdges. Прослушайте перед решением.",
+                                if(quietEdges>0)Text("Тихие края: $quietEdges. Прослушай перед решением.",
                                     style=MaterialTheme.typography.labelSmall,
                                     color=MaterialTheme.colorScheme.onSurfaceVariant)
                                 if(zones.isEmpty())Text("Сходство не гарантирует идентичность файлов.",
@@ -1165,7 +1165,7 @@ private fun DuplicateMusicComparison(group:DuplicateGroup,keeper:String,previewI
                                             Column(Modifier.fillMaxWidth().padding(10.dp),verticalArrangement=Arrangement.spacedBy(6.dp)){
                                                 Text("Отличие ${shownZoneIndex+1}",color=musicPlaybackAccent,
                                                     style=MaterialTheme.typography.titleSmall)
-                                                Text("Послушайте этот момент в обеих записях.",
+                                                Text("Послушай этот момент в обеих записях.",
                                                     style=MaterialTheme.typography.bodySmall)
                                                 fun contextLabel(first:Boolean)=listeningWindow(first)?.let{
                                                     "${pairTime(it.startMs)}–${pairTime(it.endExclusiveMs)}"

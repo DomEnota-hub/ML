@@ -569,7 +569,7 @@ fun SettingsScreen(
     if (confirmInstagramSignOut) AlertDialog(
         onDismissRequest = { confirmInstagramSignOut = false },
         title = { Text("Аккаунт Instagram") },
-        text = { Text("Проверьте сохранённую сессию ещё раз или выйдите из аккаунта. Выход удалит её из приложения.") },
+        text = { Text("Сохранённую сессию можно проверить ещё раз или завершить. Выход из аккаунта удалит её из приложения.") },
         confirmButton = {
             TextButton(onClick = {
                 instagramVerificationRevision++

@@ -237,7 +237,7 @@ internal fun SmartMusicScreen(page:SmartMusicPage,snapshot:SmartMusicSnapshot,ro
                 if(loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 (problem?:error)?.let {Text(it,color=MaterialTheme.colorScheme.error)}
                 if(!loading&&ids.isEmpty()) Text(when(page){
-                    SmartMusicPage.FORGOTTEN->"Пока нет треков, которые не слушали выбранное количество дней."
+                    SmartMusicPage.FORGOTTEN->"Пока нет треков, которые ты не слушал выбранное количество дней."
                     SmartMusicPage.MIX->"Нет доступных треков для микса."
                     SmartMusicPage.STATS->"Пока нет прослушиваний за этот период."
                 },color=MaterialTheme.colorScheme.onSurfaceVariant)

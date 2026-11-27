@@ -580,7 +580,7 @@ internal fun LocalVideoPlayer(
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()) {
         if (FloatingVideoService.canShow(context)) launchFloatingVideo()
-        else AppNotice.post(context, "Разрешите показ поверх других приложений")
+        else AppNotice.post(context, "Разреши показ поверх других приложений")
     }
     // Gallery's always-visible PiP icon delegates to the current player.
     LaunchedEffect(floatingWindowRequest) {
@@ -1328,7 +1328,7 @@ internal fun LocalVideoPlayer(
                     },
                 )
             }, contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.AspectRatio, contentDescription = "Соотношение сторон. Удерживайте для списка",
+                Icon(Icons.Rounded.AspectRatio, contentDescription = "Соотношение сторон. Удерживай для списка",
                     tint = androidx.compose.ui.graphics.Color.White)
             }
             IconButton(onClick = {
@@ -1503,7 +1503,7 @@ internal fun LocalVideoPlayer(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    if (allowExternal) "Файл можно открыть установленным на устройстве проигрывателем." else "Попробуйте открыть файл заново.",
+                    if (allowExternal) "Файл можно открыть установленным на устройстве проигрывателем." else "Попробуй открыть файл заново.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),

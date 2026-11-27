@@ -458,7 +458,7 @@ internal fun ObjectRemovalPanel(
         onDismissRequest = { askDownload = false },
         title = { Text("Установить модель LaMa?") },
         text = { Text("Модель загружается отдельно и занимает значительное место. " +
-            "Загружается только файл модели, ваши фотографии никуда не отправляются. " +
+            "Загружается только файл модели, фотографии никуда не отправляются. " +
             "После установки обработка доступна без интернета. Для установки нужно не менее 750 МБ свободного места.") },
         confirmButton = {
             TextButton(onClick = {
@@ -523,7 +523,7 @@ internal fun ObjectRemovalPanel(
                 message = when {
                     found.isEmpty() -> "Не удалось найти отдельные буквы."
                     found.size > 160 -> "Найдено более 160 символов. Обработка текста — частями."
-                    verified.isEmpty() -> "Точные маски не подтверждены. Выделите нужные буквы вручную."
+                    verified.isEmpty() -> "Точные маски не подтверждены. Выдели нужные буквы вручную."
                     verified.size < found.size -> "Часть текста требует ручного выделения. Подтверждённые строки уже выбраны."
                     else -> null
                 }
@@ -540,7 +540,7 @@ internal fun ObjectRemovalPanel(
         if (busy) return
         if (!peopleReady || !mobileReady) {
             askPeopleInstall = true
-            message = "Для поиска людей установите EfficientDet-Lite0 и MobileSAM в «AI-модели»."
+            message = "Для поиска людей установи EfficientDet-Lite0 и MobileSAM в «AI-модели»."
             return
         }
         val source = current.bitmap
@@ -566,10 +566,10 @@ internal fun ObjectRemovalPanel(
                     found.ambiguousIds.isNotEmpty() ->
                         "Некоторые люди перекрываются. Пересекающиеся маски заблокированы для безопасности."
                     found.incompleteIds.isNotEmpty() ->
-                        "Не все части человека распознаны. Нажмите «Уточнить маску» и добавьте пропущенные участки."
+                        "Не все части человека распознаны. Нажми «Уточнить маску» и добавь пропущенные участки."
                     found.unsuccessful > 0 ->
-                        "Некоторые люди найдены, но не все маски получены. Выберите доступные."
-                    else -> "Выберите одного или нескольких людей, затем нажмите «Начать»."
+                        "Некоторые люди найдены, но не все маски получены. Выбери доступные."
+                    else -> "Выбери одного или нескольких людей, затем нажми «Начать»."
                 }
             } catch (cancel: CancellationException) {
                 throw cancel
@@ -650,8 +650,8 @@ internal fun ObjectRemovalPanel(
                         if(strokes.isNotEmpty())maskActions.record(strokes.size)
                         selectedGlyphs.clear();redoGlyphs.clear();glyphs=emptyList()
                         message = "Не все буквы удалось выделить точно. Ничего не удалено. " +
-                            "Уточните оставшиеся рамки кистью и проверьте жёлтую маску."
-                    } else message = "Выделите область для удаления."
+                            "Уточни оставшиеся рамки кистью и проверь жёлтую маску."
+                    } else message = "Выдели область для удаления."
                     return@launch
                 }
                 val result = engine.inpaint(startStep.bitmap, marked,
@@ -696,7 +696,7 @@ internal fun ObjectRemovalPanel(
         if (busy) return
         if (!glareReady) {
             askGlareInstall = true
-            message = "Для коррекции бликов установите SRNet через «AI-модели» (230 КБ, без интернета)."
+            message = "Для коррекции бликов установи SRNet через «AI-модели» (230 КБ, без интернета)."
             return
         }
         val startStep = current
@@ -735,7 +735,7 @@ internal fun ObjectRemovalPanel(
         if (busy) return
         if (!reflectionReady) {
             askReflectionInstall = true
-            message = "Импортируйте проверенную DExNet + VGG19 через «AI-модели» (91 МБ, без сети)."
+            message = "Импортируй проверенную DExNet + VGG19 через «AI-модели» (91 МБ, без сети)."
             return
         }
         val startStep = current
@@ -1080,7 +1080,7 @@ internal fun ObjectRemovalPanel(
                         if (prompt != null) {
                             selectObject(prompt)
                         } else if (autoDrawing) {
-                            message = "Проведите линию по объекту, затем отпустите палец."
+                            message = "Проведи линию по объекту, затем отпусти палец."
                         }
                         if (drawing && points.isNotEmpty()) {
                             // OBJECTS/hand is a fixed, narrow source-space LaMa mask.

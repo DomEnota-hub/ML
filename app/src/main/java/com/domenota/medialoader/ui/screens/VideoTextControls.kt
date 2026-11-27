@@ -44,7 +44,7 @@ internal fun VideoTextControls(layer: TextLayer?, count: Int, enabled: Boolean,
         }
         if (layer != null && tab == UnifiedTextTab.KEYBOARD) {
             OutlinedTextField(layer.text, { onChange(layer.copy(text = it.take(500))) },
-                enabled = enabled, maxLines = 3, placeholder = { Text("Введите текст") },
+                enabled = enabled, maxLines = 3, placeholder = { Text("Введи текст") },
                 modifier = Modifier.fillMaxWidth().focusRequester(requester),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White, unfocusedTextColor = Color.White,

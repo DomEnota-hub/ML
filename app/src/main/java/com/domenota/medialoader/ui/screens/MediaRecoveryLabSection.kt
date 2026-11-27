@@ -482,7 +482,7 @@ internal fun MediaRecoveryLabSection(
             "Это не обязательно реальное время съёмки! Сам оригинал, ссылки " +
             "Загрузок, избранное, альбомы и история не изменяются. " +
             "Проверка даты, порядка, звука и воспроизведения в Xiaomi, " +
-            "потом удалите копию отдельной кнопкой.") },
+            "затем копию можно удалить отдельной кнопкой.") },
         confirmButton = { TextButton(onClick = {
             videoTrialDialog = false
             if (!sameUriBusy && !videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&

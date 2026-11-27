@@ -81,7 +81,7 @@ internal suspend fun fetchInstagramApi(url: String, cookies: String): String = w
             )
             status == 301 || status == 302 || status == 401 -> throw ProviderException(
                 ProviderException.Reason.ACCESS_REQUIRED,
-                "Сессия Instagram недействительна или нет доступа. Войдите снова.", "instagram",
+                "Сессия Instagram недействительна или нет доступа. Войди снова.", "instagram",
             )
             status == 404 -> throw ProviderException(
                 ProviderException.Reason.UNSUPPORTED,

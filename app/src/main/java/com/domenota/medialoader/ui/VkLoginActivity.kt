@@ -47,7 +47,7 @@ class VkLoginActivity : ComponentActivity() {
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val hint = TextView(this).apply {
-            text = "Войдите в VK. Логин и пароль приложение не читает и не сохраняет — сохраняется только готовая сессия для доступа к видео."
+            text = "Войди в VK. Логин и пароль приложение не читает и не сохраняет — сохраняется только готовая сессия для доступа к видео."
             textSize = 14f
             setPadding(32, 24, 32, 24)
         }
@@ -97,7 +97,7 @@ class VkLoginActivity : ComponentActivity() {
                     val opened = VkAuthIntentLauncher.open(this@VkLoginActivity, appTarget)
                     AppLog.i("VKAuth", "VK QR handoff · officialAppOpened=$opened")
                     if (opened) awaitingVkApp = true
-                    else hint.text = "Не удалось открыть приложение VK. Вернитесь к форме входа и выберите телефон или почту."
+                    else hint.text = "Не удалось открыть приложение VK. Вернись к форме входа и выбери телефон или почту."
                     return true
                 }
                 if (blocked) AppLog.w("VKAuth", "Main-frame navigation blocked · host=${request.url.host.orEmpty()} · scheme=${when(request.url.scheme) {
@@ -106,7 +106,7 @@ class VkLoginActivity : ComponentActivity() {
                     "https" -> "https"
                     else -> "other"
                 }}")
-                if (blocked) hint.text = "VK запросил переход, который встроенный браузер не смог открыть. Вернитесь назад и повторите вход."
+                if (blocked) hint.text = "VK запросил переход, который встроенный браузер не смог открыть. Вернись назад и повтори вход."
                 return blocked
             }
 

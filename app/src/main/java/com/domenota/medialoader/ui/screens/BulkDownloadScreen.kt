@@ -243,7 +243,7 @@ fun BulkDownloadScreen(
             BulkMultiChoice("Видео", rules.video) { rules = rules.copy(video = it) }
             BulkMultiChoice("Аудио / MP3", rules.audio) { rules = rules.copy(audio = it) }
             if (!rules.hasSelectedTypes()) {
-                Text("Выберите хотя бы один тип файлов.", color = MaterialTheme.colorScheme.error,
+                Text("Выбери хотя бы один тип файлов.", color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
             }
             HorizontalDivider()
@@ -253,7 +253,7 @@ fun BulkDownloadScreen(
             BulkMultiChoice("VK", rules.vk) { rules = rules.copy(vk = it) }
             BulkMultiChoice("RUTUBE", rules.rutube) { rules = rules.copy(rutube = it) }
             if (!rules.hasSelectedSources()) {
-                Text("Выберите хотя бы один источник.", color = MaterialTheme.colorScheme.error,
+                Text("Выбери хотя бы один источник.", color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall)
             }
             HorizontalDivider()

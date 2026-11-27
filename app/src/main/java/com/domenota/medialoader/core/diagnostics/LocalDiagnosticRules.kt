@@ -14,7 +14,7 @@ object LocalDiagnosticRules {
             DiagnosticState.ERROR, DiagnosticEvidence.VERIFIED,
             "Библиотека $title отсутствует в установленной сборке.",
             reasonCode = "RUNTIME_LIBRARY_MISSING",
-            recommendation = "Переустановите подписанную сборку приложения.",
+            recommendation = "Необходимо переустановить подписанную сборку приложения.",
         )
 
     fun bundledQuickJs(present: Boolean): DiagnosticOutcome =
@@ -102,12 +102,12 @@ object LocalDiagnosticRules {
             DiagnosticState.ERROR, DiagnosticEvidence.VERIFIED,
             "Для выбранной папки отсутствует сохранённое разрешение на чтение или запись.",
             "FOLDER_PERMISSION_MISSING",
-            "Повторно выберите папку в настройках.")
+            "Необходимо повторно выбрать папку в настройках.")
         !exists || !isDirectory -> DiagnosticOutcome(
             DiagnosticState.ERROR, DiagnosticEvidence.VERIFIED,
             "Выбранная папка недоступна или более не существует.",
             "FOLDER_NOT_AVAILABLE",
-            "Повторно выберите папку в настройках.")
+            "Необходимо повторно выбрать папку в настройках.")
         !canRead || !canWrite -> DiagnosticOutcome(
             DiagnosticState.ERROR, DiagnosticEvidence.VERIFIED,
             "Поставщик документов не подтверждает чтение и запись в выбранную папку.",

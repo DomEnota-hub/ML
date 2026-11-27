@@ -119,4 +119,38 @@ class JournalTimelineTest {
         assertEquals(listOf(7,6,5,2,0,3),s.select(null,true,"",true).map{it.start})
         assertEquals(rows[4],s.recordText(4))
     }
+    @Test fun shortTaskSummaryPreservesWarningAndRawToneFilters(){
+        val start=line("09:00:01.001","TaskCenter","START · op=abc · kind=WAVEFORM · status=RUNNING · trigger=BACKGROUND · done=0 · total=2 · elapsedMs=1","INFO")
+        val end=line("09:00:01.301","TaskCenter","PARTIAL · op=abc · kind=WAVEFORM · status=PARTIAL · trigger=BACKGROUND · done=2 · total=2 · elapsedMs=300 · skipped=2","WARN")
+        val s=JournalTimeline.prepare("$start\n$end")
+        assertEquals(listOf(JournalTimeline.Row(0,1)),s.groups)
+        assertEquals(listOf(JournalTimeline.Row(0,0)),s.select(LogTone.INFO,true,"",true))
+        assertEquals(listOf(JournalTimeline.Row(1,1)),s.select(LogTone.WARN,true,"",true))
+        assertEquals(listOf(start,end),s.raw.indices.map(s::recordText))
+        assertTrue(JournalTimeline.historicalStart(s.raw.first()))
+        assertEquals(2,JournalTimeline.prepare("$start\n"+end.replace("op=abc","op=other")).groups.size)
+        assertEquals(2,JournalTimeline.prepare("$start\n"+end.replace("elapsedMs=300","elapsedMs=9000")).groups.size)
+    }
+    @Test fun scopesExcludeUnidentifiedPrefixAndDistinguishSessionFromVersion(){
+        val events=listOf(line("09:00:00","Library","unknown"),line("09:00:01","App","Session started · MediaLoader 1.7.236 (296) · Android 16","INFO"),
+            line("09:00:02","App","Session started · MediaLoader 1.7.237 (297) · Android 16","INFO"),
+            line("09:00:03","Library","one"),line("09:00:04","App","Session started · MediaLoader 1.7.237 (297) · Android 16","INFO"),
+            line("09:00:05","Library","two"))
+        val s=JournalTimeline.prepare(events.joinToString("\n"))
+        assertEquals("1.7.237 (297)",s.latestSession?.version)
+        assertEquals(4,s.stats(JournalTimeline.Scope.VERSION).total)
+        assertEquals(2,s.stats(JournalTimeline.Scope.SESSION).total)
+        assertEquals(listOf(2,3,4,5),s.select(null,false,"",false,JournalTimeline.Scope.VERSION).map{it.start})
+        assertEquals(listOf(5,4),s.select(null,false,"",true,JournalTimeline.Scope.SESSION).map{it.start})
+    }
+    @Test fun watchdogRecoveryRequiresSameThreadScreenAndConsistentDuration(){
+        val a=line("09:00:00.000","Perf","UI_STALL · blockedMs=752 · screen=home:GALLERY:PHONE","WARN").replace("thread=worker","thread=ML-ui-watchdog")
+        val b=line("09:00:00.250","Perf","UI_RECOVERED · blockedMs=1002 · screen=home:GALLERY:PHONE","INFO").replace("thread=worker","thread=ML-ui-watchdog")
+        val s=JournalTimeline.prepare(a+"\n    at synthetic\n"+b)
+        assertEquals(listOf(JournalTimeline.Row(0,1)),s.groups)
+        assertEquals(752L to 1002L,JournalTimeline.recoveryDurations(s.raw[0],s.raw[1]))
+        assertTrue(s.recordText(0).contains("at synthetic"))
+        assertEquals(listOf(JournalTimeline.Row(0,0)),s.select(LogTone.WARN,true,"",false))
+        assertEquals(2,JournalTimeline.prepare(a+"\n"+b.replace("home:GALLERY","home:MUSIC")).groups.size)
+    }
 }

@@ -287,29 +287,33 @@ internal fun MusicModeScreen(
     var resolvedMappings by remember(analyticsGuard,historyGeneration,rankDigest,displayEpoch){mutableStateOf<List<ResolvedResumeQueue>>(emptyList())}
     var resumeResolved by remember(analyticsGuard,historyGeneration,rankDigest,displayEpoch){mutableStateOf(false)}
     var resumeLoading by remember{mutableStateOf(false)}
+    var resumeRecheckNonce by remember{mutableIntStateOf(0)}
+    var completedResumeRecheck by remember{mutableIntStateOf(0)}
     var resumeError by remember(analyticsGuard,historyGeneration,resumeMembership,rankDigest,displayEpoch){mutableStateOf(false)}
     val resolvedSessions=remember(resolvedMappings,resumeSessions){
         ResumeQueuePolicy.rebindResolved(resolvedMappings,resumeSessions)
     }
     val resumeHasData=resumeResolved&&(resolvedSessions.isNotEmpty()||resumeSessions.isEmpty())
-    LaunchedEffect(resumeOpen,resumeMembership,rankDigest,displayEpoch,analyticsGuard,analyticsUsable,historyGeneration) {
+    LaunchedEffect(resumeOpen,resumeMembership,rankDigest,displayEpoch,analyticsGuard,analyticsUsable,historyGeneration,resumeRecheckNonce) {
         if(!resumeOpen||onResumeSelection==null||!analyticsUsable)return@LaunchedEffect
-        resumeLoading=!resumeHasData;resumeError=false
+        val requestedRecheck=resumeRecheckNonce
+        val forceResolve=requestedRecheck!=completedResumeRecheck
+        resumeLoading=!resumeHasData||forceResolve;resumeError=false
         val trace=MusicRefreshTrace.begin(MusicRefreshBlock.RESUME,resumeHasData,historyGeneration,resumeSessions.size)
         try {
             val sessions=resumeSessions
             val key=withContext(Dispatchers.Default){ListeningProjectionCodec.resumeKey(sessions,rankDigest)}
             val cached=listeningStore.readProjection(key,ListeningProjectionDomain.RESUME){ListeningProjectionCodec.resume(it,sessions)}
             val revision=cached?.currentRevision ?: listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RESUME)
-            val reusable=cached!=null&&cached.revision==revision
+            val reusable=!forceResolve&&cached!=null&&cached.revision==revision
             val result=if(reusable)requireNotNull(cached).value else listeningStore.resolveResume(sessions,smartCandidates)
             if(listeningStore.visibilityRevision.value!=historyGeneration || listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RESUME)!=revision)return@LaunchedEffect
-            resolvedMappings=result;resumeResolved=true;resumeLoading=false
+            resolvedMappings=result;resumeResolved=true;completedResumeRecheck=requestedRecheck;resumeLoading=false
             trace?.outcome=if(reusable)MusicRefreshTrace.Outcome.CACHE else MusicRefreshTrace.Outcome.PUBLISHED
             if(!reusable)try{listeningStore.writeProjection(key,ListeningProjectionDomain.RESUME,revision,System.currentTimeMillis(),withContext(Dispatchers.Default){ListeningProjectionCodec.encodeResume(result)})}
             catch(e:CancellationException){throw e}catch(_:Exception){/* derived cache */}
         } catch(e:CancellationException){trace?.outcome=MusicRefreshTrace.Outcome.CANCELLED;throw e}
-        catch(_:Exception){trace?.outcome=MusicRefreshTrace.Outcome.ERROR;if(!resumeHasData)resumeError=true}
+        catch(_:Exception){trace?.outcome=MusicRefreshTrace.Outcome.ERROR;if(!resumeHasData||forceResolve)resumeError=true}
         finally{resumeLoading=false;trace?.close()}
     }
     var smartSnapshot by remember(analyticsGuard,historyGeneration,displayEpoch,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone) { mutableStateOf(SmartMusicSnapshot()) }
@@ -565,7 +569,7 @@ internal fun MusicModeScreen(
         var folderPlaylistBusy by remember(folder){mutableStateOf(false)}
         val liveFolderIds by rememberUpdatedState(folderIds)
         suspend fun saveFolderPlaylist(target:String?,name:String,ids:List<String>) {
-            check(ids.isNotEmpty() && ids.toSet()==liveFolderIds.toSet()) { "Состав папки изменился. Повторите действие" }
+            check(ids.isNotEmpty() && ids.toSet()==liveFolderIds.toSet()) { "Состав папки изменился. Повтори действие" }
             requireNotNull(onSaveFolderPlaylist)(target,name,ids)
             folderPlaylistIds=null;newFolderPlaylist=false;folderPlaylistError=null
         }
@@ -599,8 +603,9 @@ internal fun MusicModeScreen(
                 }},confirmButton={TextButton({folderPlaylistIds=null},enabled=!folderPlaylistBusy){Text("Отмена")}})
         }
     } else if(resumeOpen&&onResumeSelection!=null) {
-        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},(!resumeHasData && (resumeLoading||!analyticsUsable||!resumeError)),
-            resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore)
+        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},(resumeLoading||!resumeHasData && (!analyticsUsable||!resumeError)),
+            resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore,
+            onRecheck=if(analyticsUsable){{resumeLoading=true;resumeRecheckNonce++}}else null)
     } else if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
         SmartMusicScreen(smartPage!!,smartSnapshot,frequentRows,smartStatsPeriod,{smartStatsPeriod=it;statsIntervals=emptyList()},
             mixDiversity,{mixDiversity=it;smartPrefs.edit().putInt("diversity",it).apply()},
@@ -887,7 +892,7 @@ internal fun MusicModeScreen(
         dismissButton = { TextButton({ deleteTarget = null }, enabled = !busy) { Text("Отмена") } }) }
     addTrack?.let { id -> AlertDialog(onDismissRequest = { addTrack = null }, title = { Text("Добавить в плейлист") },
         text = { Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-            if (playlists.isEmpty()) Text("Сначала создайте плейлист")
+            if (playlists.isEmpty()) Text("Сначала создай плейлист")
             playlists.forEach { entry -> TextButton(enabled = !busy && id !in entry.trackIds, onClick = { mutate { onAddTracks(entry.id, listOf(id)); addTrack = null } }) { Text(entry.name) } }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } }, confirmButton = { TextButton({ addTrack = null }) { Text("Закрыть") } }) }

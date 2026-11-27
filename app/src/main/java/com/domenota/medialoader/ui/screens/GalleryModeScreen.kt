@@ -881,7 +881,7 @@ internal fun GalleryModeScreen(
                     Text(if (includeContents)
                         "В альбоме «${album.name}» ${albumRows.size} файлов. Они будут перемещены в корзину и смогут быть восстановлены."
                     else if (appFolder) "Альбом «${album.name}» будет удалён из MediaLoader. Файлы сохранятся в «Медиа»."
-                    else "Чтобы убрать альбом «${album.name}», переместите его ${albumRows.size} файлов в другую папку телефона. Вы выберете её следующим шагом.")
+                    else "Чтобы убрать альбом «${album.name}», перемести его ${albumRows.size} файлов в другую папку телефона. Папку можно выбрать следующим шагом.")
                     if (albumRows.isNotEmpty() && (if (appFolder) onTrashFolderContents != null else onTrashDeviceAlbum != null)) {
                         val mark = if (includeContents) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(includeContents, role = Role.Checkbox, onValueChange = { includeContents = it }),

@@ -67,7 +67,7 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
             val message = when (error) {
                 is ProviderException -> error.message ?: "Instagram не ответил"
                 is InstagramProfileFormatException -> error.message ?: "Изменился ответ Instagram"
-                else -> "Не удалось завершить поиск профиля. Проверьте соединение и повторите."
+                else -> "Не удалось завершить поиск профиля. Проверь соединение и повтори."
             }
             store.phase(id, InstagramProfilePhase.ERROR, message)
             val reason = (error as? ProviderException)?.reason?.name ?: error.javaClass.simpleName
@@ -82,7 +82,7 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
     private suspend fun scan(id: String) {
         val session = repository.sessions.cookies() ?: throw ProviderException(
             ProviderException.Reason.ACCESS_REQUIRED,
-            "Для поиска профиля войдите в Instagram в настройках приложения.", "instagram")
+            "Для поиска профиля войди в Instagram в настройках приложения.", "instagram")
         val api = InstagramProfileApi()
         var job = store.job(id) ?: return
         stage = "profile"

@@ -71,7 +71,7 @@ fun GapiKeysDialog(
         fallback = store.fallbackEnabled
     }
     fun mutate(action: () -> Boolean) {
-        error = if (action()) null else "Не удалось сохранить изменение. Проверьте данные и повторите."
+        error = if (action()) null else "Не удалось сохранить изменение. Проверь данные и повтори."
         refresh()
     }
     LaunchedEffect(store, gateRevision) {
@@ -79,9 +79,9 @@ fun GapiKeysDialog(
     }
     if (help) AlertDialog(onDismissRequest = { help = false }, title = { Text("GAPI: как подключить") },
         text = { Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("1. Откройте gapi.dev и нажмите «Войти». Войдите через Google или GitHub.")
-            Text("2. В личном кабинете откройте «Ключи API» и создайте ключ. Скопируйте его целиком.")
-            Text("3. Вернитесь сюда, нажмите «Добавить ключ», задайте название и вставьте ключ. Поднимите его выше, если хотите использовать первым.")
+            Text("1. Открой gapi.dev и нажми «Войти». Войди через Google или GitHub.")
+            Text("2. В личном кабинете открой «Ключи API» и создай ключ. Скопируй его целиком.")
+            Text("3. Вернись сюда, нажми «Добавить ключ», задай название и вставь ключ. Для приоритета перемести его выше.")
             Text("Баланс расчётный и учитывает запросы только с этого устройства. Точный остаток доступен в личном кабинете GAPI.")
             NeutralTextButton(onClick = { uriHandler.openUri("https://gapi.dev/ru/docs") }) { Text("Открыть GAPI") }
         } }, confirmButton = { NeutralTextButton(onClick = { help = false }) { Text("Понятно") } })
@@ -101,7 +101,7 @@ fun GapiKeysDialog(
                 NeutralTextButton(onClick = { help = true }) { Text("Как получить ключ · FAQ") }
                 Text("Расчётный баланс обновляется по запросам с этого устройства.", style = MaterialTheme.typography.bodySmall)
                 if (!store.storageAvailable) Text(
-                    "Защищённое хранилище ключей недоступно. GAPI отключён. Перезапустите приложение и попробуйте снова.",
+                    "Защищённое хранилище ключей недоступно. GAPI отключён. Перезапусти приложение и попробуй снова.",
                     color = MaterialTheme.colorScheme.error,
                 )
                 Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -118,7 +118,7 @@ fun GapiKeysDialog(
                     })
                 }
                 if (visibleKeys.isEmpty()) Text(
-                    "Ключей GAPI в этой сборке нет. Добавьте свой ключ или установите сборку со встроенными ключами.",
+                    "Ключей GAPI в этой сборке нет. Добавь свой ключ или установи сборку со встроенными ключами.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 visibleKeys.forEachIndexed { index, key ->
                     Spacer(Modifier.height(12.dp))
@@ -245,7 +245,7 @@ fun GapiKeysDialog(
                         Text("Общий с «${other.name}»")
                     }
                 }
-                Text("Ключи одного аккаунта используют общий баланс. Укажите фактический остаток из кабинета.",style = MaterialTheme.typography.bodySmall)
+                Text("Ключи одного аккаунта используют общий баланс. Укажи фактический остаток из кабинета.",style = MaterialTheme.typography.bodySmall)
                 balanceError?.let { Text(it,color = MaterialTheme.colorScheme.error) }
             } }, confirmButton = {
                 NeutralTextButton(enabled = limit != null && limit > 0 && remaining != null && remaining in 0..limit, onClick = {

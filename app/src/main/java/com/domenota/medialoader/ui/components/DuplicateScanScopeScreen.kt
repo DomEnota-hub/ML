@@ -235,7 +235,7 @@ internal fun DuplicateScanScopeScreen(
                     if(searchFiles){
                         when{
                             fileFilter.isBlank()->Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center){
-                                Text("Введите название файла",style=MaterialTheme.typography.bodyMedium)
+                                Text("Введи название файла",style=MaterialTheme.typography.bodyMedium)
                             }
                             !fileProjection.ready->Box(Modifier.weight(1f).fillMaxWidth(),contentAlignment=Alignment.Center){
                                 Text("Ищу совпадения…",style=MaterialTheme.typography.bodyMedium)
@@ -243,7 +243,7 @@ internal fun DuplicateScanScopeScreen(
                             else->{
                                 Text("Найдено: ${fileHits.size} ${DuplicateFolderScope.fileWord(fileHits.size)}",
                                     modifier=Modifier.testTag("scope-file-count"),style=MaterialTheme.typography.bodySmall)
-                                if(fileHits.isEmpty())ScopeSearchEmpty("Попробуйте другое имя файла",Modifier.weight(1f))
+                                if(fileHits.isEmpty())ScopeSearchEmpty("Попробуй другое имя файла",Modifier.weight(1f))
                                 else LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("scope-file-list"),
                                     verticalArrangement=Arrangement.spacedBy(6.dp)){
                                     items(fileHits,key={requireNotNull(it.row.savedUri)}){hit->
@@ -283,7 +283,7 @@ internal fun DuplicateScanScopeScreen(
                                                     Text(if(volume=="volume:external_primary")"Внутренняя память" else "Носитель: ${volume.removePrefix("volume:")}",
                                                         style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                                 }
-                                                if(conflict)Text("Путь не совпадает с папкой каталога. Обновите каталог.",
+                                                if(conflict)Text("Путь не совпадает с папкой каталога. Обнови каталог.",
                                                     style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)
                                                 TextButton({
                                                     // Navigation alone never touches selected keys.
@@ -342,7 +342,7 @@ internal fun DuplicateScanScopeScreen(
                     if (resolvingPaths) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
-                    if(visible.isEmpty())ScopeSearchEmpty("Попробуйте другое название или поиск по файлам",Modifier.weight(1f))
+                    if(visible.isEmpty())ScopeSearchEmpty("Попробуй другое название или поиск по файлам",Modifier.weight(1f))
                     else LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("scope-folder-list"),
                         verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         items(visible, key = { it.node.id }) { row ->

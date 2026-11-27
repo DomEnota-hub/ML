@@ -104,7 +104,7 @@ internal fun DrawerSettingsScreen(
             }
             Text("Боковое меню", style = MaterialTheme.typography.headlineSmall)
         }
-        Text("Удерживайте полоски справа для перемещения",
+        Text("Удерживай полоски справа для перемещения",
             Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         Box(Modifier.weight(1f).fillMaxWidth().onGloballyPositioned {

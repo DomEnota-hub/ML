@@ -136,7 +136,7 @@ fun MuzmoSearchDialog(
                 searching = false
                 originProposal = proposal
                 problem = if (proposal == null) "Музыкальный источник недоступен. Прежний адрес сохранён."
-                    else "Найден возможный новый адрес: ${proposal.newHost}. Подтвердите его использование."
+                    else "Найден возможный новый адрес: ${proposal.newHost}. Подтверди его использование."
             }
         }
         return true
@@ -199,7 +199,7 @@ fun MuzmoSearchDialog(
                                 val data = decodeMuzmoJs(raw)
                                 if (data == null) {
                                     searching = false
-                                    problem = "Не удалось получить результаты поиска. Попробуйте ещё раз."
+                                    problem = "Не удалось получить результаты поиска. Попробуй ещё раз."
                                     AppLog.w("Muzmo", "DOM probe returned unreadable JSON · op=$operationId · searchId=$id")
                                     return@evaluateJavascript
                                 }
@@ -244,7 +244,7 @@ fun MuzmoSearchDialog(
                                     }
                                 } else if (data.optBoolean("explicitEmpty", false)) {
                                     searching = false
-                                    problem = "По вашему запросу ничего не найдено."
+                                    problem = "По твоему запросу ничего не найдено."
                                     AppLog.i("Muzmo", "Search returned explicit empty state · op=$operationId · searchId=$id")
                                 } else {
                                     val links = data.optInt("links", 0)
@@ -252,7 +252,7 @@ fun MuzmoSearchDialog(
                                     settledEmptyScans = if (ready == "complete") settledEmptyScans + 1 else 0
                                     if (MuzmoDomProbePolicy.exhausted(ready, settledEmptyScans, links > 0)) {
                                         searching = false
-                                        problem = "Не удалось получить результаты поиска. Попробуйте ещё раз."
+                                        problem = "Не удалось получить результаты поиска. Попробуй ещё раз."
                                         AppLog.w("Muzmo", "Settled search DOM has no usable rows · op=$operationId · searchId=$id · links=$links · scans=$settledEmptyScans")
                                     } else {
                                         AppLog.verboseSampled("Muzmo", "search-awaiting:$id",
@@ -309,7 +309,7 @@ fun MuzmoSearchDialog(
                                     settledDetailScans = if (ready == "complete") settledDetailScans + 1 else 0
                                     if (MuzmoDomProbePolicy.exhausted(ready, settledDetailScans, false)) {
                                         pending = null
-                                        problem = "На странице нет подтверждённой ссылки MP3. Повторите попытку."
+                                        problem = "На странице нет подтверждённой ссылки MP3. Повтори попытку."
                                         AppLog.w("Muzmo", "Settled info DOM has no trusted MP3 link · op=$operationId · detailId=$id · scans=$settledDetailScans")
                                     } else {
                                         AppLog.verboseSampled("Muzmo", "detail-awaiting:$id",
@@ -482,8 +482,8 @@ fun MuzmoSearchDialog(
                         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                             if (problem == null) {
                                 Text(if (searching) "Ищем подходящие версии…" else
-                                    if (queryUrl.isBlank()) "Введите исполнителя или название."
-                                    else "По вашему запросу ничего не найдено.")
+                                    if (queryUrl.isBlank()) "Введи исполнителя или название."
+                                    else "По твоему запросу ничего не найдено.")
                             }
                         }
                     } else {

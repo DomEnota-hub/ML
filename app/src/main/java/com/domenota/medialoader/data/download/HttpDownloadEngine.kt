@@ -35,7 +35,7 @@ class HttpDownloadEngine(
                 throw error
             } catch (error: IOException) {
                 if (BuildConfig.DEBUG) Log.w("MediaLoaderDownload", "Transfer failed: ${error.javaClass.simpleName}")
-                val message="Нет соединения или файл недоступен. Повторите попытку."
+                val message="Нет соединения или файл недоступен. Повтори попытку."
                 if(recovery&&RecoveryTransferPolicy.networkInterrupted(error))throw RecoveryTransferFailure(message,error)
                 throw DownloadFailure(message,error)
             }
@@ -44,7 +44,7 @@ class HttpDownloadEngine(
             val published = try {
                 storage.publish(temporary, task.fileName, mime)
             } catch (error: Exception) {
-                throw DownloadFailure("Не удалось сохранить файл. Повторите попытку.", error)
+                throw DownloadFailure("Не удалось сохранить файл. Повтори попытку.", error)
             }
             DownloadResult(published.uri.toString(), size, published.fileName)
         } catch (error: DownloadFailure) {
@@ -72,20 +72,20 @@ class HttpDownloadEngine(
                 if (BuildConfig.DEBUG) Log.d("MediaLoaderDownload", "GET ${current.host} HTTP $status")
                 if (status in 300..399) {
                     val location = connection.getHeaderField("Location")
-                        ?: throw DownloadFailure("Файл недоступен. Повторите анализ ссылки.")
+                        ?: throw DownloadFailure("Файл недоступен. Повтори анализ ссылки.")
                     val next = URL(current, location)
                     if (!InstagramProvider.safeMediaUrl(next.toString())) throw DownloadFailure("Медиа недоступно.")
                     current = next
                     return@repeat
                 }
                 if (status == 401 || status == 403) {
-                    val message="Доступ к файлу закрыт или ссылка устарела. Повторите анализ ссылки."
+                    val message="Доступ к файлу закрыт или ссылка устарела. Повтори анализ ссылки."
                     if(recovery)throw RecoveryTransferFailure(message,refreshUrl=true)
                     throw DownloadFailure(message)
                 }
                 if(recovery&&status in listOf(408,500,502,503,504))throw RecoveryTransferFailure(
-                    "Файл временно недоступен. Повторите анализ ссылки.")
-                if (status !in 200..299) throw DownloadFailure("Файл недоступен. Повторите анализ ссылки.")
+                    "Файл временно недоступен. Повтори анализ ссылки.")
+                if (status !in 200..299) throw DownloadFailure("Файл недоступен. Повтори анализ ссылки.")
                 val declared = connection.contentLengthLong.takeIf { it > 0 }
                 if (declared != null && declared + 16L * 1024 * 1024 > context.cacheDir.usableSpace) {
                     throw DownloadFailure("Недостаточно места на устройстве.")
@@ -108,7 +108,7 @@ class HttpDownloadEngine(
                     }
                 }
                 if (total == 0L || declared != null && total != declared) {
-                    val message="Загрузка прервалась. Повторите анализ ссылки."
+                    val message="Загрузка прервалась. Повтори анализ ссылки."
                     if(recovery)throw RecoveryTransferFailure(message)
                     throw DownloadFailure(message)
                 }
@@ -117,6 +117,6 @@ class HttpDownloadEngine(
                 connection.disconnect()
             }
         }
-        throw DownloadFailure("Слишком много перенаправлений. Повторите анализ ссылки.")
+        throw DownloadFailure("Слишком много перенаправлений. Повтори анализ ссылки.")
     }
 }

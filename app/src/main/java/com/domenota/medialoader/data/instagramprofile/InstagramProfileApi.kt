@@ -147,7 +147,7 @@ class InstagramProfileApi(
             if (listOf("please wait", "rate_limit", "feedback_required", "challenge_required",
                     "checkpoint_required").any(signal::contains))
                 throw ProviderException(ProviderException.Reason.RATE_LIMITED,
-                    "Instagram ограничил поиск профиля. Попробуйте позже.", "instagram")
+                    "Instagram ограничил поиск профиля. Попробуй позже.", "instagram")
             val data = root.optJSONObject("data")
             val key = if (reels) "xdt_api__v1__clips__user__connection_v2"
                 else "xdt_api__v1__feed__user_timeline_graphql_connection"
@@ -250,12 +250,12 @@ private suspend fun requestProfile(method: String, url: String, body: String?, c
             401, 302 -> {
                 AppLog.i("InstagramProfile", "Web feed HTTP $status · redirect=${connection.getHeaderField("Location")?.substringBefore('?').orEmpty()}")
                 throw ProviderException(ProviderException.Reason.ACCESS_REQUIRED,
-                "Сессия Instagram недействительна. Войдите снова.", "instagram")
+                "Сессия Instagram недействительна. Войди снова.", "instagram")
             }
             403 -> throw ProviderException(ProviderException.Reason.TEMPORARY_FAILURE,
                 "Instagram отказал в доступе к веб-запросу HTTP 403", "instagram")
             429 -> throw ProviderException(ProviderException.Reason.RATE_LIMITED,
-                "Instagram ограничил поиск профиля. Попробуйте позже.", "instagram")
+                "Instagram ограничил поиск профиля. Попробуй позже.", "instagram")
             else -> throw ProviderException(ProviderException.Reason.TEMPORARY_FAILURE,
                 "Instagram ответил HTTP $status", "instagram")
         }

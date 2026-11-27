@@ -425,7 +425,7 @@ fun MediaLoaderApp(
         }
         val current=nomediaSnapshot.folders[folder]
         check(current?.excludedFromMl == true) {
-            "Состояние папки изменилось. Повторите проверку"
+            "Состояние папки изменилось. Повтори проверку"
         }
         nomediaBusy=true
         try {
@@ -444,7 +444,7 @@ fun MediaLoaderApp(
                     else "Медиа показаны в ML. Android обновляется отдельно")
                 } else {
                     check(saved.accessMode==NomediaAccessMode.SAF) {
-                        "Для восстановления разрешите ML управление файлами Android"
+                        "Для восстановления необходим доступ ML к управлению файлами Android"
                     }
                     nomediaPickerShowFolder=folder
                     NomediaSafTrace.event("SHOW_GRANT_REQUIRED")
@@ -1067,7 +1067,7 @@ fun MediaLoaderApp(
     val setLibraryFolder: suspend (String, String?) -> Unit = { id, folder ->
         check(!visibilityWork.state.value.active &&
             !FolderVisibilityManager.hasPendingJournal(context)) {
-            "Сначала завершите или проверьте незаконченный перенос папки"
+            "Сначала необходимо завершить или проверить незаконченный перенос папки"
         }
         val ref = folderRefsById[id] ?: publicLibraryRefs.firstOrNull { it.key == id || id in it.aliases }
             ?: mediaRepository.downloadById(id)?.takeIf { canOpenFolderMedia(it) && !it.isPrivate && !it.hidden && it.state==DownloadState.COMPLETED }
@@ -1085,7 +1085,7 @@ fun MediaLoaderApp(
             catalogAssignments.firstOrNull { it.downloadId == ref.appDownloadId }?.folderId
         else libraryModel.externalCatalog.entries.value.singleOrNull { it.ref.key == ref.key }?.folderId
         check(currentFolder !in nomediaSnapshot.hiddenFolderIds && folder !in nomediaSnapshot.hiddenFolderIds) {
-            "Сначала восстановите видимость папки и проверьте доступ к файлам"
+            "Сначала необходимо восстановить видимость папки и проверить доступ к файлам"
         }
         val physical=mediaRepository.folderVisibility.requiresMembershipMove(ref,folder)
         if(physical) {
@@ -1107,10 +1107,10 @@ fun MediaLoaderApp(
     val deleteVisibilityFolder:suspend (String)->Unit={ folder ->
         check(!visibilityWork.state.value.active &&
             !FolderVisibilityManager.hasPendingJournal(context)) {
-            "Сначала завершите или проверьте незаконченный перенос папки"
+            "Сначала необходимо завершить или проверить незаконченный перенос папки"
         }
         if(mediaRepository.folderVisibility.isHidden(folder) || nomediaRegistry.snapshot.value.folders[folder]?.excludedFromMl == true) {
-            error("Сначала восстановите видимость папки и проверьте доступ к файлам")
+            error("Сначала необходимо восстановить видимость папки и проверить доступ к файлам")
         } else {
             nomediaRegistry.releaseShownFolder(folder)
             viewModel.deleteCatalogFolder(folder)
@@ -1937,7 +1937,7 @@ fun MediaLoaderApp(
             libraryModel.externalCatalog.entries.value.filter { it.folderId == folderId }.map { it.ref.key }
     val requestAlbumTrash: (String,List<String>) -> Unit = request@{ folderId, ids ->
         if(folderId in nomediaSnapshot.hiddenFolderIds) {
-            AppNotice.post(context,"Сначала покажите папку и проверьте доступ к файлам")
+            AppNotice.post(context,"Сначала необходимо показать папку и проверить доступ к файлам")
             return@request
         }
         if(folderId in visibilityFolders) {
@@ -1956,7 +1956,7 @@ fun MediaLoaderApp(
                         androidx.compose.runtime.snapshotFlow { liveLibraryRefsByAlias }.first { aliases ->
                             selected.all { old -> aliases[old.key]?.let { it.item.savedUri!=old.item.savedUri && it.key==old.key }==true }
                         }
-                    } ?: error("Файлы восстановлены. Дождитесь обновления медиатеки и повторите удаление альбома.")
+                    } ?: error("Файлы восстановлены. После обновления медиатеки можно повторить удаление альбома.")
                     val resolved=selected.map { checkNotNull(fresh[it.key]) }
                     check(members==viewModel.albumMemberIds(folderId)+libraryModel.externalCatalog.albumMemberIds(folderId)) { "Состав альбома изменился" }
                     for(ref in resolved) check(libraryModel.verifyVisibilityOpen(ref.item,null)) { "Восстановленный файл изменился" }
@@ -2366,7 +2366,7 @@ fun MediaLoaderApp(
                     },
                     onSaveFolderPlaylist = { target,name,ids ->
                         val refs=validCollectionRefs(ids,folder=true)
-                        check(refs.isNotEmpty() && refs.map{it.key}==ids.distinct() && refs.all{it.item.mediaType==MediaType.AUDIO}) { "Состав папки изменился. Повторите действие" }
+                        check(refs.isNotEmpty() && refs.map{it.key}==ids.distinct() && refs.all{it.item.mediaType==MediaType.AUDIO}) { "Состав папки изменился. Повтори действие" }
                         val aliases=refs.flatMap{ref->(ref.aliases+ref.key).map{it to ref.key}}.toMap()
                         if(target==null) libraryModel.playlistRepository.createFromTracks(name,refs.map{it.key},aliases)
                         else libraryModel.playlistRepository.addTracksResolved(target,refs.map{it.key},aliases)

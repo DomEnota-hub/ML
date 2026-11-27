@@ -288,7 +288,7 @@ fun DownloadsScreen(
             selectedHistoryIds = emptySet()
             selectionMode = false
             groupAction(ids) { id ->
-                require(items.firstOrNull { it.id == id }?.state == DownloadUiState.COMPLETED) { "Дождитесь завершения загрузки" }
+                require(items.firstOrNull { it.id == id }?.state == DownloadUiState.COMPLETED) { "Дождись завершения загрузки" }
                 onDeleteGroupFile(id)
             } }) {
             Text("В корзину", color = MaterialTheme.colorScheme.error)
@@ -673,8 +673,8 @@ fun DownloadsScreen(
                     else -> "История пока пустая"
                 },
                 text = when {
-                    searchText.isNotBlank() -> "Измените запрос или фильтры"
-                    items.isNotEmpty() && filteredItems.isEmpty() -> "Измените источник или тип файлов"
+                    searchText.isNotBlank() -> "Измени запрос или фильтры"
+                    items.isNotEmpty() && filteredItems.isEmpty() -> "Измени источник или тип файлов"
                     selectedCatalog != CATALOG_ALL -> "Добавьте файлы через меню загрузки"
                     else -> "Скачанные фото, видео и аудио будут собраны здесь"
                 },

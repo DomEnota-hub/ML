@@ -403,6 +403,18 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.core.logging.JournalTimelineTest#scopesExcludeUnidentifiedPrefixAndDistinguishSessionFromVersion": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.JournalTimelineTest#shortTaskSummaryPreservesWarningAndRawToneFilters": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.core.logging.JournalTimelineTest#watchdogRecoveryRequiresSameThreadScreenAndConsistentDuration": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.core.logging.LibraryProjectionCountersTest#boundedCountersDistinguishReasonCompletionCancellationAndReuse": {
     "skipped": false,
     "failed": false
@@ -8946,6 +8958,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.ui.navigation.UserFacingToneInventoryTest#scanProductionTextForFormalAddressCandidates": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.ui.navigation.VideoEditorRouteAdmissionPolicyTest#indefinitelyMissingMediaMustNotLeaveAnUnusableEditorForever": {
     "skipped": false,
     "failed": false
@@ -10623,6 +10639,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.music.RecentMusicScreenTest#initialLoadingIsNotPresentedAsAnEmptyLibrary": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.music.ResumeMusicScreenTest#savedQueueFilterPreservesOccurrencesAndRecheckIsExplicit": {
     "skipped": false,
     "failed": false
   },

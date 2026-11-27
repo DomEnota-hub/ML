@@ -146,7 +146,7 @@ fun MusicHomeSection(showTitle:Boolean=true) {
                 Text("Поиск музыки", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(6.dp))
             }
-            Text("Узнайте трек по звучанию или найдите его по названию",
+            Text("Узнай трек по звучанию или найди его по названию",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(16.dp))
@@ -183,8 +183,8 @@ fun MusicHomeSection(showTitle:Boolean=true) {
                     }
                 }
                 MicStage.NO_MATCH -> Text("Трек не определён. Можно повторить запись или поискать по названию.")
-                MicStage.ERROR -> Text("Не удалось распознать звук. Проверьте микрофон и интернет или найдите трек по названию.")
-                MicStage.PERMISSION_DENIED -> Text("Для поиска по звучанию разрешите доступ к микрофону в настройках приложения.")
+                MicStage.ERROR -> Text("Не удалось распознать звук. Проверь микрофон и интернет или найди трек по названию.")
+                MicStage.PERMISSION_DENIED -> Text("Для поиска по звучанию разреши доступ к микрофону в настройках приложения.")
                 MicStage.IDLE -> Unit
             }
         } },

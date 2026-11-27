@@ -47,7 +47,7 @@ class YouTubeLoginActivity : ComponentActivity() {
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val hint = TextView(this).apply {
-            text = "Войдите в YouTube. Пароль приложение не читает и не сохраняет. Если Google не разрешит вход во встроенном окне, закройте его — резервный импорт cookies останется в скрытом разделе."
+            text = "Войди в YouTube. Пароль приложение не читает и не сохраняет. Если Google не разрешит вход во встроенном окне, закрой его — резервный импорт cookies останется в скрытом разделе."
             textSize = 14f
             setPadding(32, 24, 32, 24)
         }

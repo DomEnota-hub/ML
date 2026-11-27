@@ -142,7 +142,7 @@ class FloatingVideoService : Service() {
         val notice = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("Всплывающее видео")
-            .setContentText("Нажмите, чтобы вернуться в приложение")
+            .setContentText("Нажми, чтобы вернуться в приложение")
             .setContentIntent(launch).setOngoing(true).build()
         ServiceCompat.startForeground(this, NOTIFICATION, notice,
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)

@@ -566,7 +566,7 @@ private fun ErrorCard(message: String?, onRetry: () -> Unit, onDefer: (() -> Uni
             Text(if(recoveryIdentityFailure)"Исходная запись не изменена" else "Не удалось получить медиа", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(6.dp))
             Text(
-                message ?: "Проверьте ссылку и попробуйте ещё раз.",
+                message ?: "Проверь ссылку и попробуй ещё раз.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -649,7 +649,7 @@ private fun MediaList(
     GradientActionButton(
         text = when {
             busy -> "Добавляем…"
-            selectedCount == 0 -> "Выберите файлы"
+            selectedCount == 0 -> "Выбери файлы"
             else -> "Скачать"
         },
         onClick = onDownloadSelected,

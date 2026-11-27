@@ -69,7 +69,7 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
         require(folderId == null || dao.folderById(folderId) != null) { "Папка не найдена" }
         val previous = dao.assignmentById(downloadId)
         if(previous?.folderId==folderId) return@withTransaction
-        check(previous?.folderId?.let { visibility.isHidden(it) } != true && folderId?.let { visibility.isHidden(it) } != true) { "Сначала выполните перенос скрытого файла" }
+        check(previous?.folderId?.let { visibility.isHidden(it) } != true && folderId?.let { visibility.isHidden(it) } != true) { "Сначала выполни перенос скрытого файла" }
         if (folderId == null && previous?.isFavorite != true) dao.removeAssignment(downloadId)
         else dao.saveAssignment(CatalogAssignmentEntity(downloadId, folderId,
             previous?.isFavorite == true))
@@ -101,7 +101,7 @@ class DownloadCatalogRepository(private val database: HistoryDatabase) {
 object CatalogNames {
     fun normalize(raw: String): String {
         val name = raw.trim().replace(Regex("\\s+"), " ")
-        require(name.isNotEmpty()) { "Введите название папки" }
+        require(name.isNotEmpty()) { "Введи название папки" }
         require(name.length <= 48 && name.none(Char::isISOControl)) {
             "Название папки должно содержать не более 48 символов"
         }

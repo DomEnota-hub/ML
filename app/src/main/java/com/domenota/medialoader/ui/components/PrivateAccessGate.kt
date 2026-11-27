@@ -76,7 +76,7 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
         Text("Личный раздел", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         when (state.mode) {
             PrivateAccessMode.PIN -> {
-                Text("Введите PIN из 6 цифр")
+                Text("PIN из 6 цифр")
                 PrivatePinField(pin, { pin = it }, "PIN", !busy)
                 Button(enabled = !busy && pin.length == 6, onClick = {
                     busy = true
@@ -84,17 +84,17 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
                     pin = ""
                     scope.launch {
                         runCatching { manager.unlockWithPin(entered) }
-                            .onSuccess { if (!it) error = "Неверный PIN или слишком много попыток. После 5 ошибок подождите не менее 30 секунд." }
+                            .onSuccess { if (!it) error = "Неверный PIN или слишком много попыток. После 5 ошибок необходимо подождать не менее 30 секунд." }
                             .onFailure { error = it.message ?: "Ошибка входа" }
                         busy = false
                     }
                 }) { Text("Открыть") }
-                Text("Если вы забыли свой PIN, восстановить доступ к приватным файлам нельзя.", style = MaterialTheme.typography.bodySmall)
+                Text("Если PIN забыт, восстановить доступ к приватным файлам нельзя.", style = MaterialTheme.typography.bodySmall)
             }
             PrivateAccessMode.BIOMETRIC -> {
-                Text("Подтвердите вход, чтобы открыть личные файлы", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                Text("Для открытия личных файлов необходимо подтвердить вход", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                 Button(enabled = !busy && manager.systemProtectionAvailable, onClick = { attemptedSystemEntry = true; busy = true; error = null; authenticate() }) { Text(if (attemptedSystemEntry) "Повторить вход" else "Подтвердить вход") }
-                if (!manager.systemProtectionAvailable) Text("Блокировка устройства недоступна. Восстановите её в настройках Android.")
+                if (!manager.systemProtectionAvailable) Text("Блокировка устройства недоступна. Восстановление доступно в настройках Android.")
             }
             PrivateAccessMode.NONE -> Button(onClick = manager::unlockWithoutProtection) { Text("Открыть раздел") }
             else -> Unit
@@ -131,7 +131,7 @@ fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit,
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Защита приватного раздела", style = MaterialTheme.typography.headlineSmall)
         if (state.mode != PrivateAccessMode.UNCONFIGURED && !state.unlocked) {
-            Text("Сначала разблокируйте приватный раздел")
+            Text("Сначала разблокируй приватный раздел")
             return@Column
         }
         if (state.unlocked && state.mode in setOf(PrivateAccessMode.PIN, PrivateAccessMode.BIOMETRIC)) {
@@ -154,18 +154,18 @@ fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit,
             }
             Text("Отсчёт после выхода из раздела или сворачивания.", style = MaterialTheme.typography.bodySmall)
         }
-        Text("Выберите способ входа")
+        Text("Выбери способ входа")
         listOf(PrivateAccessMode.NONE to "Без защиты", PrivateAccessMode.PIN to "Свой PIN из 6 цифр", PrivateAccessMode.BIOMETRIC to "Биометрия / блокировка устройства").forEach { (mode, title) ->
             Row {
                 RadioButton(selected = selected == mode, enabled = !busy && (mode != PrivateAccessMode.BIOMETRIC || manager.systemProtectionAvailable), onClick = { selected = mode; pin = ""; confirmation = ""; error = null })
                 TextButton(enabled = !busy && (mode != PrivateAccessMode.BIOMETRIC || manager.systemProtectionAvailable), onClick = { selected = mode; pin = ""; confirmation = ""; error = null }) { Text(title) }
             }
         }
-        if (!manager.systemProtectionAvailable) Text("Для системной защиты сначала задайте PIN, пароль или рисунок в настройках Android.", style = MaterialTheme.typography.bodySmall)
+        if (!manager.systemProtectionAvailable) Text("Для системной защиты необходимо задать PIN, пароль или рисунок в настройках Android.", style = MaterialTheme.typography.bodySmall)
         if (selected == PrivateAccessMode.PIN) {
             PrivatePinField(pin, { pin = it }, "Новый PIN", !busy)
-            PrivatePinField(confirmation, { confirmation = it }, "Повторите PIN", !busy)
-            Text("Забытый PIN восстановить нельзя. Сохраните его в безопасном месте.", style = MaterialTheme.typography.bodySmall)
+            PrivatePinField(confirmation, { confirmation = it }, "Повтори PIN", !busy)
+            Text("Забытый PIN восстановить нельзя. PIN необходимо хранить в безопасном месте.", style = MaterialTheme.typography.bodySmall)
         }
         Text("Приватные файлы хранятся внутри приложения и будут удалены при его удалении.", style = MaterialTheme.typography.bodySmall)
         Button(enabled = !busy && selected != null && (selected != PrivateAccessMode.PIN || (pin.length == 6 && pin == confirmation)), onClick = {
@@ -218,7 +218,7 @@ private fun rememberSystemAuthentication(onSuccess: () -> Unit, onFailure: (Stri
             signal = null
             previousSignal?.cancel()
             @Suppress("DEPRECATION")
-            val intent = keyguard.createConfirmDeviceCredentialIntent("Приватный раздел", "Подтвердите вход")
+            val intent = keyguard.createConfirmDeviceCredentialIntent("Приватный раздел", "Подтверждение входа")
             if (intent == null) failure("Блокировка устройства недоступна")
             else {
                 pendingCredential = true
@@ -235,7 +235,7 @@ private fun rememberSystemAuthentication(onSuccess: () -> Unit, onFailure: (Stri
                 @Suppress("DEPRECATION")
                 val prompt = BiometricPrompt.Builder(context)
                     .setTitle("Приватный раздел")
-                    .setSubtitle("Подтвердите вход")
+                    .setSubtitle("Подтверждение входа")
                     .setNegativeButton("Блокировка устройства", executor) { _, _ -> if (active) credential() }
                     .build()
                 prompt.authenticate(cancellation, executor, object : BiometricPrompt.AuthenticationCallback() {
@@ -244,7 +244,7 @@ private fun rememberSystemAuthentication(onSuccess: () -> Unit, onFailure: (Stri
                         if (!active || signal !== cancellation) return
                         if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT || errorCode == BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS || errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE || errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT || errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT) credential()
                         else if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_CANCELED || errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED) failure("Подтверждение отменено")
-                        else failure("Не удалось подтвердить вход. Попробуйте ещё раз.")
+                        else failure("Не удалось подтвердить вход. Повтори попытку.")
                     }
                 })
             }.onFailure { credential() }

@@ -198,7 +198,7 @@ fun SourceBrowserScreen(
                         if (!source.isSite(view.url)) return@post
                         val accepted = source.acceptedLink(link)
                         if (accepted == null) {
-                            AppNotice.post(context, "Откройте публикацию или видео для загрузки")
+                            AppNotice.post(context, "Открой публикацию или видео для загрузки")
                             return@post
                         }
                         runCatching { syncSession(source, context.applicationContext) }
@@ -252,10 +252,10 @@ fun SourceBrowserScreen(
                     }
                     if (openedApp) return true
                     if (appTarget != null) {
-                        navigationError = "VK не открылся для подтверждения входа. Вернитесь к странице входа и выберите вход по телефону или почте."
+                        navigationError = "VK не открылся для подтверждения входа. Вернись к странице входа и выбери вход по телефону или почте."
                         return true
                     }
-                    if (!allowed) navigationError = "${source.title}: сайт запросил переход, который встроенный браузер не смог открыть. Вернитесь назад и повторите попытку."
+                    if (!allowed) navigationError = "${source.title}: сайт запросил переход, который встроенный браузер не смог открыть. Вернись назад и повтори попытку."
                     return !allowed
                 }
 
@@ -265,7 +265,7 @@ fun SourceBrowserScreen(
 
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                     AppLog.w("BrowserWebView", "Network error · source=${source.id} · host=${request.url.host.orEmpty()} · mainFrame=${request.isForMainFrame} · code=${error.errorCode}")
-                    if (request.isForMainFrame) navigationError = "Страница не загрузилась. Проверьте сеть и повторите вход."
+                    if (request.isForMainFrame) navigationError = "Страница не загрузилась. Проверь сеть и повтори вход."
                 }
 
                 override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {

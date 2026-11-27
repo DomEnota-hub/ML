@@ -282,7 +282,7 @@ class HitMozDownloadEngine(
                     }
                     if (cdnHealth.coolingDown(targetHost, System.currentTimeMillis())) {
                         AppLog.w("HitMoz", "CDN temporarily avoided · host=$targetHost · reason=repeated-network-failures")
-                        throw DownloadFailure("Сервис повторно направил файл на сервер, который несколько раз не ответил. Попробуйте позже.")
+                        throw DownloadFailure("Сервис повторно направил файл на сервер, который несколько раз не ответил. Попробуй позже.")
                     }
                     if (hop == MAX_REDIRECTS) {
                         throw RetryableHitMozFailure("Слишком много перенаправлений при получении MP3.")
@@ -296,7 +296,7 @@ class HitMozDownloadEngine(
                 if (code == 403) {
                     // Retrying the same denied request five times cannot repair a
                     // missing browser session or a rejected user action.
-                    throw DownloadFailure("Сервер отказал в доступе к ссылке загрузки (HTTP 403). Проверьте расширенный журнал.")
+                    throw DownloadFailure("Сервер отказал в доступе к ссылке загрузки (HTTP 403). Проверь расширенный журнал.")
                 }
                 if (code == 408 || code == 425 || code == 429 ||
                     code in 500..599

@@ -45,7 +45,7 @@ class PrivateAccessManager private constructor(context: Context) {
 
     fun setUnlockDuration(duration: PrivateUnlockDuration) = synchronized(monitor) {
         check(state.value.unlocked && state.value.mode in setOf(PrivateAccessMode.PIN, PrivateAccessMode.BIOMETRIC)) {
-            "Сначала разблокируйте раздел"
+            "Сначала разблокируй раздел"
         }
         persist(preferences.edit().putString("unlock_duration", duration.name))
         session.clear()
@@ -138,16 +138,16 @@ class PrivateAccessManager private constructor(context: Context) {
 
     suspend fun configure(mode: PrivateAccessMode, pin: String? = null) = withContext(Dispatchers.Default) {
         require(mode != PrivateAccessMode.UNCONFIGURED)
-        require(mode != PrivateAccessMode.PIN || (pin != null && validPin(pin))) { "Введите PIN из 6 цифр" }
-        require(mode != PrivateAccessMode.BIOMETRIC || systemProtectionAvailable) { "Сначала настройте блокировку устройства" }
+        require(mode != PrivateAccessMode.PIN || (pin != null && validPin(pin))) { "Введи PIN из 6 цифр" }
+        require(mode != PrivateAccessMode.BIOMETRIC || systemProtectionAvailable) { "Сначала настрой блокировку устройства" }
         val startRevision = synchronized(monitor) {
-            check(state.value.mode == PrivateAccessMode.UNCONFIGURED || state.value.unlocked) { "Сначала разблокируйте раздел" }
+            check(state.value.mode == PrivateAccessMode.UNCONFIGURED || state.value.unlocked) { "Сначала разблокируй раздел" }
             revision
         }
         val salt = if (mode == PrivateAccessMode.PIN) ByteArray(32).also { SecureRandom().nextBytes(it) } else null
         val hash = salt?.let { derive(requireNotNull(pin), it) }
         synchronized(monitor) {
-            check(revision == startRevision) { "Раздел заблокирован; повторите вход" }
+            check(revision == startRevision) { "Раздел заблокирован; повтори вход" }
             check(state.value.mode == PrivateAccessMode.UNCONFIGURED || state.value.unlocked)
             val edit = preferences.edit().clear().putString("mode", mode.name)
                 .putString("unlock_duration", mutableDuration.value.name)

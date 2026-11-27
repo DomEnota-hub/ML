@@ -127,7 +127,7 @@ class VkCommunityWorker(context: Context, parameters: WorkerParameters) :
                 consecutiveErrors = if (outcome == VkItemPhase.ERROR) consecutiveErrors + 1 else 0
                 if (consecutiveErrors >= 5) {
                     db.phase(job.id, VkJobPhase.ERROR,
-                        "Пять ошибок подряд. Проверьте сеть и повторите загрузку")
+                        "Пять ошибок подряд. Проверь сеть и повтори загрузку")
                     return
                 }
                 delay(250)

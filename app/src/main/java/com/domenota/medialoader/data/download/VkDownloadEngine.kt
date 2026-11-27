@@ -56,7 +56,7 @@ class VkDownloadEngine(
         } catch (failure: DownloadFailure) {
             throw failure
         } catch (error: Exception) {
-            throw DownloadFailure("Не удалось сохранить файл из VK. Повторите попытку.", error)
+            throw DownloadFailure("Не удалось сохранить файл из VK. Повтори попытку.", error)
         } finally {
             workDir.deleteRecursively()
         }
@@ -72,7 +72,7 @@ class VkDownloadEngine(
                     beforePublish = { task.publishAfter?.await() })
                 return@withContext DownloadResult(saved.published.uri.toString(), saved.sizeBytes, saved.published.fileName)
             } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { throw DownloadFailure("Не удалось сохранить MP3 из VK. Повторите анализ ссылки.", e) }
+            catch (e: Exception) { throw DownloadFailure("Не удалось сохранить MP3 из VK. Повтори анализ ссылки.", e) }
         }
         val temporary = File.createTempFile("vk-http-", ".part", context.cacheDir)
         try {
@@ -82,7 +82,7 @@ class VkDownloadEngine(
             DownloadResult(published.uri.toString(), size, published.fileName)
         } catch (e: CancellationException) { throw e }
         catch (e: DownloadFailure) { throw e }
-        catch (e: Exception) { throw DownloadFailure("Не удалось сохранить файл из VK. Повторите анализ ссылки.", e) }
+        catch (e: Exception) { throw DownloadFailure("Не удалось сохранить файл из VK. Повтори анализ ссылки.", e) }
         finally { temporary.delete() }
     }
 
@@ -102,12 +102,12 @@ class VkDownloadEngine(
                 val status = connection.responseCode
                 if (status in 300..399) {
                     val location = connection.getHeaderField("Location")
-                        ?: throw DownloadFailure("Файл VK недоступен. Повторите анализ ссылки.")
+                        ?: throw DownloadFailure("Файл VK недоступен. Повтори анализ ссылки.")
                     current = URL(current, location)
                     if (!VkDirectMedia.isSafeUrl(current.toString())) throw DownloadFailure("Недопустимый адрес медиа VK.")
                     return@repeat
                 }
-                if (status !in 200..299) throw DownloadFailure("Ссылка VK устарела или недоступна. Повторите анализ ссылки.")
+                if (status !in 200..299) throw DownloadFailure("Ссылка VK устарела или недоступна. Повтори анализ ссылки.")
                 val declared = connection.contentLengthLong.takeIf { it > 0 }
                 if (declared != null && declared > context.cacheDir.usableSpace - MIN_FREE_BYTES) {
                     throw DownloadFailure("Недостаточно места на устройстве.")
@@ -128,12 +128,12 @@ class VkDownloadEngine(
                     }
                 }
                 if (total == 0L || declared != null && total != declared) {
-                    throw DownloadFailure("Загрузка VK прервалась. Повторите анализ ссылки.")
+                    throw DownloadFailure("Загрузка VK прервалась. Повтори анализ ссылки.")
                 }
                 return total
             } finally { connection.disconnect() }
         }
-        throw DownloadFailure("Слишком много перенаправлений VK. Повторите анализ ссылки.")
+        throw DownloadFailure("Слишком много перенаправлений VK. Повтори анализ ссылки.")
     }
 
     private companion object {

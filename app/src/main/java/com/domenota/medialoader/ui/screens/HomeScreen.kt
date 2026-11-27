@@ -128,7 +128,7 @@ fun HomeScreen(
                 Spacer(Modifier.height(16.dp))
                 OutlinedTextField(value = url, onValueChange = onUrlChange,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Вставьте ссылку") },
+                    placeholder = { Text("Вставь ссылку") },
                     trailingIcon = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (url.isNotEmpty()) IconButton(onClick = { onUrlChange("") }) {
@@ -157,7 +157,7 @@ fun HomeScreen(
             AppCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Ожидает скачивания", style = MaterialTheme.typography.titleLarge)
-                    Text("Нажмите ссылку для выбора файлов. «Повторить всё» обработает загрузки и восстановит отсутствующие файлы в исходных записях.",
+                    Text("Нажми на ссылку для выбора файлов. «Повторить всё» обработает загрузки и восстановит отсутствующие файлы в исходных записях.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     deferredEntries.forEach { entry ->
                         val link=entry.url

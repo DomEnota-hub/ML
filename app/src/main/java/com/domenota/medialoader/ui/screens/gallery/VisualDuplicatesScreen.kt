@@ -153,7 +153,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         if(VisualDuplicateBackgroundScan.interrupted(context)){
             val previousSource=VisualDuplicateBackgroundScan.resumeSource(context) ?: storedPartial?.result?.coverage?.source
             if(!resume||previousSource!=currentCatalog.source||keys!=VisualDuplicateBackgroundScan.resumeScope(context)){
-                error="Выберите новый поиск и подтвердите замену незавершённой проверки";return
+                error="Выбери новый поиск и подтверди замену незавершённой проверки";return
             }
         }else if(resume){error="Незавершённый поиск больше недоступен";return}
         val scanned=DuplicateFolderScope.filter(currentCatalog.scan,keys){it.item}
@@ -161,7 +161,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         openedHistoryAt=null
         error=null
         if(!VisualDuplicateBackgroundScan.start(context,scanned,currentCatalog.source,latestEpoch,keys))
-            error="Не удалось запустить поиск. Проверьте состояние журнала и повторите."
+            error="Не удалось запустить поиск. Проверь состояние журнала и повтори."
     }
     fun requestNewScan(keys:Set<String>?){
         if(DuplicateFolderScope.filter(latestCatalog.scan,keys){it.item}.isEmpty()){
@@ -266,7 +266,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         DuplicateTrashHost(request,byId,null,onAppTrash,
             onTrashed={uris->
                 val next=VisualDuplicateSessionStore.removeConfirmed(context,snapshot.scannedAt,uris)
-                if(next==null){error="Файл перемещён, но журнал не обновлён. Обновите поиск."; error("Не удалось сохранить результат корзины")}
+                if(next==null){error="Файл перемещён, но журнал не обновлён. Обнови поиск."; error("Не удалось сохранить результат корзины")}
                 session=next
             },
             onClose={trash=null;onRefresh()},visual=fingerprints,
@@ -293,7 +293,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                             if(ok)startScan(request.keys)
                         }finally{saving=false}
                     }
-                }else error="Каталог изменился. Повторите выбор области."
+                }else error="Каталог изменился. Повтори выбор области."
             }){Text("Начать новый поиск")}})
     }
     if(clearJournalConfirm)AlertDialog(onDismissRequest={clearJournalConfirm=false},title={Text("Очистить журнал Галереи?")},
@@ -335,7 +335,7 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
                 style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             when{
                 !phonePermission->Text("Нет доступа к фото и видео",color=MaterialTheme.colorScheme.error)
-                partial==null&&!status.running&&!interrupted->Text("Поиск завершён или заменён. Вернитесь к итоговым результатам.")
+                partial==null&&!status.running&&!interrupted->Text("Поиск завершён или заменён. Вернись к итоговым результатам.")
                 !partialReady->Text("Проверяю доступность файлов…")
                 partialGroups.isEmpty()->Text("Доступных групп пока нет")
                 else->{
@@ -494,8 +494,8 @@ internal fun VisualDuplicatesScreen(catalog:VisualDuplicateCatalog,ready:Boolean
         if(shown==null){
             val pending=(status.session?:session)?.takeIf{it.result.privacyEpoch==privacyEpoch}
             Text(if(pending!=null)"Результаты сохранены: ${pending.result.groups.size} групп. Проверяю доступность файлов…"
-                else if(interrupted)"Продолжите поиск или выберите новую область."
-                else "Запустите поиск точных и похожих файлов.")
+                else if(interrupted)"Продолжи поиск или выбери новую область."
+                else "Запусти поиск точных и похожих файлов.")
             return@Column
         }
         if(!actionsReady)Text("Обновляю каталог. Результат сохранён; выбор и корзина пока недоступны.",

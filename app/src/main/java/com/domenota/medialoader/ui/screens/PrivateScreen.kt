@@ -294,7 +294,7 @@ fun PrivateScreen(
                         style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (visibleItems.isEmpty()) item { Text(if(items.isEmpty()) "Здесь пока нет файлов. Переместите их через меню в загрузках." else "Нет файлов этого типа") }
+                    if (visibleItems.isEmpty()) item { Text(if(items.isEmpty()) "Здесь пока нет файлов. Перемести их через меню в загрузках." else "Нет файлов этого типа") }
                     items(items.filter { it.privateSourceUri != null }, key = { "pending:${it.id}" }) { row ->
                         Column {
                             Text("Публичная копия ещё не удалена и может быть видна в галерее.", color = MaterialTheme.colorScheme.error)

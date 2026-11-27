@@ -206,7 +206,7 @@ fun HitMozSearchDialog(
                 loading = false
                 originProposal = proposal
                 loadError = if (proposal == null) "Музыкальный источник недоступен. Прежний адрес сохранён."
-                    else "Найден возможный новый адрес: ${proposal.newHost}. Подтвердите его использование."
+                    else "Найден возможный новый адрес: ${proposal.newHost}. Подтверди его использование."
             }
         }
         return true
@@ -380,7 +380,7 @@ fun HitMozSearchDialog(
         fallbackRevision = revision
         if (appendResults) {
             loading = false
-            loadError = "Не удалось загрузить следующую страницу. Повторите запрос."
+            loadError = "Не удалось загрузить следующую страницу. Повтори запрос."
             return
         }
         val requestedArtist = artist
@@ -408,7 +408,7 @@ fun HitMozSearchDialog(
             } else {
                 loading = false
                 appendResults = false
-                loadError = "Не удалось получить результаты от музыкального сервиса. Повторите запрос."
+                loadError = "Не удалось получить результаты от музыкального сервиса. Повтори запрос."
                 AppLog.w("HitMoz", "No usable search results from browser or HTTP fallback · revision=$revision")
             }
         }
@@ -909,7 +909,7 @@ fun HitMozSearchDialog(
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
-                                    "Введите название или исполнителя.",
+                                    "Введи название или исполнителя.",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }

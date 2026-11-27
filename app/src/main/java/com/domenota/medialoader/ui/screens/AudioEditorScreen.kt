@@ -216,7 +216,7 @@ fun AudioEditorScreen(
                 navigationIcon = {
                     IconButton(onClick = {
                         if (replacingOriginal) {
-                            replaceError = "Завершите замену MP3, прежде чем выходить из редактора."
+                            replaceError = "Перед выходом из редактора необходимо завершить замену MP3."
                         } else requestExit()
                     }) {
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
@@ -399,7 +399,7 @@ fun AudioEditorScreen(
                 )
                 Text(
                     if (replacingOriginal)
-                        "Не закрывайте приложение до окончания замены и проверки MP3."
+                        "Не закрывать приложение до окончания замены и проверки MP3."
                     else "Можно выйти из редактора — обработка продолжится в фоне.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -447,7 +447,7 @@ fun AudioEditorScreen(
                     title = { Text("Заменить исходный MP3?") },
                     text = {
                         Text("Изменённое аудио заменит оригинал, сохранив его место в галерее и избранном. " +
-                            "ML сделает защитную копию и проверит новую запись. Не закрывайте приложение до завершения.")
+                            "ML сделает защитную копию и проверит новую запись. Не закрывать приложение до завершения.")
                     },
                     confirmButton = {
                         TextButton(onClick = {
