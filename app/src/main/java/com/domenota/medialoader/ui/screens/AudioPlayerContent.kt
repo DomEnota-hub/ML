@@ -273,6 +273,11 @@ fun BackgroundAudioPlayer(
         waveform = withContext(Dispatchers.IO) { peekAudioWaveform(context, currentUri) }
         val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
         waveform = withContext(Dispatchers.IO) {
+            val providerDuration = com.domenota.medialoader.ui.components.readWaveformSourceVersion(context,currentUri).providerDuration
+            if(providerDuration>0L) {
+                val cached=com.domenota.medialoader.ui.components.readCachedAudioWaveform(context,currentUri,providerDuration)
+                if(!cached.isNullOrEmpty())return@withContext com.domenota.medialoader.ui.components.waveformColumnPeaks(cached,256)
+            }
             val metadataDuration = runCatching {
                 val retriever = MediaMetadataRetriever()
                 try {

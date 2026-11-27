@@ -10,6 +10,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LibraryValidationGateTest {
+    @Test fun savedQueueAvailabilityRequiresCurrentCompleteAudioGeneration() {
+        val guard=AudioCatalogGuard(emptySet(),3L)
+        val snapshot=AudioCatalogSnapshot(guard,emptyList(),14L)
+        val phone=PhoneLibraryState(loaded=true,complete=true,loading=false,revision=14L,accessEpoch=3L)
+        assertTrue(resumeCatalogCurrent(snapshot,phone,true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(revision=15L),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(accessEpoch=4L),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(complete=false),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(loading=true),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(message="scan failed"),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone,false,true))
+        assertFalse(resumeCatalogCurrent(null,phone,true,true))
+        val retained=retainAudioCatalog(snapshot,AudioCatalogUpdate(guard,null,15L))
+        assertSame(snapshot,retained)
+        assertFalse(resumeCatalogCurrent(retained,phone.copy(revision=15L),true,true))
+        val next=retainAudioCatalog(snapshot,AudioCatalogUpdate(guard,emptyList(),15L))
+        assertTrue(resumeCatalogCurrent(next,phone.copy(revision=15L),true,true))
+    }
+
     @Test fun folderTransferRetainsCompletePhoneRowsInsteadOfPublishingFalseZero() {
         val media = com.domenota.medialoader.core.database.DownloadEntity(
             "public-photo", "https://example.invalid/test", "image.jpg",

@@ -90,9 +90,11 @@ class ListeningHistoryStoreTest {
         val key=ListeningProjectionCodec.resumeKey(listOf(session,other),candidates)
         assertEquals(key,ListeningProjectionCodec.resumeKey(listOf(other,next),candidates))
         assertNotEquals(key,ListeningProjectionCodec.resumeKey(listOf(other,next.copy(entries=next.entries.reversed())),candidates))
-        val value=ListeningProjectionCodec.encodeResume(listOf(ResolvedResumeQueue(session,listOf("one",null))))
+        val availability=listOf(ResumeAvailability.VERIFIED,ResumeAvailability.AMBIGUOUS)
+        val value=ListeningProjectionCodec.encodeResume(listOf(ResolvedResumeQueue(session,listOf("one",null),availability)))
         val resolved=ListeningProjectionCodec.resume(value,listOf(next)).single()
         assertEquals(next,resolved.session);assertEquals(listOf("one",null),resolved.ids)
+        assertEquals(availability,resolved.availability)
     }
 
     @Test fun sameSessionIdNeverDoubleCountsAndExclusionSurvivesClear() = runBlocking {

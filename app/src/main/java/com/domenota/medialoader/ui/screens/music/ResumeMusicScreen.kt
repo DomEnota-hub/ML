@@ -20,6 +20,7 @@ import com.domenota.medialoader.ui.screens.audioArtist
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.data.playback.ResolvedResumeQueue
+import com.domenota.medialoader.data.playback.ResumeAvailability
 import com.domenota.medialoader.data.playback.ResumeQueueStore
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
@@ -144,7 +145,11 @@ internal fun ResumeMusicScreen(sessions:List<ResolvedResumeQueue>,rows:Map<Strin
                                     color=if(missing&&!loading)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                                     maxLines=2,overflow=TextOverflow.Ellipsis)
                                 if(marked)Text("Сохранённая позиция: ${position(saved.positionMs)}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
-                                if(missing&&!loading)Text("Связь с файлом не подтверждена",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                if(missing&&!loading)Text(when(editing.availability.getOrNull(index)){
+                                    ResumeAvailability.AMBIGUOUS -> "Несколько возможных совпадений"
+                                    ResumeAvailability.CONFLICTING -> "Идентификаторы противоречат друг другу"
+                                    else -> "Связь с файлом не подтверждена"
+                                },style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             IconButton({store?.let{target->mutate{target.edit(saved,setOf(occurrence),editing)}}},enabled=canEdit){
                                 Icon(Icons.Rounded.Close,"Убрать вхождение ${index+1}",modifier=Modifier.size(20.dp))

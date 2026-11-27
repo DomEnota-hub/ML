@@ -35,6 +35,13 @@ class TimelineWaveformDiskCacheTest {
         assertEquals(TaskFailure.IO,TimelineWaveformDiskCache.prepare(file,2,sameVersion={false}){listOf(.2f,.8f)}.failure)
         assertFalse(file.exists())
     }
+    @Test fun cachedWaveformIsNotReturnedAfterSourceVersionChanges(){
+        val file=File(temp.newFolder(),"track.wave")
+        TimelineWaveformDiskCache.prepare(file,2){listOf(.2f,.8f)}
+        val result=TimelineWaveformDiskCache.prepare(file,2,sameVersion={false}){error("no decode")}
+        assertEquals(TaskFailure.IO,result.failure)
+        assertTrue(result.peaks.isEmpty())
+    }
     @Test fun malformedExtraColumnsAreNotAValidCacheAndSilenceIsValid(){
         val file=File(temp.newFolder(),"track.wave")
         file.writeText("0.1,garbage,0.2")

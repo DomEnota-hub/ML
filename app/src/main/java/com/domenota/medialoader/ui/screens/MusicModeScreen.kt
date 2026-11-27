@@ -92,6 +92,7 @@ internal fun MusicModeScreen(
     analyticsItems: List<DownloadEntity> = allAudio,
     analyticsAccess: Any? = Unit,
     analyticsReady: Boolean = !loading,
+    resumeCatalogReady: Boolean = analyticsReady,
     onAnalyticsPreview: (String,List<String>)->Unit = onPreview ?: onOpen,
     onAnalyticsOpen: (String,List<String>)->Unit = onOpen,
     onSaveFolderPlaylist: (suspend (String?,String,List<String>)->Unit)? = null,
@@ -199,6 +200,7 @@ internal fun MusicModeScreen(
     val frequentKeys = eligibleProjection.value.keys
     val smartCandidates = eligibleProjection.value.candidates
     val analyticsUsable = analyticsReady && eligibleProjection.usable
+    val resumeReady = resumeCatalogReady && analyticsUsable && eligibleProjection.ready
     val historyGeneration by listeningStore.visibilityRevision.collectAsState()
     val displayEpoch = eligibleProjection.value.displayEpoch
     val rankDigest = eligibleProjection.value.rankDigest
@@ -293,9 +295,9 @@ internal fun MusicModeScreen(
     val resolvedSessions=remember(resolvedMappings,resumeSessions){
         ResumeQueuePolicy.rebindResolved(resolvedMappings,resumeSessions)
     }
-    val resumeHasData=resumeResolved&&(resolvedSessions.isNotEmpty()||resumeSessions.isEmpty())
-    LaunchedEffect(resumeOpen,resumeMembership,rankDigest,displayEpoch,analyticsGuard,analyticsUsable,historyGeneration,resumeRecheckNonce) {
-        if(!resumeOpen||onResumeSelection==null||!analyticsUsable)return@LaunchedEffect
+    val resumeHasData=resumeResolved&&resolvedSessions.size==resumeSessions.size
+    LaunchedEffect(resumeOpen,resumeMembership,rankDigest,displayEpoch,analyticsGuard,resumeReady,historyGeneration,resumeRecheckNonce) {
+        if(!resumeOpen||onResumeSelection==null||!resumeReady)return@LaunchedEffect
         val requestedRecheck=resumeRecheckNonce
         val forceResolve=requestedRecheck!=completedResumeRecheck
         resumeLoading=!resumeHasData||forceResolve;resumeError=false
@@ -399,9 +401,9 @@ internal fun MusicModeScreen(
         finally { listeningLoading = false;trace?.close() }
     }
     if(resumeOpen) MusicReadModelTrace(MusicRefreshBlock.RESUME,resumeResolved&&resolvedSessions.size==resumeSessions.size,
-        resumeHasData,!resumeHasData&&(resumeLoading||!analyticsUsable||!resumeError),resumeFailed||resumeError,
+        resumeHasData,!resumeReady||!resumeHasData&&(resumeLoading||!resumeError),resumeFailed||resumeError,
         resolvedSessions.size,analyticsGuard!=null,privacyEpoch=historyGeneration,
-        reasonMask=(if(!analyticsUsable)1 else 0) or (if(!resumeResolved)2 else 0) or
+        reasonMask=(if(!resumeReady)1 else 0) or (if(!resumeResolved)2 else 0) or
             (if(resolvedSessions.size!=resumeSessions.size)4 else 0))
     if(smartPage!=null) MusicReadModelTrace(MusicRefreshBlock.SMART,smartHasData,smartHasData&&analyticsGuard!=null,
         !smartHasData&&(smartLoading||!analyticsUsable||smartError==null),smartError!=null,
@@ -603,9 +605,9 @@ internal fun MusicModeScreen(
                 }},confirmButton={TextButton({folderPlaylistIds=null},enabled=!folderPlaylistBusy){Text("Отмена")}})
         }
     } else if(resumeOpen&&onResumeSelection!=null) {
-        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},(resumeLoading||!resumeHasData && (!analyticsUsable||!resumeError)),
+        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},(!resumeReady||resumeLoading||!resumeHasData && !resumeError),
             resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore,
-            onRecheck=if(analyticsUsable){{resumeLoading=true;resumeRecheckNonce++}}else null)
+            onRecheck=if(resumeReady){{resumeLoading=true;resumeRecheckNonce++}}else null)
     } else if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
         SmartMusicScreen(smartPage!!,smartSnapshot,frequentRows,smartStatsPeriod,{smartStatsPeriod=it;statsIntervals=emptyList()},
             mixDiversity,{mixDiversity=it;smartPrefs.edit().putInt("diversity",it).apply()},

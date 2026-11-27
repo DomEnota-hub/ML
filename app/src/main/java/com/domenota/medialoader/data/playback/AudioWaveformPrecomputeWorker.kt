@@ -55,7 +55,7 @@ class AudioWaveformPrecomputeWorker(
                 val admission=WaveformAdmission.read(app,repo)
                 if(!admission.allows(app,requested,null)||!admission.current(app,repo))return@runCatching Result.failure()
                 val uri = Uri.parse(requested)
-                val duration = inputData.getLong("durationMs", 0L).takeIf{it>0L} ?: readDurationMs(app,uri)
+                val duration = inputData.getLong("durationMs", 0L).takeIf{it>0L} ?: readDurationMs(app,uri) ?: return@runCatching Result.retry()
                 if(duration<=0L)return@runCatching Result.failure()
                 val outcome=preparePersistedAudioWaveform(app,uri,duration){isStopped||!admission.currentFast(app,repo,requested)}
                 if(!admission.current(app,repo)||outcome.outcome==WaveformOutcome.FAILED)Result.failure() else Result.success()
@@ -71,9 +71,9 @@ class AudioWaveformPrecomputeWorker(
         sweepMutex.withLock { processSweep(app) }
     }
 
-    private data class Track(val source:String,val duration:Long,val version:WaveformSourceVersion,val files:List<File>) {
-        val key=WaveformSweep.fingerprint(listOf(source,duration.toString(),version.size.toString(),
-            version.modified.toString(),version.providerDuration.toString()))
+    private data class Track(val source:String,val duration:Long,val version:WaveformSourceVersion,val files:List<File>,
+        val key:String,val missingDeclaredDuration:Boolean) {
+        val durationKey get()=WaveformDurationReceipt.key(key)
         val skipKey get()="skip:$key"
         fun alreadyPrepared(receipts:Map<String,String>)=version.proven &&
             (files.any{file->WaveformCacheReceipt.stamp(file)?.let{receipts[file.name]==it}==true} ||
@@ -126,17 +126,26 @@ class AudioWaveformPrecomputeWorker(
             } catch(e:java.util.concurrent.CancellationException){throw e} catch(_:Exception){return Result.retry()}
         }
         if(!admission.current(app,repo))return Result.retry()
+        val prefs = app.getSharedPreferences("waveform_precompute_v1", Context.MODE_PRIVATE)
+        val store=WaveformSweepStore(prefs)
+        val originalReceipts=store.receipts()
+        val prior=originalReceipts.associateBy{it.substringBefore('|')}
+        fun filesFor(source:String,duration:Long,version:WaveformSourceVersion):List<File> =
+            if(version.proven&&duration>0L)waveformDurations(duration,version.providerDuration,true)
+                .map{waveformCacheFileFor(app,source,it,version)} else emptyList()
         val allEntries=tracks.entries.sortedBy{it.key}.map { (source,knownDuration) ->
             if(isStopped)throw java.util.concurrent.CancellationException("Stopped")
             val version=versions[source]?:readWaveformSourceVersion(app,Uri.parse(source))
-            val duration=knownDuration.takeIf{it>0L}?:version.providerDuration
-            val files=if(version.proven&&duration>0L)waveformDurations(duration,version.providerDuration,true)
-                .map{waveformCacheFileFor(app,source,it,version)} else emptyList()
-            Track(source,duration,version,files)
+            val declared=knownDuration.takeIf{it>0L}?:version.providerDuration
+            val key=WaveformSweep.fingerprint(listOf(source,declared.toString(),version.size.toString(),
+                version.modified.toString(),version.providerDuration.toString()))
+            val hint=if(version.proven&&declared<=0L) WaveformDurationReceipt.read(key,prior) else null
+            val hintedFiles=hint?.let{filesFor(source,it,version)}.orEmpty()
+            val confirmed=hint!=null&&hintedFiles.any{file->WaveformCacheReceipt.stamp(file)?.let{prior[file.name]==it}==true}
+            val duration=if(confirmed)requireNotNull(hint) else declared
+            Track(source,duration,version,filesFor(source,duration,version),key,declared<=0L)
         }
         if(!admission.current(app,repo))return Result.retry()
-        val prefs = app.getSharedPreferences("waveform_precompute_v1", Context.MODE_PRIVATE)
-        val store=WaveformSweepStore(prefs)
         // A full versioned inventory and a frozen pending plan make the cursor
         // safe across process death and media changes. No original URI is persisted.
         val inventory=WaveformSweep.fingerprint(allEntries.map{it.key})
@@ -153,9 +162,9 @@ class AudioWaveformPrecomputeWorker(
         }
         val allowedFiles=allEntries.flatMap{it.files}.mapTo(hashSetOf()){it.name}
         val allowedSkips=allEntries.filter{it.version.proven&&it.duration<=0L}.mapTo(hashSetOf()){it.skipKey}
-        val originalReceipts=store.receipts()
+        val allowedHints=allEntries.filter{it.missingDeclaredDuration&&it.duration>0L&&it.version.proven}.mapTo(hashSetOf()){it.durationKey}
         val receipts=originalReceipts.filter{
-            it in allowedSkips || it.substringBefore('|') in allowedFiles
+            it in allowedSkips || it.substringBefore('|') in allowedFiles || it.substringBefore('|') in allowedHints
         }.associateByTo(hashMapOf()){it.substringBefore('|')}
         val periodic=inputData.getBoolean("periodicOrigin",false) || (!canResume&&restored?.trigger==TaskTrigger.PERIODIC)
         val entries=if(canResume)requireNotNull(restoredEntries) else
@@ -196,11 +205,18 @@ class AudioWaveformPrecomputeWorker(
                 val track=entries[index]
                 val source=track.source
                 val knownDuration=track.duration
+                var resolvedDuration=knownDuration
                 val result=try {
                     val uri=Uri.parse(source)
                     val duration=knownDuration.takeIf{it>0L} ?: readDurationMs(app,uri)
-                    if(duration<=0L) WaveformPreparation(emptyList(),WaveformOutcome.SKIPPED)
-                    else {
+                    if(duration==null) {
+                        com.domenota.medialoader.core.logging.AppLog.d("AudioWaveform","WAVEFORM_DURATION_READ_FAILED")
+                        WaveformPreparation(emptyList(),WaveformOutcome.FAILED,TaskFailure.IO)
+                    } else if(duration<=0L) {
+                        com.domenota.medialoader.core.logging.AppLog.d("AudioWaveform","WAVEFORM_DURATION_MISSING versionProven=${track.version.proven}")
+                        WaveformPreparation(emptyList(),WaveformOutcome.SKIPPED)
+                    } else {
+                        resolvedDuration=duration
                         val waiting=BackgroundMediaWork.isBusy()
                         if(waiting)publish(TaskStatus.WAITING,TaskWait.RESOURCE)
                         BackgroundMediaWork.awaitIdle()
@@ -214,11 +230,17 @@ class AudioWaveformPrecomputeWorker(
                 // Only a validated persistent write/read can become an incremental hit.
                 // Failed outcomes are retried; unsupported durations are rechecked on the
                 // periodic pass or immediately when their known source version changes.
-                track.files.forEach{file->receipts.remove(file.name)}
+                val actualFiles=filesFor(source,resolvedDuration,track.version)
+                (track.files+actualFiles).forEach{file->receipts.remove(file.name)}
                 receipts.remove(track.skipKey)
-                result.cacheReceipt?.takeIf{receipt->track.files.any{WaveformCacheReceipt.stamp(it)==receipt}}
-                    ?.let{receipts[it.substringBefore('|')]=it}
-                if(result.outcome==WaveformOutcome.SKIPPED&&track.version.proven&&track.duration<=0L)
+                receipts.remove(track.durationKey)
+                result.cacheReceipt?.takeIf{receipt->actualFiles.any{WaveformCacheReceipt.stamp(it)==receipt}}
+                    ?.let{
+                        receipts[it.substringBefore('|')]=it
+                        if(track.missingDeclaredDuration&&track.version.proven&&resolvedDuration>0L)
+                            receipts[track.durationKey]=WaveformDurationReceipt.encode(track.key,resolvedDuration)
+                    }
+                if(result.outcome==WaveformOutcome.SKIPPED&&track.version.proven&&resolvedDuration<=0L)
                     receipts[track.skipKey]=track.skipKey
                 sweep=sweep.advance(result.outcome,result.failure)
                 publish()
@@ -251,7 +273,7 @@ class AudioWaveformPrecomputeWorker(
         }
     }
 
-    private fun readDurationMs(context: Context, uri: Uri): Long = runCatching {
+    private fun readDurationMs(context: Context, uri: Uri): Long? = runCatching {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, uri)
@@ -260,7 +282,7 @@ class AudioWaveformPrecomputeWorker(
         } finally {
             retriever.release()
         }
-    }.getOrDefault(0L)
+    }.getOrNull()
 }
 
 object AudioWaveformPrecompute {

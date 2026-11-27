@@ -6282,7 +6282,15 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.ResumeQueuePolicyTest#conflictingIdentityIsNeverAReplacementAndReasonSurvivesRebind": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.ResumeQueuePolicyTest#duplicateTracksRemainSeparateOccurrencesAndRemovalPreservesCurrentPosition": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.ResumeQueuePolicyTest#exactPhysicalIdentitySurvivesOnlyUnrelatedAliasAmbiguity": {
     "skipped": false,
     "failed": false
   },
@@ -6406,6 +6414,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.TimelineWaveformDiskCacheTest#cachedWaveformIsNotReturnedAfterSourceVersionChanges": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.TimelineWaveformDiskCacheTest#changedContentNeverPublishesObsoleteCache": {
     "skipped": false,
     "failed": false
@@ -6475,6 +6487,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.playback.WaveformSweepTest#inventoryFingerprintIsOrderedAndUnambiguous": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.WaveformSweepTest#recoveredDurationReceiptsAreExactVersionScopedAndPositive": {
     "skipped": false,
     "failed": false
   },
@@ -7995,6 +8011,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.LibraryValidationGateTest#routinePhoneRefreshRetainsExistingGalleryWithoutAnyVisibleLoadingState": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.LibraryValidationGateTest#savedQueueAvailabilityRequiresCurrentCompleteAudioGeneration": {
     "skipped": false,
     "failed": false
   },

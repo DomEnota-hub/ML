@@ -183,13 +183,21 @@ internal data class CollectionHistorySnapshot(val rows: Map<String, DownloadEnti
 private data class AppReferenceBatch(val refs: List<LibraryMediaRef>, val complete: Boolean)
 internal data class AudioCatalogGuard(val privacy: Set<String>, val accessEpoch: Long,
     val visibility: FolderVisibilityLibraryGuard? = null)
-internal data class AudioCatalogSnapshot(val guard: AudioCatalogGuard, val refs: List<LibraryMediaRef>)
-internal data class AudioCatalogUpdate(val guard: AudioCatalogGuard?, val refs: List<LibraryMediaRef>?)
+internal data class AudioCatalogSnapshot(val guard: AudioCatalogGuard, val refs: List<LibraryMediaRef>, val phoneRevision:Long?=null)
+internal data class AudioCatalogUpdate(val guard: AudioCatalogGuard?, val refs: List<LibraryMediaRef>?, val phoneRevision:Long?=null)
 /** Incomplete routine updates never replace a validated audio generation. */
 internal fun retainAudioCatalog(previous: AudioCatalogSnapshot?, update: AudioCatalogUpdate): AudioCatalogSnapshot? {
     val guard = update.guard ?: return null
-    return update.refs?.let { AudioCatalogSnapshot(guard, it) } ?: previous?.takeIf { it.guard == guard }
+    return update.refs?.let { AudioCatalogSnapshot(guard, it, update.phoneRevision) } ?: previous?.takeIf { it.guard == guard }
 }
+/** A retained catalogue may render during a routine refresh, but only the
+ * matching complete generation can decide that a saved track is unavailable. */
+internal fun resumeCatalogCurrent(snapshot:AudioCatalogSnapshot?,phone:PhoneLibraryState,
+    projectionReady:Boolean,phoneAccess:Boolean):Boolean =
+    projectionReady && snapshot!=null && snapshot.phoneRevision==phone.revision &&
+        snapshot.guard.accessEpoch==phone.accessEpoch && phone.loaded && phone.complete &&
+        !phone.loading && (phone.message==null || !phoneAccess)
+
 private data class PhoneReferenceInput(
     val pictures: List<DownloadEntity>, val audio: List<DownloadEntity>, val app: List<DownloadEntity>,
     val pictureIdentities: Map<String, Set<String>>, val audioIdentities: Map<String, Set<String>>,
@@ -704,7 +712,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Audio catalog ready · count=${it.size}")
                 }
             } else null
-            AudioCatalogUpdate(guard, refs)
+            AudioCatalogUpdate(guard, refs, input.phone.revision)
         }.runningFold<AudioCatalogUpdate, AudioCatalogSnapshot?>(null, ::retainAudioCatalog)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000, replayExpirationMillis = 0), null)
 
@@ -962,7 +970,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 val loaded=affected.filter { mode ->
                     (if(mode==AppMode.GALLERY)galleryState else musicState).value.loaded
                 }
-                if(AppMode.MUSIC in affected) AudioWaveformPrecompute.request(getApplication())
+                // A cold/unopened music library still needs independent background analysis.
+                // A loaded library requests it after observing a real new snapshot below.
+                if(AppMode.MUSIC in affected && AppMode.MUSIC !in loaded) AudioWaveformPrecompute.request(getApplication())
                 if(loaded.isEmpty())continue
                 val currentStamp=try { phone.storeStamp() }
                 catch(e:CancellationException){pendingMediaChanges+=affected;throw e}
@@ -1051,7 +1061,6 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         val permissions = PhoneMediaLibrary.permissions(mode)
         fun currentSignature() = permissions.map { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
         val signature = currentSignature()
-        if (mode == AppMode.MUSIC && signature.any { it } && !HistoricalRecoverySignals.isRunning.value) AudioWaveformPrecompute.request(context)
         val coldStart = accessSignatures[mode] == null && !invalidate
         val accessKey = permissions.zip(signature).filter { it.second }.map { it.first }.sorted().joinToString("|")
         val changedAccess = accessSignatures[mode] != signature
@@ -1215,6 +1224,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                         !mayRetainProgressivePhoneIndex(existing, accessEpoch, partial), accessEpoch = accessEpoch)
                 storeStamps[mode] = stamp
                 refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
+                if (mode==AppMode.MUSIC && !HistoricalRecoverySignals.isRunning.value && (changedAccess || !unchanged))
+                    AudioWaveformPrecompute.request(context)
                 if (!bootstrapDuringTransfer && !partial && (!unchanged || previousStamp != stamp)) try { phoneCache.write(mode, accessKey, privacy, stamp, snapshot) }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { com.domenota.medialoader.core.logging.AppLog.w("Library", "Phone metadata cache save deferred") }
@@ -1225,6 +1236,8 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             }
             catch (_: Exception) {
                 com.domenota.medialoader.core.logging.AppLog.w("Library", "Phone scan failed · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch")
+                if(mode==AppMode.MUSIC && scanReason==PhoneScanReason.MEDIASTORE_CHANGE &&
+                    signature.any{it} && !HistoricalRecoverySignals.isRunning.value) AudioWaveformPrecompute.request(context)
                 val message = "Не удалось обновить файлы телефона. Проверь доступ и повтори попытку."
                 state.value = if (!blocking && state.value.loaded) state.value.copy(loading = false, message = message)
                     else PhoneLibraryState(loaded = true, revision = revision + 1, message = message, accessEpoch = accessEpoch)

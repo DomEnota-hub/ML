@@ -2384,6 +2384,8 @@ fun MediaLoaderApp(
                     analyticsItems = analyticsProjection.value.items,
                     analyticsAccess = analyticsGuard,
                     analyticsReady = analyticsProjection.usable,
+                    resumeCatalogReady = resumeCatalogCurrent(audioSnapshot,phoneMusic,analyticsProjection.ready,
+                        hasPhoneLibraryAccess(context,AppMode.MUSIC)),
                     listeningKeys = analyticsProjection.value.keys,
                     validateFrequent = { ids,fresh ->
                         val candidates=ids.mapNotNull(::currentAudioRef)

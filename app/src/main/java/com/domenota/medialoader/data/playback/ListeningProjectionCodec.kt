@@ -79,20 +79,30 @@ internal object ListeningProjectionCodec {
         JSONObject().put("kind", "selection-v2").put("period", period.name).put("rows", digest).toString())
     fun resumeKey(sessions: List<ResumeQueueSession>, candidates: List<SmartTrackCandidate>): String = resumeKey(sessions,candidateDigest(candidates))
     fun resumeKey(sessions: List<ResumeQueueSession>, digest: String): String = PersistentProjectionCache.digest(
-        JSONObject().put("kind", "resume-v3").put("candidates", digest)
+        JSONObject().put("kind", "resume-v4").put("candidates", digest)
             .put("queues", array(sessions.sortedBy{it.id}) { session -> JSONObject().put("id",session.id)
                 .put("entries",JSONArray().also { a -> session.entries.forEach { a.put(JSONArray(it.sorted())) } })
                 .put("occurrences",JSONArray(session.occurrenceIds)) }).toString())
-    fun encodeResume(value: List<ResolvedResumeQueue>): JSONObject = JSONObject().put("schema",1)
+    fun encodeResume(value: List<ResolvedResumeQueue>): JSONObject = JSONObject().put("schema",2)
         .put("queues",array(value) { row -> JSONObject().put("id",row.session.id)
-            .put("ids",JSONArray().also { a -> row.ids.forEach { a.put(it ?: JSONObject.NULL) } }) })
+            .put("ids",JSONArray().also { a -> row.ids.forEach { a.put(it ?: JSONObject.NULL) } })
+            .put("availability",JSONArray(row.availability.map{it.name})) })
     fun resume(value: JSONObject, sessions: List<ResumeQueueSession>): List<ResolvedResumeQueue> {
-        require(value.getInt("schema")==1)
-        val rows=value.list("queues") { row -> row.getString("id") to row.getJSONArray("ids").let { a ->
-            (0 until a.length()).map { if(a.isNull(it))null else a.getString(it) }
-        } }.toMap()
+        val schema=value.getInt("schema")
+        require(schema in 1..2)
+        val rows=value.list("queues") { row ->
+            val ids=row.getJSONArray("ids").let { a -> (0 until a.length()).map { if(a.isNull(it))null else a.getString(it) } }
+            val availability=if(schema==2)row.getJSONArray("availability").let{a->
+                (0 until a.length()).map{ResumeAvailability.valueOf(a.getString(it))}
+            } else ids.map{if(it==null)ResumeAvailability.UNMATCHED else ResumeAvailability.VERIFIED}
+            row.getString("id") to (ids to availability)
+        }.toMap()
         require(rows.keys==sessions.mapTo(mutableSetOf()){it.id})
-        return sessions.map { session -> ResolvedResumeQueue(session,rows.getValue(session.id).also { require(it.size==session.entries.size) }) }
+        return sessions.map { session ->
+            val (ids,availability)=rows.getValue(session.id)
+            require(ids.size==session.entries.size)
+            ResolvedResumeQueue(session,ids,availability)
+        }
     }
 
 }

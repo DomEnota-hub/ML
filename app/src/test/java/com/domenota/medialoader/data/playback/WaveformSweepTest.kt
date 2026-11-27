@@ -44,6 +44,14 @@ class WaveformSweepTest {
         assertTrue(first.details(recovered=true).recovered)
         assertEquals(TaskFailure.UNKNOWN,first.advance(WaveformOutcome.FAILED,TaskFailure.DECODE).details().failure)
     }
+    @Test fun recoveredDurationReceiptsAreExactVersionScopedAndPositive(){
+        val receipt=WaveformDurationReceipt.encode("version-a",12345L)
+        val receipts=mapOf(WaveformDurationReceipt.key("version-a") to receipt)
+        assertEquals(12345L,WaveformDurationReceipt.read("version-a",receipts))
+        assertNull(WaveformDurationReceipt.read("version-b",receipts))
+        assertNull(WaveformDurationReceipt.read("version-a",mapOf(WaveformDurationReceipt.key("version-a") to "duration:version-a|0")))
+        assertNull(WaveformDurationReceipt.read("version-a",mapOf(WaveformDurationReceipt.key("version-a") to "duration:version-a|bad")))
+    }
     @Test fun completedSweepCannotAdvance(){
         assertTrue(runCatching{sweep(0).advance(WaveformOutcome.CACHED)}.isFailure)
     }

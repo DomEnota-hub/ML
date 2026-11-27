@@ -18,6 +18,24 @@ class ResumeQueuePolicyTest {
         assertEquals("b",result.currentId)
         assertNull(ResumeQueuePolicy.resolve(session(),listOf(c("a","app:a"),c("c","app:c")),emptyMap()).currentId)
     }
+    @Test fun exactPhysicalIdentitySurvivesOnlyUnrelatedAliasAmbiguity(){
+        val saved=session().copy(entries=listOf(setOf("app:a"),setOf("file-stat:exact"),setOf("app:c")))
+        val rows=listOf(c("a","app:a"),c("b","file-stat:exact","shared"),c("other","shared"),c("c","app:c"))
+        val resolved=ResumeQueuePolicy.resolve(saved,rows,emptyMap())
+        assertEquals("b",resolved.currentId)
+        assertEquals(ResumeAvailability.VERIFIED,resolved.availability[1])
+        val ambiguous=ResumeQueuePolicy.resolve(saved.copy(entries=listOf(setOf("app:a"),setOf("file-stat:exact","shared"),setOf("app:c"))),rows,emptyMap())
+        assertNull(ambiguous.currentId)
+        assertEquals(ResumeAvailability.AMBIGUOUS,ambiguous.availability[1])
+    }
+    @Test fun conflictingIdentityIsNeverAReplacementAndReasonSurvivesRebind(){
+        val saved=session().copy(entries=listOf(setOf("app:a"),setOf("old:b","file-stat:exact"),setOf("app:c")))
+        val rows=listOf(c("a","app:a"),c("b","file-stat:exact"),c("c","app:c"))
+        val resolved=ResumeQueuePolicy.resolve(saved,rows,mapOf("old:b" to "history-1","file-stat:exact" to "history-2"))
+        assertNull(resolved.currentId)
+        assertEquals(ResumeAvailability.CONFLICTING,resolved.availability[1])
+        assertEquals(resolved.availability,ResumeQueuePolicy.rebindResolved(listOf(resolved),listOf(saved.copy(positionMs=2000))).single().availability)
+    }
     @Test fun queueLimitAndContextAreStable(){
         val entries=session().entries
         assertEquals(ResumeQueuePolicy.contextId(null,entries),ResumeQueuePolicy.contextId(null,entries))

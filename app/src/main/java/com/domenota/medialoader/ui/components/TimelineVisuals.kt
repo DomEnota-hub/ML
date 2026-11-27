@@ -369,9 +369,10 @@ internal fun readCachedAudioWaveform(
     bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
 ): List<Float>? {
     val version=readWaveformSourceVersion(context,uri)
-    return waveformDurations(durationMs,version.providerDuration,version.proven).firstNotNullOfOrNull { duration ->
+    val cached=waveformDurations(durationMs,version.providerDuration,version.proven).firstNotNullOfOrNull { duration ->
         readAudioWaveformCacheFile(waveformCacheFileFor(context,uri.toString(),duration,version,bucketCount),bucketCount)
     }
+    return cached?.takeIf{readWaveformSourceVersion(context,uri)==version}
 }
 
 private fun readAudioWaveformCacheFile(cache: File, bucketCount: Int): List<Float>? =
@@ -416,7 +417,10 @@ internal fun preparePersistedAudioWaveform(
     val result=com.domenota.medialoader.data.playback.TimelineWaveformDiskCache.prepare(cache,bucketCount,isCancelled,
         sameVersion=::sameVersion) { decodeAudioWaveform(context,uri,selected,bucketCount,isCancelled) }
     active()
-    return if(version.proven && sameVersion() && result.outcome in setOf(
+    if(!sameVersion())return com.domenota.medialoader.data.playback.WaveformPreparation(emptyList(),
+        com.domenota.medialoader.data.playback.WaveformOutcome.FAILED,
+        com.domenota.medialoader.data.tasks.TaskFailure.IO)
+    return if(version.proven && result.outcome in setOf(
         com.domenota.medialoader.data.playback.WaveformOutcome.CACHED,
         com.domenota.medialoader.data.playback.WaveformOutcome.GENERATED))
         result.copy(cacheReceipt=com.domenota.medialoader.data.playback.WaveformCacheReceipt.stamp(cache)) else result

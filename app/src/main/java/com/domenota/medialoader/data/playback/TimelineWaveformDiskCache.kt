@@ -26,10 +26,16 @@ internal object TimelineWaveformDiskCache {
         sameVersion:()->Boolean={true},decode:()->List<Float>):WaveformPreparation {
         fun active(){if(cancelled())throw CancellationException("Waveform stopped")}
         active()
-        read(file,count)?.let{active();return WaveformPreparation(it,WaveformOutcome.CACHED)}
+        fun cached(peaks:List<Float>):WaveformPreparation {
+            active()
+            if(!sameVersion())return WaveformPreparation(emptyList(),WaveformOutcome.FAILED,TaskFailure.IO)
+            active()
+            return WaveformPreparation(peaks,WaveformOutcome.CACHED)
+        }
+        read(file,count)?.let{return cached(it)}
         return WaveformDecodeGate.shared.decode(cancelled) {
             active()
-            read(file,count)?.let{return@decode WaveformPreparation(it,WaveformOutcome.CACHED)}
+            read(file,count)?.let{return@decode cached(it)}
             val peaks=try {decode()} catch(e:CancellationException){throw e} catch(_:Exception){emptyList()}
             active()
             if(!valid(peaks,count))return@decode WaveformPreparation(emptyList(),WaveformOutcome.FAILED,TaskFailure.DECODE)

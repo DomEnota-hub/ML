@@ -57,3 +57,15 @@ internal fun waveformHex(bytes:ByteArray):String=buildString(bytes.size*2) {
     val hex="0123456789abcdef"
     bytes.forEach { byte -> val n=byte.toInt() and 255; append(hex[n ushr 4]);append(hex[n and 15]) }
 }
+
+/** A duration recovered by a decoder is reusable only with an exact source key
+ * and a still-current cache receipt. Neither source URI nor title is persisted. */
+internal object WaveformDurationReceipt {
+    fun key(trackKey:String)="duration:$trackKey"
+    fun encode(trackKey:String,duration:Long):String {
+        require(duration>0L)
+        return "${key(trackKey)}|$duration"
+    }
+    fun read(trackKey:String,receipts:Map<String,String>):Long? =
+        receipts[key(trackKey)]?.substringAfter('|',"")?.toLongOrNull()?.takeIf{it>0L}
+}
