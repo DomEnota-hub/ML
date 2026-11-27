@@ -86,6 +86,8 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
     val tasks = mutable.asStateFlow()
     private val liveMutable = MutableStateFlow<List<TaskSnapshot>>(emptyList())
     val liveTasks = liveMutable.asStateFlow()
+    private val registeredMutable=MutableStateFlow<Set<TaskOwner>>(emptySet())
+    val registeredOwners=registeredMutable.asStateFlow()
     private val saved = MutableStateFlow(TaskHistoryData())
     val history = saved.asStateFlow()
     private var retentionDays = 7
@@ -159,6 +161,7 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
         val liveIds=shown.mapTo(hashSetOf()) { it.id }
         mutable.value=shown+rows.filterNot { it.id in liveIds }
         liveMutable.value=live.filter { !it.status.terminal || it.kind == TaskKind.OCR }
+        registeredMutable.value=sources.keys.toSet()
     }
 
     private fun emit(event:TaskEvent,row:TaskSnapshot,now:Long,command:TaskCommand?=null,forwarded:Boolean?=null) {

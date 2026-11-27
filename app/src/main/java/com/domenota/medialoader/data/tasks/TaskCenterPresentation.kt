@@ -9,9 +9,18 @@ internal enum class TaskSection(val label:String, val kinds:List<TaskKind>) {
 }
 internal object TaskCenterPresentation {
     fun active(rows:List<TaskSnapshot>)=rows.filter{it.active&&!it.idle}
-    fun waiting(rows:List<TaskSnapshot>)=rows.filter{!it.active&&!it.idle&&!it.status.terminal}
+    fun waiting(rows:List<TaskSnapshot>)=rows.filter{!it.idle&&it.status in setOf(TaskStatus.WAITING,TaskStatus.QUEUED)}
+    fun paused(rows:List<TaskSnapshot>)=rows.filter{!it.idle&&it.status==TaskStatus.PAUSED}
+    fun owner(kind:TaskKind):TaskOwner=when(kind){
+        TaskKind.DOWNLOAD->TaskOwner.DOWNLOADS;TaskKind.BULK->TaskOwner.BULK;TaskKind.PROFILE->TaskOwner.PROFILE
+        TaskKind.COMMUNITY->TaskOwner.COMMUNITY;TaskKind.EXPORT->TaskOwner.EXPORT;TaskKind.BATCH_EDIT->TaskOwner.BATCH
+        TaskKind.WAVEFORM->TaskOwner.WAVEFORM;TaskKind.MODEL->TaskOwner.MODEL;TaskKind.VISUAL_DUPLICATES->TaskOwner.VISUAL_SCAN
+        TaskKind.AUDIO_DUPLICATES->TaskOwner.AUDIO_SCAN;TaskKind.OCR->TaskOwner.OCR;TaskKind.LOUDNESS->TaskOwner.LOUDNESS;TaskKind.FILE_OPERATION->TaskOwner.FILES
+    }
+    fun idleLabel(kind:TaskKind,known:Set<TaskOwner>)=if(owner(kind) in known)"Нет задач" else "Нет данных о состоянии"
+    fun focusFirst(rows:List<TaskSnapshot>,id:String?)=if(id==null)rows else rows.sortedBy{it.id!=id}
     fun history(rows:List<TaskSnapshot>)=rows.filter{it.status.terminal}.sortedByDescending{it.updatedAt}
-    fun errors(rows:List<TaskSnapshot>)=history(rows).filter{it.status==TaskStatus.FAILED||it.status==TaskStatus.PARTIAL||it.errors>0}
+    fun errors(rows:List<TaskSnapshot>)=history(rows).filter{it.status==TaskStatus.FAILED||it.errors>0}
     fun bytes(value:Long):String {
         if(value<1024)return "$value Б"
         val units=listOf("КБ","МБ","ГБ","ТБ")
@@ -23,11 +32,11 @@ internal object TaskCenterPresentation {
     fun title(row:TaskSnapshot):String = if(row.kind==TaskKind.DOWNLOAD) {
         listOfNotNull(row.source?.label, if(row.children.isNotEmpty()||row.files!=null) "Группа файлов" else row.media?.label)
             .joinToString(" · ").ifBlank{row.kind.label}
-    } else row.kind.label
+    } else if(row.kind==TaskKind.WAVEFORM)"Генерация звуковых волн" else row.kind.label
     fun progressText(row:TaskSnapshot):String? = row.files?.let {
         val unit=when(row.kind){TaskKind.WAVEFORM,TaskKind.LOUDNESS,TaskKind.AUDIO_DUPLICATES->"треков";TaskKind.OCR->"фото";else->"файлов"}
-        if(it.total!=null) "${it.done} из ${it.total} $unit" + if(row.kind==TaskKind.WAVEFORM) " · пакет" else "" else "${it.done} $unit"
+        if(it.total!=null) "${it.done} из ${it.total} $unit" else "${it.done} $unit"
     } ?: row.progress?.let { if(it.total!=null) "${bytes(it.done)} / ${bytes(it.total)}" else if(it.done>0) bytes(it.done) else null }
-    fun expandable(row:TaskSnapshot)=row.children.isNotEmpty() || row.stage!=null || row.errors>0
+    fun expandable(row:TaskSnapshot)=row.children.isNotEmpty() || row.stage!=null || row.errors>0 || row.details!=null || row.status.terminal
     fun showBar(row:TaskSnapshot)=row.active || (!row.status.terminal&&!row.idle&&(row.files?.fraction!=null||row.progress?.fraction!=null||row.percent!=null))
 }

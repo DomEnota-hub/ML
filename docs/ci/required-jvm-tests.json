@@ -7442,6 +7442,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#presentationSeparatesPausedUnknownAndIdleWithoutFabricatingTasks": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#reporterCommandsAreCheckedAgainstLatestSnapshot": {
     "skipped": false,
     "failed": false
@@ -7463,6 +7467,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.tasks.TaskRegistryTest#unknownProgressAndWaitingRemainDistinct": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskRegistryTest#waveformProgressRepresentsWholePassNotLegacyBatch": {
     "skipped": false,
     "failed": false
   },

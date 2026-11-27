@@ -4,6 +4,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TaskRegistryTest {
+    @Test fun presentationSeparatesPausedUnknownAndIdleWithoutFabricatingTasks(){
+        val registry=TaskRegistry()
+        assertEquals("Нет данных о состоянии",TaskCenterPresentation.idleLabel(TaskKind.DOWNLOAD,registry.registeredOwners.value))
+        registry.publish(TaskOwner.DOWNLOADS,emptyList())
+        assertEquals("Нет задач",TaskCenterPresentation.idleLabel(TaskKind.DOWNLOAD,registry.registeredOwners.value))
+        val paused=row("paused",TaskStatus.PAUSED)
+        val waiting=row("waiting",TaskStatus.WAITING)
+        val active=row("active")
+        assertEquals(listOf(paused),TaskCenterPresentation.paused(listOf(paused,waiting,active)))
+        assertEquals(listOf(waiting),TaskCenterPresentation.waiting(listOf(paused,waiting,active)))
+        assertEquals(listOf(active,paused,waiting),TaskCenterPresentation.focusFirst(listOf(paused,waiting,active),active.id))
+    }
+    @Test fun waveformProgressRepresentsWholePassNotLegacyBatch(){
+        val row=TaskSnapshot(taskId(TaskOwner.WAVEFORM,"sweep"),TaskKind.WAVEFORM,TaskStatus.RUNNING,files=TaskProgress(20,240))
+        assertEquals("20 из 240 треков",TaskCenterPresentation.progressText(row))
+        assertEquals("Генерация звуковых волн",TaskCenterPresentation.title(row))
+        assertTrue(TaskCenterPresentation.errors(listOf(row.copy(status=TaskStatus.PARTIAL))).isEmpty())
+    }
     @Test fun actualDownloadFailureIsCorrelatedWithoutRawException(){
         val events=mutableListOf<TaskJournalEvent>()
         val registry=TaskRegistry{events.add(it)}
