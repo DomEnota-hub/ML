@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.domenota.medialoader.ui.components.ReportDrawerScreen
 import com.domenota.medialoader.ui.components.BrainCircuitOutline
+import com.domenota.medialoader.ui.theme.SettingIconTone
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -69,10 +70,10 @@ private fun kindIcon(kind:TaskKind):ImageVector=when(kind) {
     val light=MaterialTheme.colorScheme.background.luminance()>.5f
     return when(section){
         TaskSection.DOWNLOADS->if(light)Color(0xFF235FA0) else Color(0xFF69A9EF)
-        TaskSection.LIBRARY->if(light)Color(0xFF6441A8) else Color(0xFFA79AEE)
+        TaskSection.LIBRARY->SettingIconTone.DRAWER.swatch(dark=!light).foreground
         TaskSection.MUSIC->if(light)Color(0xFF197660) else Color(0xFF61BAA4)
         TaskSection.EDITORS->if(light)Color(0xFF96551F) else Color(0xFFDC9D66)
-        TaskSection.MODELS->if(light)Color(0xFF8E459F) else Color(0xFFC28DDC)
+        TaskSection.MODELS->SettingIconTone.AI_MODELS.swatch(dark=!light).foreground
     }
 }
 @Composable private fun statusColor(status:TaskStatus):Color {
