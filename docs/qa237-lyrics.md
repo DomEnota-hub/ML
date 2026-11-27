@@ -1,0 +1,7 @@
+# QA-237 III — track lyrics
+
+Local first: read-only ID3v2.3/v2.4 USLT/SYLT subset (milliseconds only), LRC sidecar for directly accessible file URIs, explicit SAF import for content URIs. Unsupported tag formats must not be guessed or rewritten. Imported lyrics are stored in no-backup app storage under a hash of source URI, size, modified time and privacy epoch; no shared source writes. A current public-track admission check is mandatory. No lyrics corpus ships in the app; tests use invented fixtures.
+
+Research: https://github.com/tranxuanthang/lrcget (MIT application), https://github.com/PARADOXMEG/LRCGET-Android (README claims MIT, no separate LICENSE observed), https://lrclib.net/docs (API). No external implementation copied. API access is not a blanket copyright grant; confirmed content caching/display rights and current service implementation requirements could not be established. Network provider remains disabled (no request, no automatic batch download); exact matching policy is preparatory only. Missing album/duration or multiple distinct IDs require manual choice, no suffix stripping or filename guess. Future authorized adapter must use only explicit title/artist/album/duration, HTTPS, bounded single-flight requests and Retry-After, no private data or audio, no automatic bulk activation.
+
+III.2 integrates synchronized panel, import action and offset/seek. Network task center integration remains gated until a lawful provider is available. Device verification of SAF, privacy transitions and synchronized playback remains required.

@@ -6438,6 +6438,22 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.TrackLyricsTest#lrcSortsRepeatedStampsAndUsesOffset": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.TrackLyricsTest#plainAndInvalidInputAreDistinct": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.TrackLyricsTest#readsUnsynchronizedId3WithoutAudioDecode": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.TrackLyricsTest#requiresUniqueExactMetadataAndDuration": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.VideoWatchProgressTest#aliasSwitchAndHistoryCleanupShareOneResumeAndWatchPosition": {
     "skipped": false,
     "failed": false
