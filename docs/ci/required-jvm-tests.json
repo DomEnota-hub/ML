@@ -6334,6 +6334,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.WaveformSweepTest#checkpointDetailsAreActualDeltasAndBounded": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.WaveformSweepTest#completedSweepCannotAdvance": {
     "skipped": false,
     "failed": false

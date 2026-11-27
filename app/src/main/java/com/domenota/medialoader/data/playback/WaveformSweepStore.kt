@@ -6,18 +6,22 @@ import com.domenota.medialoader.data.tasks.*
 internal class WaveformSweepStore(private val prefs: SharedPreferences) {
     fun read():WaveformSweep? = runCatching {
         val token=TaskCorrelation.parse(prefs.getString("sweep_token",null)) ?: return null
+        val outcomes=TaskOutcomes(prefs.getInt("sweep_cached",0),prefs.getInt("sweep_generated",0),
+            prefs.getInt("sweep_skipped",0),prefs.getInt("sweep_failed",0))
+        val checkpointed=prefs.getString("sweep_checkpointed",null)?.let{TaskCheckpointCodec.readOutcomes(org.json.JSONObject(it))}?:outcomes
+        val checkpoints=TaskCheckpointCodec.decode(prefs.getString("sweep_checkpoints",null)?.let{org.json.JSONObject(it)})?:TaskCheckpointSummary()
         WaveformSweep(token,prefs.getString("sweep_inventory",null) ?: return null,
             prefs.getInt("sweep_total",-1),prefs.getLong("sweep_started",-1),
-            TaskTrigger.valueOf(prefs.getString("sweep_trigger",null) ?: return null),
-            TaskOutcomes(prefs.getInt("sweep_cached",0),prefs.getInt("sweep_generated",0),
-                prefs.getInt("sweep_skipped",0),prefs.getInt("sweep_failed",0)),
-            TaskFailure.entries.firstOrNull{it.name==prefs.getString("sweep_failure",null)})
+            TaskTrigger.valueOf(prefs.getString("sweep_trigger",null) ?: return null),outcomes,
+            TaskFailure.entries.firstOrNull{it.name==prefs.getString("sweep_failure",null)},checkpointed,checkpoints)
     }.getOrNull()
     fun save(s:WaveformSweep):Boolean = prefs.edit()
         .putString("sweep_token",s.token.value).putString("sweep_inventory",s.inventory)
         .putInt("sweep_total",s.total).putLong("sweep_started",s.startedAt)
         .putString("sweep_trigger",s.trigger.name).putInt("sweep_cached",s.outcomes.cached)
         .putInt("sweep_generated",s.outcomes.generated).putInt("sweep_skipped",s.outcomes.skipped)
-        .putInt("sweep_failed",s.outcomes.failed).putString("sweep_failure",s.failure?.name).commit()
+        .putInt("sweep_failed",s.outcomes.failed).putString("sweep_failure",s.failure?.name)
+        .putString("sweep_checkpointed",TaskCheckpointCodec.outcomes(s.checkpointed).toString())
+        .putString("sweep_checkpoints",TaskCheckpointCodec.encode(s.checkpoints).toString()).commit()
     fun clear():Boolean = prefs.edit().remove("sweep_token").commit()
 }

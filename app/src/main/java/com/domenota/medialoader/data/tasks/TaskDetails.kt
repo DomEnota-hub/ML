@@ -44,6 +44,14 @@ internal data class TaskOutcomes(
     init { require(listOf(cached,generated,skipped,failed).all { it >= 0 }); require(checkedLong <= Int.MAX_VALUE) }
     private val checkedLong get() = cached.toLong()+generated+skipped+failed
     val checked get() = checkedLong.toInt()
+    fun since(previous:TaskOutcomes)=TaskOutcomes(cached-previous.cached,generated-previous.generated,skipped-previous.skipped,failed-previous.failed)
+}
+internal data class TaskCheckpoint(val ordinal:Int,val outcomes:TaskOutcomes,val completedAt:Long) {
+    init { require(ordinal>0&&outcomes.checked>0&&completedAt>=0) }
+}
+internal data class TaskCheckpointSummary(val count:Int=0,val recent:List<TaskCheckpoint> = emptyList()) {
+    init { require(count>=0&&recent.size<=20&&recent.size<=count&&recent.map{it.ordinal}==(count-recent.size+1..count).toList()) }
+    fun append(outcomes:TaskOutcomes,time:Long)=TaskCheckpointSummary(count+1,(recent+TaskCheckpoint(count+1,outcomes,time)).takeLast(20))
 }
 internal data class TaskDetails(
     val correlation: TaskCorrelation? = null,
@@ -51,7 +59,8 @@ internal data class TaskDetails(
     val trigger: TaskTrigger? = null,
     val failure: TaskFailure? = null,
     val outcomes: TaskOutcomes? = null,
-    val recovered:Boolean=false
+    val recovered:Boolean=false,
+    val checkpoints:TaskCheckpointSummary?=null
 ) {
     init { require(startedAt == null || startedAt >= 0) }
 }

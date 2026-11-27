@@ -11,7 +11,8 @@ import org.json.JSONObject
 @Config(sdk=[34])
 class TaskHistoryCodecTest {
     @Test fun typedHistoryRoundTripsWithoutExecutableOrPrivateMetadata(){
-        val details=TaskDetails(TaskCorrelation.create(),100,TaskTrigger.BACKGROUND,TaskFailure.CACHE_WRITE,TaskOutcomes(2,1,0,1),true)
+        val details=TaskDetails(TaskCorrelation.create(),100,TaskTrigger.BACKGROUND,TaskFailure.CACHE_WRITE,TaskOutcomes(2,1,0,1),true,
+            TaskCheckpointSummary().append(TaskOutcomes(2,1,0,1),180))
         val row=TaskSnapshot(taskId(TaskOwner.WAVEFORM,"private/raw"),TaskKind.WAVEFORM,TaskStatus.PARTIAL,errors=1,updatedAt=200,
             details=details,commands=setOf(TaskCommand.RETRY),source=TaskSource.YOUTUBE,media=TaskMedia.AUDIO)
         val json=TaskHistoryStore.encode(TaskHistoryData(rows=listOf(row)))

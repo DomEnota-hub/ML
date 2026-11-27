@@ -163,10 +163,12 @@ class AudioWaveformPrecomputeWorker(
                 sweep=sweep.advance(result.outcome,result.failure)
                 publish()
                 if(sweep.cursor%20==0){
+                    sweep=sweep.finishCheckpoint(System.currentTimeMillis())
                     if(!store.save(sweep)){publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry()}
                     if(android.os.SystemClock.elapsedRealtime()-batchStart>=90_000L)break
                 }
             }
+            if(sweep.finished)sweep=sweep.finishCheckpoint(System.currentTimeMillis())
             if(!store.save(sweep)) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
             if(!sweep.finished) {
                 publish(TaskStatus.QUEUED,stage=TaskStage.ENQUEUE)

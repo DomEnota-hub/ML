@@ -13,9 +13,11 @@ internal data class WaveformSweep(
     val startedAt: Long,
     val trigger: TaskTrigger,
     val outcomes: TaskOutcomes = TaskOutcomes(),
-    val failure:TaskFailure?=null
+    val failure:TaskFailure?=null,
+    val checkpointed:TaskOutcomes=TaskOutcomes(),
+    val checkpoints:TaskCheckpointSummary=TaskCheckpointSummary()
 ) {
-    init { require(total >= 0 && outcomes.checked <= total && startedAt >= 0) }
+    init { require(total >= 0 && outcomes.checked <= total && startedAt >= 0);outcomes.since(checkpointed) }
     val cursor get() = outcomes.checked
     val finished get() = cursor == total
     fun advance(outcome: WaveformOutcome,reason:TaskFailure?=null): WaveformSweep {
@@ -32,8 +34,13 @@ internal data class WaveformSweep(
         }
         return copy(outcomes=next,failure=nextFailure)
     }
+    fun finishCheckpoint(now:Long):WaveformSweep {
+        val delta=outcomes.since(checkpointed)
+        if(delta.checked==0)return this
+        return copy(checkpointed=outcomes,checkpoints=checkpoints.append(delta,now))
+    }
     fun details(recovered:Boolean=false)=TaskDetails(token,startedAt,trigger,
-        if(outcomes.failed>0) failure?:TaskFailure.UNKNOWN else null,outcomes,recovered)
+        if(outcomes.failed>0) failure?:TaskFailure.UNKNOWN else null,outcomes,recovered,checkpoints.takeIf{it.count>0})
     companion object {
         // Only used for local checkpoint validation, not emitted in logs/history.
         fun fingerprint(keys:List<String>):String {

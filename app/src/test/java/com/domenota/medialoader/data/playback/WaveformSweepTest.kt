@@ -3,6 +3,19 @@ import com.domenota.medialoader.data.tasks.*
 import org.junit.Assert.*
 import org.junit.Test
 class WaveformSweepTest {
+    @Test fun checkpointDetailsAreActualDeltasAndBounded(){
+        var s=sweep(25)
+        repeat(25){index->
+            s=s.advance(if(index%2==0)WaveformOutcome.CACHED else WaveformOutcome.GENERATED).finishCheckpoint(index.toLong()+10)
+        }
+        val summary=s.details().checkpoints!!
+        assertEquals(25,summary.count)
+        assertEquals(20,summary.recent.size)
+        assertEquals(6,summary.recent.first().ordinal)
+        assertEquals(25,summary.recent.last().ordinal)
+        assertEquals(1,summary.recent.last().outcomes.cached)
+        assertEquals(s,s.finishCheckpoint(100))
+    }
     private fun sweep(total:Int)=WaveformSweep(TaskCorrelation.create(),"inventory",total,10,TaskTrigger.BACKGROUND)
     @Test fun batchesShareOneOperationAndCountRealOutcomes(){
         var s=sweep(25)
