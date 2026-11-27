@@ -22,6 +22,7 @@ data class DisplayLogEntry(
     val tone: LogTone,
     val stack: List<String> = emptyList(),
     val repeats: Int = 1,
+    val thread: String? = null,
 )
 
 object LogDisplay {
@@ -44,8 +45,11 @@ object LogDisplay {
                 continue
             }
             val (timestamp, technicalLevel, tag, message) = matched.destructured
-            val event = message.substringBefore(" · ").trim()
-            val metadata = message.substringAfter(" · ", "").trim()
+            val thread = if (message.startsWith("[thread=") && "] " in message)
+                message.substringAfter("[thread=").substringBefore("] ") else null
+            val payload = if (thread != null) message.substringAfter("] ") else message
+            val event = payload.substringBefore(" · ").trim()
+            val metadata = payload.substringAfter(" · ", "").trim()
             flush()
             current=DisplayLogEntry(
                 original = line,
@@ -55,6 +59,7 @@ object LogDisplay {
                 event = event,
                 metadata = metadata,
                 tone = classify(technicalLevel, tag, event, line),
+                thread = thread,
             )
         }
         flush()
@@ -121,7 +126,7 @@ object LogDisplay {
 
     /** Never include private log fields, URLs or filenames in the readable event title. */
     fun readable(entry: DisplayLogEntry): String =
-        TaskJournalDisplay.readable(entry) ?: LogExplanation.forRecord(entry.original, entry.stack)?.meaning
+        TaskJournalDisplay.readable(entry) ?: StructuredLogExplanation.readable(entry) ?: LogExplanation.forRecord(entry.original, entry.stack)?.meaning
             ?: when (entry.tone) {
                 LogTone.ERROR -> "Зафиксирована ошибка. Подробности доступны в техническом журнале."
                 LogTone.WARN -> "Зафиксировано предупреждение. Подробности доступны в техническом журнале."
@@ -141,6 +146,6 @@ object LogDisplay {
         "Crash" -> "Сбой приложения"
         "Settings" -> "Настройки"
         "Logs" -> "Журнал"
-        else -> entry.tag.replace(multipleSpaces, " ").take(32)
+        else -> StructuredLogExplanation.group(entry.tag)
     }
 }

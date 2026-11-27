@@ -12,7 +12,7 @@ internal object TaskJournalDisplay {
     fun readable(entry:DisplayLogEntry):String? {
         if(entry.tag!="TaskCenter")return null
         val fields=fields(entry)
-        val event=TaskEvent.entries.firstOrNull{it.name==entry.event.let { raw -> if(raw.startsWith("[thread=")) raw.substringAfter("] ",raw) else raw }}?:return null
+        val event=TaskEvent.entries.firstOrNull{it.name==entry.event}?:return null
         val kind=TaskKind.entries.firstOrNull{it.name==fields["kind"]}?:return null
         val action=when(event){
             TaskEvent.START->"Начато";TaskEvent.WAIT->"Ожидание";TaskEvent.PAUSE->"Приостановлено"

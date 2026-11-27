@@ -1,0 +1,3 @@
+# QA-236 cycle I — work in progress
+
+Base: 9df45f8c42bae27642f8752c1e62128b0123d732. Archive audit: 16 historical exports plus 1.7.236 export, 50,744 timestamped records, 57 tags; overlaps not deduplicated. No original logs or private media names stored in Git. Structured rules initially cover the dominant log families (Perf, Library, OCR, downloads, historical archive, player, settings and related events), preserving legacy network explanations and raw records. Full source-emitter inventory and measured corpus coverage remain pending; do not label this checkpoint as completed cycle I. Historical NOMEDIA/physical archive entries are interpretation only, not a product behavior change. No UI, version or release changes.
