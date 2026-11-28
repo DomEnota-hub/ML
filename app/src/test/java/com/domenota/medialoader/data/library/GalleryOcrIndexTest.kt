@@ -114,4 +114,55 @@ class GalleryOcrIndexTest {
         assertFalse(store.exists())
         assertTrue(store.search(all,"private",epoch){true}.isEmpty())
     }
+    @Test fun privateMoveRetainsUnrelatedOcrAndPurgesEveryPhysicalAlias() = runBlocking {
+        val moving=ref("moving",stat="file-stat:1:101:100:1")
+        val alias=ref("alias",stat="file-stat:1:101:200:2")
+        val other=ref("other",stat="file-stat:1:102:100:1")
+        val providerOnly=ref("unproven").let { it.copy(
+            key="provider", aliases=setOf("uri:content://media/external/images/media/7"),
+            item=it.item.copy(savedUri="content://media/external/images/media/7")) }
+        val all=GalleryOcrCatalog(listOf(moving,alias,other,providerOnly),
+            mapOf(requireNotNull(providerOnly.item.savedUri) to (List(10){"metadata"}+listOf("1","2")).joinToString("\u0000")),emptySet())
+        assertEquals(4,all.candidates.size)
+        val store=GalleryOcrIndex(context)
+        store.checkpoint(all.candidates.map{it to "recognized"},epoch){true}
+        synchronized(DuplicatePrivacyGuard.lock) {
+            GalleryOcrIndex.clearForPrivacy(context,"moving",setOf("file-stat:1:101:100:1"))
+        }
+        assertEquals(listOf(other),GalleryOcrIndex(context).search(all,"recognized",epoch){true}.map{it.ref})
+        assertEquals(setOf(all.candidates.single{it.ref==other}.key),store.reconcile(all,epoch){true})
+        // An unknown source cannot prove any saved row unrelated.
+        synchronized(DuplicatePrivacyGuard.lock) { GalleryOcrIndex.clearForPrivacy(context,"unknown",emptySet()) }
+        assertTrue(store.search(all,"recognized",epoch){true}.isEmpty())
+        store.checkpoint(all.candidates.map{it to "recognized"},epoch){true}
+        synchronized(DuplicatePrivacyGuard.lock) {
+            GalleryOcrIndex.clearForPrivacy(context,"unknown",setOf("uri:content://other-provider/moving"))
+        }
+        assertTrue(store.search(all,"recognized",epoch){true}.isEmpty())
+    }
+
+    @Test fun legacyCheckpointsGainIdentityWithoutRecognizingAgain() = runBlocking {
+        val a=ref("legacy-a",stat="file-stat:1:103:100:1"); val b=ref("legacy-b",stat="file-stat:1:104:100:1"); val all=catalog(a,b)
+        val path=java.io.File(context.noBackupFilesDir,"gallery-ocr-v1.db")
+        android.database.sqlite.SQLiteDatabase.deleteDatabase(path)
+        android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(path,null).use { db ->
+            db.execSQL("CREATE TABLE image_ocr(k TEXT PRIMARY KEY, v TEXT NOT NULL, body TEXT NOT NULL)")
+            all.candidates.forEach { db.execSQL("INSERT INTO image_ocr VALUES(?,?,?)",arrayOf(it.key,it.version,"legacy")) }
+        }
+        val store=GalleryOcrIndex(context)
+        assertEquals(all.candidates.map{it.key}.toSet(),store.reconcile(all,epoch){true})
+        synchronized(DuplicatePrivacyGuard.lock) {
+            GalleryOcrIndex.clearForPrivacy(context,a.item.id,a.aliases)
+        }
+        assertEquals(listOf(b),store.search(all,"legacy",epoch){true}.map{it.ref})
+        // Missing/corrupt identity metadata is discarded, not trusted.
+        android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(path,null).use { db ->
+            db.execSQL("UPDATE image_ocr SET aliases='not-json'")
+        }
+        synchronized(DuplicatePrivacyGuard.lock) {
+            GalleryOcrIndex.clearForPrivacy(context,"unrelated",setOf("file-stat:1:105:100:1"))
+        }
+        assertTrue(store.search(all,"legacy",epoch){true}.isEmpty())
+    }
+
 }

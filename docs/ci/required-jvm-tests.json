@@ -5214,11 +5214,19 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.library.GalleryOcrIndexTest#legacyCheckpointsGainIdentityWithoutRecognizingAgain": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.library.GalleryOcrIndexTest#onlyProvenPublicPhotosAndUnambiguousIdsEnterCatalog": {
     "skipped": false,
     "failed": false
   },
   "com.domenota.medialoader.data.library.GalleryOcrIndexTest#privateMovePurgeRemovesPersistentIndexBeforeReuse": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.library.GalleryOcrIndexTest#privateMoveRetainsUnrelatedOcrAndPurgesEveryPhysicalAlias": {
     "skipped": false,
     "failed": false
   },

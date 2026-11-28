@@ -15,6 +15,8 @@ import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.editor.LocalTextOcr
 import com.domenota.medialoader.data.playback.PublicMediaIdentity
 import com.domenota.medialoader.data.storage.HistoricalRecoverySignals
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.text.Normalizer
@@ -51,6 +53,13 @@ internal object GalleryOcrPolicy {
             ref.item.mediaType, ref.item.isPrivate, ref.item.hidden,
             ref.item.savedUri?.let(fingerprints::get)) }.eachCount()
 
+    private val statPattern = Regex("file-stat:(-?[0-9]+):([0-9]+):([0-9]+):(-?[0-9]+)")
+    fun physicalHashes(aliases: Set<String>): Set<String> = aliases.mapNotNullTo(linkedSetOf()) { alias ->
+        statPattern.matchEntire(alias)?.groupValues
+            ?.takeIf { it[2].toLongOrNull()?.let { inode -> inode != 0L } == true }
+            ?.let { hash("inode:${it[1]}:${it[2]}") }
+    }
+
     fun publicPhoto(ref: LibraryMediaRef, blocked: Set<String>): Boolean =
         ref.item.mediaType == MediaType.PHOTO && ref.item.state == DownloadState.COMPLETED &&
             !ref.item.isPrivate && !ref.item.hidden && !ref.item.savedUri.isNullOrBlank() &&
@@ -66,6 +75,12 @@ internal data class GalleryOcrCandidate(
         other.item.savedUri == ref.item.savedUri && other.item.sizeBytes == ref.item.sizeBytes &&
         GalleryOcrPolicy.publicPhoto(other, emptySet()) &&
         (stats.isEmpty() || other.aliases.any(stats::contains))
+    fun identityHashes(): Set<String> = (ref.aliases + ref.key + ref.item.id +
+        listOfNotNull(ref.appDownloadId, ref.appDownloadId?.let { "app:$it" }, ref.item.savedUri))
+        .mapTo(linkedSetOf(), GalleryOcrPolicy::hash)
+    fun identityRecord(): String = JSONObject()
+        .put("aliases", JSONArray(identityHashes().toList()))
+        .put("physical", JSONArray(GalleryOcrPolicy.physicalHashes(ref.aliases).toList())).toString()
     fun admitted(context: Context, epoch: Long): Boolean =
         !HistoricalRecoverySignals.isRunning.value &&
             DuplicatePrivacyGuard.accepts(context, epoch, ref.appDownloadId ?: ref.key,
@@ -143,7 +158,11 @@ internal class GalleryOcrIndex(context: Context, name: String = FILE) {
     private fun open(): SQLiteDatabase = SQLiteDatabase.openOrCreateDatabase(file, null).also { db ->
         try {
             db.rawQuery("PRAGMA secure_delete=ON", null).use { it.moveToFirst() }
-            db.execSQL("CREATE TABLE IF NOT EXISTS image_ocr (k TEXT PRIMARY KEY, v TEXT NOT NULL, body TEXT NOT NULL)")
+            db.execSQL("CREATE TABLE IF NOT EXISTS image_ocr (k TEXT PRIMARY KEY, v TEXT NOT NULL, body TEXT NOT NULL, aliases TEXT)")
+            val columns = db.rawQuery("PRAGMA table_info(image_ocr)", null).use { cursor ->
+                buildSet { while (cursor.moveToNext()) add(cursor.getString(1)) }
+            }
+            if ("aliases" !in columns) db.execSQL("ALTER TABLE image_ocr ADD COLUMN aliases TEXT")
         } catch (failure: Throwable) { db.close(); throw failure }
     }
     private fun requireCurrent(epoch: Long, active: () -> Boolean) {
@@ -168,6 +187,12 @@ internal class GalleryOcrIndex(context: Context, name: String = FILE) {
                     db.beginTransaction()
                     try {
                         stale.forEach { db.delete("image_ocr", "k=?", arrayOf(it)) }
+                        // Backfill only exact current/admitted legacy checkpoints. No OCR rerun.
+                        ready.forEach { key ->
+                            val candidate = requireNotNull(catalog.byKey[key])
+                            db.execSQL("UPDATE image_ocr SET aliases=? WHERE k=? AND aliases IS NULL",
+                                arrayOf(candidate.identityRecord(), key))
+                        }
                         requireCurrent(epoch, active)
                         db.setTransactionSuccessful()
                     } finally { db.endTransaction() }
@@ -185,8 +210,9 @@ internal class GalleryOcrIndex(context: Context, name: String = FILE) {
                     try {
                         rows.forEach { (candidate, body) ->
                             if (candidate.admitted(context, epoch)) {
-                                db.execSQL("INSERT OR REPLACE INTO image_ocr(k,v,body) VALUES(?,?,?)",
-                                    arrayOf(candidate.key, candidate.version, GalleryOcrPolicy.normalized(body).take(GalleryOcrPolicy.MAX_TEXT)))
+                                db.execSQL("INSERT OR REPLACE INTO image_ocr(k,v,body,aliases) VALUES(?,?,?,?)",
+                                    arrayOf(candidate.key, candidate.version, GalleryOcrPolicy.normalized(body).take(GalleryOcrPolicy.MAX_TEXT),
+                                        candidate.identityRecord()))
                                 written += candidate.key
                             }
                         }
@@ -221,15 +247,46 @@ internal class GalleryOcrIndex(context: Context, name: String = FILE) {
         private const val FILE = "gallery-ocr-v1.db"
         private val privacyInvalidations = MutableStateFlow(0L)
         val invalidations = privacyInvalidations.asStateFlow()
-        /** Synchronously discard derived text before a public file becomes private. */
-        fun clearForPrivacy(context: Context) {
-            val file = File(context.noBackupFilesDir, FILE)
-            SQLiteDatabase.deleteDatabase(file)
-            check(!file.exists() && !File(file.path + "-journal").exists() && !File(file.path + "-wal").exists()) {
-                "Не удалось очистить публичный OCR-индекс"
+        /** Called before a private move, under the same lock as every OCR writer.
+         * Keep only rows with proven unrelated identity; missing/corrupt/legacy
+         * metadata is never proof. Unknown source retains the original full purge. */
+        fun clearForPrivacy(context: Context, id: String? = null, identities: Set<String> = emptySet()) =
+            synchronized(DuplicatePrivacyGuard.lock) {
+                val store = GalleryOcrIndex(context)
+                val physical = GalleryOcrPolicy.physicalHashes(identities)
+                if (id.isNullOrBlank() || physical.isEmpty()) {
+                    SQLiteDatabase.deleteDatabase(store.file)
+                    check(!store.file.exists() && !File(store.file.path + "-journal").exists() &&
+                        !File(store.file.path + "-wal").exists()) { "Не удалось очистить публичный OCR-индекс" }
+                } else if (store.file.exists()) {
+                    val revoked = (identities + id).mapTo(hashSetOf(), GalleryOcrPolicy::hash)
+                    store.open().use { db ->
+                        db.beginTransaction()
+                        try {
+                            val remove = mutableListOf<String>()
+                            db.rawQuery("SELECT k,aliases FROM image_ocr", null).use { cursor ->
+                                while (cursor.moveToNext()) {
+                                    val keep = runCatching {
+                                        val record = JSONObject(cursor.getString(1))
+                                        fun hashes(name: String): Set<String> {
+                                            val values = record.getJSONArray(name)
+                                            require(values.length() in 1..256)
+                                            return (0 until values.length()).mapTo(hashSetOf()) { values.getString(it) }
+                                                .also { require(it.all { key -> key.matches(Regex("[0-9a-f]{64}")) }) }
+                                        }
+                                        hashes("aliases").none(revoked::contains) &&
+                                            hashes("physical").none(physical::contains)
+                                    }.getOrDefault(false)
+                                    if (!keep) remove += cursor.getString(0)
+                                }
+                            }
+                            remove.forEach { db.delete("image_ocr", "k=?", arrayOf(it)) }
+                            db.setTransactionSuccessful()
+                        } finally { db.endTransaction() }
+                    }
+                }
+                privacyInvalidations.value++
             }
-            privacyInvalidations.value++
-        }
     }
 }
 

@@ -68,6 +68,7 @@ class AppLogViewerTest {
         compose.waitUntil(10000) {
             compose.onAllNodesWithText(original).fetchSemanticsNodes().isNotEmpty()
         }
+        compose.onNodeWithText("Общие пояснения:", substring = true).assertDoesNotExist()
         compose.onNodeWithContentDescription("Сначала старые. Изменить порядок").performClick()
         // Selection runs on Dispatchers.Default, outside the Compose test clock.
         compose.waitUntil(10000) {

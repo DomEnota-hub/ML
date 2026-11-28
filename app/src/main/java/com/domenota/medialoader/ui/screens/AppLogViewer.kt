@@ -160,11 +160,7 @@ internal fun AppLogViewer(
                 Text(if (newest) "Сначала новые" else "Сначала старые", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (!readable && logScope==JournalTimeline.Scope.ALL && s.raw.isNotEmpty()) {
-                val perMille = s.genericCount * 1000L / s.raw.size
-                Text("Общие пояснения: " + s.genericCount + " из " + s.raw.size + " · " + perMille / 10 + "," + perMille % 10 + "%",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+
         }
       }
     }
