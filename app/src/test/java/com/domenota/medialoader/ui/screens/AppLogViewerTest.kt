@@ -80,4 +80,19 @@ class AppLogViewerTest {
             compose.onAllNodesWithText("Нет записей по выбранным условиям.").fetchSemanticsNodes().isNotEmpty()
         }
     }
+    @Test fun memoryOnlySearchSurvivesLeavingJournalAndRevocationClearsIt() {
+        val session=JournalViewerState()
+        var visible by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme { if(visible)AppLogViewer("",true,{},Modifier.fillMaxSize(),state=session) }
+        }
+        compose.onNode(hasSetTextAction()).performTextInput("сохранённый поиск")
+        compose.runOnIdle{visible=false}
+        compose.runOnIdle{visible=true}
+        compose.onNode(hasSetTextAction()).assertTextContains("сохранённый поиск")
+        compose.runOnIdle{session.clear()}
+        compose.onNode(hasSetTextAction()).assertTextContains("")
+        compose.runOnIdle{assertEquals("",session.query)}
+    }
+
 }

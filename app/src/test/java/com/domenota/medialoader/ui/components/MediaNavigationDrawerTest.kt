@@ -245,4 +245,21 @@ class MediaNavigationDrawerTest{
         compose.onNodeWithTag("drawer-config-reset").performClick()
         compose.runOnIdle{assertEquals(DrawerConfiguration.DEFAULT,configuration)}
     }
+    @Test fun journalInAppWindowKeepsEdgeSwipeAvailableWithoutMenuIcon() {
+        compose.setContent {
+            MaterialTheme {
+                val density=LocalDensity.current
+                val direction=LocalLayoutDirection.current
+                val edge=WindowInsets.systemGestures.getLeft(density,direction)+with(density){4.dp.toPx()}
+                SideEffect{edgePx=edge}
+                MediaNavigationDrawer(Unit,true,DrawerEntry.JOURNAL,journalUnlocked=true,onSelect={}) {
+                    com.domenota.medialoader.ui.screens.JournalSurface({}) { Text("Связанные события задачи") }
+                }
+            }
+        }
+        compose.onNodeWithText("Журнал приложения").assertExists()
+        open()
+        compose.onNodeWithTag("drawer-entry-JOURNAL").assertExists()
+    }
+
 }

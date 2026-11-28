@@ -30,6 +30,18 @@ import com.domenota.medialoader.core.logging.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** Memory only: search may contain private text and must never enter saved-instance state. */
+internal class JournalViewerState {
+    var tone by mutableStateOf<String?>(null)
+    var query by mutableStateOf("")
+    var newest by mutableStateOf(false)
+    var scopeName by mutableStateOf(JournalTimeline.Scope.ALL.name)
+    val listState=androidx.compose.foundation.lazy.LazyListState()
+    val expanded=mutableStateMapOf<Int,Boolean>()
+    fun clear(){tone=null;query="";newest=false;scopeName=JournalTimeline.Scope.ALL.name;expanded.clear()}
+}
+internal val LocalJournalViewerState=staticCompositionLocalOf<JournalViewerState?>{null}
+
 /** Presentation only; existing access and export operate on the original log. */
 @Composable
 internal fun AppLogViewer(
@@ -38,16 +50,17 @@ internal fun AppLogViewer(
     onReadableChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     onCopy: ((String) -> Unit)? = null,
+    state:JournalViewerState?=LocalJournalViewerState.current,
 ) {
     var snapshot by remember(rawText) { mutableStateOf<JournalTimeline.Snapshot?>(null) }
     LaunchedEffect(rawText) {
         snapshot = withContext(Dispatchers.Default) { JournalTimeline.prepare(rawText) }
     }
-    var tone by rememberSaveable { mutableStateOf<String?>(null) }
-    // Search input may contain a filename or private text; do not save it to instance state.
-    var query by remember { mutableStateOf("") }
-    var newest by rememberSaveable { mutableStateOf(false) }
-    var scopeName by rememberSaveable { mutableStateOf(JournalTimeline.Scope.ALL.name) }
+    val session=state ?: remember { JournalViewerState() }
+    var tone by session::tone
+    var query by session::query
+    var newest by session::newest
+    var scopeName by session::scopeName
     var scopeOpen by remember { mutableStateOf(false) }
     val requestedScope=JournalTimeline.Scope.entries.firstOrNull{it.name==scopeName}?:JournalTimeline.Scope.ALL
     val logScope=if(snapshot?.scopeAvailable(requestedScope)==true)requestedScope else JournalTimeline.Scope.ALL
@@ -57,9 +70,13 @@ internal fun AppLogViewer(
         val s = snapshot ?: return@LaunchedEffect
         rows = withContext(Dispatchers.Default) { s.select(selected, readable, query, newest, logScope) }
     }
-    val listState = rememberLazyListState()
-    LaunchedEffect(tone, readable, query, newest, logScope) { listState.scrollToItem(0) }
-    val expanded = remember(snapshot) { mutableStateMapOf<Int, Boolean>() }
+    val listState = session.listState
+    var previousFilter by remember { mutableStateOf(listOf(tone,readable,query,newest,logScope)) }
+    LaunchedEffect(tone, readable, query, newest, logScope) {
+        val filter=listOf(tone,readable,query,newest,logScope)
+        if(filter!=previousFilter){listState.scrollToItem(0);previousFilter=filter}
+    }
+    val expanded = session.expanded
     val s = snapshot
     val shown = rows
     val controls: @Composable () -> Unit = {
@@ -120,7 +137,7 @@ internal fun AppLogViewer(
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
-                placeholder = { Text("Поиск по журналу") }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                placeholder = { Text("Поиск по журналу",maxLines=1,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = { if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Очистить поиск") } },
                 modifier = Modifier.weight(1f))
             IconButton(onClick = { newest = !newest }) {

@@ -478,7 +478,7 @@ fun SettingsScreen(
     var sessionDialog by remember { mutableStateOf(false) }
     var sessionValue by remember { mutableStateOf("") }
     var sessionInvalid by remember { mutableStateOf(false) }
-    var logsDialog by remember { mutableStateOf(false) }
+    var logsDialog by rememberSaveable { mutableStateOf(false) }
     var confirmClearAppLog by remember { mutableStateOf(false) }
     var extendedLog by remember(context) { mutableStateOf(AppLog.isExtended()) }
     var detailedPerf by remember(context) { mutableStateOf(AppLog.isDetailedPerformance()) }
@@ -487,7 +487,6 @@ fun SettingsScreen(
         if(openJournal){
             if(developerVisible && com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)){
                 logsDialog=true
-                refreshAppLog()
             }
             onJournalOpened()
         }
@@ -496,6 +495,9 @@ fun SettingsScreen(
             confirmClearAppLog=false
             logText=""
         }
+    }
+    LaunchedEffect(logsDialog,developerVisible){
+        if(logsDialog && developerVisible)refreshAppLog()
     }
     // A former persisted switch is no longer a separate visibility gate.
     var recoveryLabOpen by rememberSaveable { mutableStateOf(false) }
@@ -511,7 +513,7 @@ fun SettingsScreen(
         !recognitionDialog&&!musicSourceDialog&&!instagramModeDialog&&!gapiKeysDialog&&
         !spareAuthorizationDialog&&!sourceProfilesDialog&&!networkDialog&&!folderDialog&&!confirmClear&&!confirmInstagramSignOut&&
         !confirmYouTubeSignOut&&!confirmVkSignOut&&!confirmRutubeSignOut&&!trashDialog&&
-        !confirmEmptyTrash&&!sessionDialog&&!logsDialog&&!confirmClearAppLog)
+        !confirmEmptyTrash&&!sessionDialog&&!confirmClearAppLog)
     fun setRecoveryLabOpen(value: Boolean) {
         if ((!value && recoveryLabBusy) || (value && !com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))) return
         if(recoveryLabOpen!=value)AppLog.d("Settings","RECOVERY_LAB open=$value")
@@ -696,75 +698,6 @@ fun SettingsScreen(
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
     )
 
-
-    if (developerVisible && logsDialog) Dialog(
-        onDismissRequest = { logsDialog = false },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
-        Surface(
-            modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
-            shape = MaterialTheme.shapes.extraLarge,
-            tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 6.dp,
-        ) {
-            Column(Modifier.fillMaxSize().padding(16.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Rounded.Article, null, tint = MaterialTheme.colorScheme.primary)
-                    Text("Журнал приложения", style = MaterialTheme.typography.titleLarge)
-                }
-                Spacer(Modifier.height(4.dp))
-                AppLogViewer(
-                    rawText = logText,
-                    readable = explainLog,
-                    onReadableChange = { value ->
-                        explainLog = value
-                        prefs.edit().putBoolean("log_explanations", value).apply()
-                    },
-                    modifier = Modifier.weight(1f),
-                    onCopy = { raw ->
-                        if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
-                            runCatching {
-                                com.domenota.medialoader.ui.navigation.writePreparedJournalIfAllowed(
-                                    allowed = { com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs) },
-                                    prepare = {
-                                        android.content.ClipData.newPlainText("Запись журнала", raw).apply {
-                                            description.extras = android.os.PersistableBundle().apply {
-                                                putBoolean("android.content.extra.IS_SENSITIVE", true)
-                                            }
-                                        }
-                                    },
-                                    write = { clip ->
-                                        val clipboard = requireNotNull(context.getSystemService(android.content.ClipboardManager::class.java))
-                                        clipboard.setPrimaryClip(clip)
-                                    },
-                                )
-                            }.onSuccess { AppNotice.post(context, "Запись скопирована") }
-                                .onFailure {
-                                    if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
-                                        AppNotice.post(context, "Не удалось скопировать запись")
-                                }
-                        }
-                    },
-                )
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Пояснения в экспорт", modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall)
-                    Switch(checked = exportLogExplanations, onCheckedChange = { value ->
-                        exportLogExplanations = value
-                        prefs.edit().putBoolean("log_export_explanations", value).apply()
-                    })
-                }
-                JournalFooter(
-                    onRefresh = ::refreshAppLog,
-                    onClear = { confirmClearAppLog = true },
-                    onExport = { if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
-                        logSaver.launch("MediaLoader_" + versionName + "_logs.md") },
-                    onClose = { logsDialog = false },
-                )
-            }
-        }
-    }
 
     if (developerVisible && confirmClearAppLog) AlertDialog(
         onDismissRequest = { confirmClearAppLog = false },
@@ -1336,7 +1269,7 @@ fun SettingsScreen(
                     iconTone = SettingIconTone.LOG,
                     onClick = {
                         if(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)){
-                            logsDialog = true; refreshAppLog()
+                            logsDialog = true
                         }
                     },
                 )
@@ -1376,6 +1309,56 @@ fun SettingsScreen(
                     onClick = { setRecoveryLabOpen(true) })
             }
         }
+    }
+    if (developerVisible && logsDialog) JournalSurface(onClose={logsDialog=false}) {
+                AppLogViewer(
+                    rawText = logText,
+                    readable = explainLog,
+                    onReadableChange = { value ->
+                        explainLog = value
+                        prefs.edit().putBoolean("log_explanations", value).apply()
+                    },
+                    modifier = Modifier.weight(1f),
+                    onCopy = { raw ->
+                        if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
+                            runCatching {
+                                com.domenota.medialoader.ui.navigation.writePreparedJournalIfAllowed(
+                                    allowed = { com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs) },
+                                    prepare = {
+                                        android.content.ClipData.newPlainText("Запись журнала", raw).apply {
+                                            description.extras = android.os.PersistableBundle().apply {
+                                                putBoolean("android.content.extra.IS_SENSITIVE", true)
+                                            }
+                                        }
+                                    },
+                                    write = { clip ->
+                                        val clipboard = requireNotNull(context.getSystemService(android.content.ClipboardManager::class.java))
+                                        clipboard.setPrimaryClip(clip)
+                                    },
+                                )
+                            }.onSuccess { AppNotice.post(context, "Запись скопирована") }
+                                .onFailure {
+                                    if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                                        AppNotice.post(context, "Не удалось скопировать запись")
+                                }
+                        }
+                    },
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Пояснения в экспорт", modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall)
+                    Switch(checked = exportLogExplanations, onCheckedChange = { value ->
+                        exportLogExplanations = value
+                        prefs.edit().putBoolean("log_export_explanations", value).apply()
+                    })
+                }
+                JournalFooter(
+                    onRefresh = ::refreshAppLog,
+                    onClear = { confirmClearAppLog = true },
+                    onExport = { if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                        logSaver.launch("MediaLoader_" + versionName + "_logs.md") },
+                    onClose = { logsDialog = false },
+                )
     }
 }
 

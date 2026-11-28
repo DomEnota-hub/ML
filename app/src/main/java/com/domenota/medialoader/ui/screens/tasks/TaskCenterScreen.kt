@@ -31,6 +31,7 @@ import com.domenota.medialoader.data.tasks.*
 import com.domenota.medialoader.core.logging.AppLog
 import com.domenota.medialoader.core.logging.TaskJournalDisplay
 import com.domenota.medialoader.ui.screens.AppLogViewer
+import com.domenota.medialoader.ui.screens.JournalSurface
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.domenota.medialoader.ui.components.ReportDrawerScreen
@@ -294,10 +295,19 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
     val timeline=row.status.terminal
     val rail=MaterialTheme.colorScheme.outlineVariant
     Surface(Modifier.fillMaxWidth(),shape=RoundedCornerShape(if(timeline)8.dp else 16.dp),color=if(timeline)MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceContainer){
-        Column(Modifier.then(if(timeline)Modifier.drawBehind{drawLine(rail,Offset(26.dp.toPx(),44.dp.toPx()),Offset(26.dp.toPx(),size.height),1.dp.toPx())}else Modifier).padding(if(timeline)8.dp else 12.dp),verticalArrangement=Arrangement.spacedBy(if(timeline)3.dp else 6.dp)){
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(if(timeline)8.dp else 12.dp),
+            horizontalArrangement=Arrangement.spacedBy(if(timeline)10.dp else 0.dp)) {
+        if(timeline) Column(Modifier.width(36.dp).fillMaxHeight(),horizontalAlignment=Alignment.CenterHorizontally) {
+            Box(Modifier.then(if(canExpand)Modifier.clickable{expanded=!expanded}else Modifier)) {
+                CategoryIcon(kindIcon(row.kind),sectionColor(section))
+            }
+            Spacer(Modifier.height(4.dp))
+            Box(Modifier.width(1.dp).weight(1f).background(rail))
+        }
+        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(if(timeline)3.dp else 6.dp)){
             Row(Modifier.fillMaxWidth().then(if(canExpand)Modifier.clickable{expanded=!expanded}else Modifier),
                 verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
-                CategoryIcon(kindIcon(row.kind),sectionColor(section))
+                if(!timeline)CategoryIcon(kindIcon(row.kind),sectionColor(section))
                 Column(Modifier.weight(1f)){
                     Text(TaskCenterPresentation.title(row),style=MaterialTheme.typography.titleMedium)
                     if(row.status.terminal&&row.updatedAt>0)Text(DateFormat.getDateTimeInstance(DateFormat.SHORT,DateFormat.SHORT).format(Date(row.updatedAt)),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -319,6 +329,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                 }
                 if(row.children.size>limit)TextButton({limit+=10}){Text("Ещё (${row.children.size-limit})")}
             }
+        }
         }
     }
 }
@@ -418,6 +429,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
     }
 }
 @Composable private fun RelatedTaskJournal(token:TaskCorrelation,allowed:()->Boolean,onClose:()->Unit){
+    val viewerState=remember(token){com.domenota.medialoader.ui.screens.JournalViewerState()}
     var text by remember(token){mutableStateOf<String?>(null)}
     var readable by rememberSaveable{mutableStateOf(true)}
     val latestAllowed by rememberUpdatedState(allowed)
@@ -427,13 +439,16 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         if(!latestAllowed()){onClose();return@LaunchedEffect}
         text=related
     }
-    AlertDialog(onDismissRequest=onClose,title={Text("События задачи")},text={
+    JournalSurface(onClose) {
+        Text("Связанные события задачи",style=MaterialTheme.typography.labelMedium,
+            color=MaterialTheme.colorScheme.onSurfaceVariant)
         when{
             text==null->Text("Подготовка журнала…")
             text.isNullOrBlank()->Text("Связанные события не сохранились в журнале")
-            else->AppLogViewer(text.orEmpty(),readable,{readable=it},Modifier.fillMaxWidth().height(420.dp))
+            else->AppLogViewer(text.orEmpty(),readable,{readable=it},Modifier.fillMaxWidth().weight(1f),state=viewerState)
         }
-    },confirmButton={TextButton(onClose){Text("Закрыть")}})
+        TextButton(onClose,Modifier.align(Alignment.End)){Text("Закрыть")}
+    }
 }
 @Composable private fun TaskSettingsScreen(onClose:()->Unit){
     val value by TaskHistoryStore.settings.collectAsStateWithLifecycle()

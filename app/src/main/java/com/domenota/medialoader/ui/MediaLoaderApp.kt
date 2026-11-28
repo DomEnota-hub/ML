@@ -317,6 +317,8 @@ fun MediaLoaderApp(
     var appearanceRequested by rememberSaveable{mutableStateOf(false)}
     var journalRequested by rememberSaveable{mutableStateOf(false)}
     val journalUnlocked=rememberJournalUnlocked(uiPrefs)
+    val journalViewerState=remember { com.domenota.medialoader.ui.screens.JournalViewerState() }
+    LaunchedEffect(journalUnlocked){if(!journalUnlocked)journalViewerState.clear()}
     val drawerConfiguration=rememberDrawerConfiguration(uiPrefs)
     val advancedDrawerTools=com.domenota.medialoader.ui.navigation.rememberAdvancedDrawerTools(uiPrefs)
     val phoneGallery by libraryModel.gallery.collectAsStateWithLifecycle()
@@ -3830,6 +3832,7 @@ fun MediaLoaderApp(
             onExit = if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                 ({ changeAppMode(AppMode.DOWNLOADER) }) else null,
         ) {
+        CompositionLocalProvider(com.domenota.medialoader.ui.screens.LocalJournalViewerState provides journalViewerState) {
         StableLibraryNavHost(
             navController = navController,
             startDestination = AppDestination.Home.route,
@@ -3838,6 +3841,7 @@ fun MediaLoaderApp(
             drawerAdmission = drawerAdmission,
             drawerEntryId = backStackEntry?.id,
         )
+        }
         }
         val noticeExtra = when {
             currentRoute == "collections" -> collectionNoticeBottom
