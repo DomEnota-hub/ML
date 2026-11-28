@@ -5,8 +5,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.hasAnySibling
-import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
@@ -87,11 +85,11 @@ class TaskCenterUiTest {
     }
     @Test fun notificationOpensExactHistoricalTaskAndExpandedResult() {
         val task=TaskSnapshot(taskId(TaskOwner.WAVEFORM,"notification"),TaskKind.WAVEFORM,TaskStatus.PARTIAL,
-            files=TaskProgress(2,2),updatedAt=100,details=TaskDetails(TaskCorrelation.create(),10,
-                TaskTrigger.PERIODIC,outcomes=TaskOutcomes(cached=1,failed=1)))
+            files=TaskProgress(4,4),updatedAt=100,details=TaskDetails(TaskCorrelation.create(),10,
+                TaskTrigger.PERIODIC,outcomes=TaskOutcomes(cached=3,failed=1)))
         val later=task.copy(id=taskId(TaskOwner.WAVEFORM,"notification-second"),status=TaskStatus.COMPLETE,
             files=TaskProgress(50,50),updatedAt=200,details=TaskDetails(TaskCorrelation.create(),20,
-                TaskTrigger.PERIODIC,outcomes=TaskOutcomes(cached=50)))
+                TaskTrigger.PERIODIC,outcomes=TaskOutcomes(cached=43,generated=7)))
         var selected by mutableStateOf(task.id)
         var sequence by mutableLongStateOf(1L)
         compose.setContent { MaterialTheme(colorScheme=darkColorScheme()) {
@@ -100,16 +98,14 @@ class TaskCenterUiTest {
         } }
         compose.waitUntil(10000){compose.onAllNodesWithText("Уже в кэше:").fetchSemanticsNodes().isNotEmpty()}
         compose.onNodeWithText("Уже в кэше:").assertExists()
-        compose.onNodeWithText("2 из 2 треков").assertExists()
-        val cacheLabel=hasAnySibling(hasText("Уже в кэше:"))
-        val firstCached=hasText("1") and cacheLabel
-        val laterCached=hasText("50") and cacheLabel
-        compose.onNode(firstCached).assertExists()
-        compose.onNode(laterCached).assertDoesNotExist()
+        compose.onNodeWithText("4 из 4 треков").assertExists()
+        compose.onNodeWithText("3").assertExists()
+        compose.onNodeWithText("43").assertDoesNotExist()
         compose.runOnIdle{selected=later.id;sequence=2L}
-        compose.waitUntil(10000){compose.onAllNodes(laterCached).fetchSemanticsNodes().size==1}
-        compose.onNode(laterCached).assertExists()
+        compose.waitUntil(10000){compose.onAllNodesWithText("43").fetchSemanticsNodes().size==1}
+        compose.onNodeWithText("43").assertExists()
         compose.onNodeWithText("50 из 50 треков").assertExists()
+        compose.onNodeWithText("3").assertDoesNotExist()
     }
 
 }
