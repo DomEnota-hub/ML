@@ -17,6 +17,25 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[34])
 class LocalTrackLyricsTest {
+    @Test fun archiveChangeRevokesBackgroundWriteEvenWhenBookmarkLeaseStillPasses()=kotlinx.coroutines.runBlocking {
+        val audio=File.createTempFile("lyrics-archive-race-",".mp3",context.cacheDir).apply{writeBytes(byteArrayOf(1,2,3))}
+        val doc=Uri.parse("content://test.lyrics/archive-race")
+        org.robolectric.Shadows.shadowOf(context.contentResolver).registerInputStreamSupplier(doc){java.io.ByteArrayInputStream("Первая\nВторая".toByteArray())}
+        val archive=com.domenota.medialoader.data.archive.SimpleArchiveStore(context)
+        val a=access(audio)
+        try {
+            val store=LocalTrackLyrics(context);val base=requireNotNull(store.importDocument(a,doc){true})
+            val version=requireNotNull(store.versionKey(a){true})
+            val stamp=com.domenota.medialoader.data.archive.SimpleArchiveStore.revision()
+            archive.archive(listOf(a.ref.item),com.domenota.medialoader.data.archive.ArchiveEntrySource.MUSIC)
+            a.requireCurrent(context) // The former sheet-only admission misses this change.
+            assertFalse(com.domenota.medialoader.data.archive.SimpleArchiveStore.revisionCurrent(stamp))
+            assertNull(store.saveAlignment(a,version,base,listOf(LyricLine(100,"Первая"),LyricLine(900,"Вторая"))){
+                com.domenota.medialoader.data.archive.SimpleArchiveStore.revisionCurrent(stamp)
+            })
+            assertTrue(requireNotNull(store.read(a){true}).timed.isEmpty())
+        }finally{archive.restore(setOf(a.ref.item.id));audio.delete()}
+    }
     private val context get()=RuntimeEnvironment.getApplication()
     private fun access(file:File,private:Boolean=false):AudioBookmarkAdmission {
         val uri=Uri.fromFile(file).toString()

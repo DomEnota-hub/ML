@@ -9,7 +9,7 @@ import java.util.Locale;
  * All lines pass or no timing is returned. The caller retains the unmodified original text.
  * Alpha + Viterbi backpointers use at most 120 MB; cancellation is checked every frame. */
 public final class CtcLyricsAligner {
-  public static final String REVISION = "gigaam-ctc-qa1";
+  public static final String REVISION = "gigaam-ctc-qa2";
   public static final long MAX_CELLS = 24_000_000L;
   private static final int BLANK=33;
   private static final double NEG=Double.NEGATIVE_INFINITY;
@@ -149,7 +149,7 @@ public final class CtcLyricsAligner {
       if(!Double.isFinite(sum)||sum<=0)return null;
       double cumulative=0;int lo=-1,hi=-1;
       for(int i=0;i<t;i++){cumulative+=mass[k][i]/sum;if(lo<0&&cumulative>=.025)lo=i;if(hi<0&&cumulative>=.975)hi=i;}
-      if(lo<0||hi<0||(hi-lo)*40>500)return null;
+      if(lo<0||hi<0||(hi-lo)*40>500 || starts[first[k]]<lo || starts[first[k]]>hi)return null;
       times[k]=starts[first[k]]*40L;
       if(k>0&&times[k]<=times[k-1])return null;
     }

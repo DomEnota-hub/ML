@@ -31,17 +31,15 @@ internal class ShazamClient : ShazamApi {
     // must not independently flood the same upstream endpoint.
     override suspend fun recognize(
         signature: ShazamSignatureGenerator.Signature,
-    ): MusicRecognitionResult? = requestThrottle.execute {
-        try {
-            perform(signature)
+    ): MusicRecognitionResult? = try {
+            requestThrottle.execute { perform(signature) }
         } catch (error: IOException) {
             // Retry a dropped connection / timeout just once; never retry 429,
             // other HTTP errors, or a valid "no match" response.
             if (!isTransientShazamNetworkError(error)) throw error
             delay(1_200L)
-            perform(signature)
+            requestThrottle.execute { perform(signature) }
         }
-    }
 
     private suspend fun perform(
         signature: ShazamSignatureGenerator.Signature,
@@ -76,6 +74,7 @@ internal class ShazamClient : ShazamApi {
             connection.setRequestProperty("X-Shazam-AppVersion", "14.1.0")
             connection.setRequestProperty("User-Agent", USER_AGENT)
 
+            markRecognitionSubmission()
             connection.outputStream.bufferedWriter(Charsets.UTF_8).use { writer ->
                 writer.write(payload.toString())
             }

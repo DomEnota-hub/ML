@@ -16,7 +16,8 @@ import org.json.JSONObject
  * After process death the job is paused; explicit resume revalidates the source and restarts
  * the bounded computation. No raw PCM, text, URI or native session is checkpointed. */
 internal object LyricsAlignmentCoordinator {
-    data class State(val version:String?=null,val running:Boolean=false,val message:String?=null,val serial:Long=0)
+    data class State(val version:String?=null,val running:Boolean=false,val message:String?=null,val serial:Long=0,
+        val completedTextHash:String?=null)
     private data class Request(val version:String,val text:String,val token:TaskCorrelation)
     private val mutable=MutableStateFlow(State())
     val state=mutable.asStateFlow()
@@ -29,6 +30,9 @@ internal object LyricsAlignmentCoordinator {
     private lateinit var app:Context
     private fun checkpoint()=AtomicFile(File(app.noBackupFilesDir,"lyrics-alignment-job-v1.json"))
     private fun digest(s:String)=MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8)).joinToString(""){"%02x".format(it.toInt() and 255)}
+    fun messageFor(value:State,current:TrackLyrics?):String? = value.message.takeIf {
+        value.completedTextHash==null || (current!=null && current.timed.isNotEmpty() && digest(current.plain)==value.completedTextHash)
+    }
     private fun report(r:Request)=TaskReporter.create(TaskOwner.LYRICS,TaskKind.LYRICS,r.token.value)
     private fun details(r:Request,recovered:Boolean=false,outcome:TaskOutcomes?=null,failure:TaskFailure?=null)=
         TaskDetails(correlation=r.token,trigger=if(recovered)TaskTrigger.RECOVERY else TaskTrigger.USER,
@@ -89,9 +93,20 @@ internal object LyricsAlignmentCoordinator {
         if(token!=null&&pending?.token?.value!=token)return
         cancelled=true;job?.cancel()
     }
-    fun token()=pending?.token?.value
-    suspend fun execute(service:LyricsAlignmentService) {
-        val r=synchronized(this){pending} ?: return
+    @Synchronized fun token()=pending?.token?.value
+    @Synchronized fun promotionFailed(token:String,error:Exception) {
+        val r=pending?.takeIf{it.token.value==token} ?: return
+        if(job!=null)return
+        checkpoint().delete();pending=null;supplied=null;notificationTaskId=null
+        report(r).report(TaskStatus.FAILED,errors=1,details=details(r,failure=TaskFailureClassifier.from(error)))
+        mutable.value=State(r.version,false,"Не удалось запустить фоновую синхронизацию",mutable.value.serial+1)
+    }
+    @Synchronized fun serviceStopped(token:String) {
+        val r=pending?.takeIf{it.token.value==token} ?: return
+        if(job!=null)job?.cancel() else if(mutable.value.running)paused(r)
+    }
+    suspend fun execute(service:LyricsAlignmentService,token:String) {
+        val r=synchronized(this){pending?.takeIf{it.token.value==token}} ?: return
         val coroutine=currentCoroutineContext()
         synchronized(this){check(job==null);job=coroutine[Job]}
         val reporter=report(r)
@@ -102,11 +117,13 @@ internal object LyricsAlignmentCoordinator {
             BackgroundMediaWork.setBusy("lyrics-alignment",true)
             fun checkRunning(){coroutine.ensureActive();if(cancelled)throw CancellationException("Cancelled")}
             checkRunning()
-            val catalog=if(supplied==null)LyricsBatchCatalog.read(app){!cancelled&&coroutine.isActive} else null
-            val access=supplied ?: catalog?.entries?.get(r.version) ?: error("Исходный трек изменился или недоступен")
+            // A sheet lease proves its UI read, not a durable background admission.
+            // Every start, including an ordinary supplied request, gets the same proof.
+            val catalog=LyricsBatchCatalog.read(app){!cancelled&&coroutine.isActive}
+            val access=catalog.entries[r.version] ?: error("Исходный трек изменился или недоступен")
             val store=LocalTrackLyrics(app)
             fun allowed()=!cancelled&&coroutine.isActive&&runCatching{access.requireCurrent(app)}.isSuccess&&
-                (catalog==null||catalog.allowed(access))
+                catalog.allowed(access)
             fun current()=allowed()&&store.versionKey(access,::allowed)==r.version
             check(current())
             val original=store.read(access,::allowed) ?: error("Исходный текст недоступен")
@@ -117,7 +134,7 @@ internal object LyricsAlignmentCoordinator {
                 fun progress(phase:String,percent:Int?) {
                     checkRunning();check(current())
                     mutable.value=State(r.version,true,phase,mutable.value.serial)
-                    service.show(phase,percent)
+                    service.show(token,phase,percent)
                     reporter.report(percent=percent,stage=if(phase=="Проверка синхронизации")TaskStage.VERIFYING else TaskStage.PROCESSING,
                         details=details(r,recovered),commands=setOf(TaskCommand.CANCEL),onCommand={if(it==TaskCommand.CANCEL)cancel(r.token.value)})
                 }
@@ -130,6 +147,7 @@ internal object LyricsAlignmentCoordinator {
                     resultMessage="Надёжная синхронизация не подтверждена. Обычный текст сохранён"
                 }else{
                     progress("Сохранение синхронизации",null)
+                    check(catalog.current()){"Доступ к медиатеке изменился"}
                     val timed=lines.mapIndexed{i,line->LyricLine(aligned.onsetsMs[i],line)}
                     check(store.saveAlignment(access,r.version,original,timed,::current)!=null){"Текст изменился или результат не сохранён"}
                     status=TaskStatus.COMPLETE;outcomes=TaskOutcomes(generated=1);resultMessage="Текст синхронизирован"
@@ -143,7 +161,7 @@ internal object LyricsAlignmentCoordinator {
         finally {
             withContext(NonCancellable) {
                 BackgroundMediaWork.setBusy("lyrics-alignment",false)
-                service.finishNotice()
+                service.finishNotice(token)
                 synchronized(this@LyricsAlignmentCoordinator){
                     job=null;supplied=null
                     if(status.terminal){checkpoint().delete();pending=null;notificationTaskId=null}
@@ -152,7 +170,8 @@ internal object LyricsAlignmentCoordinator {
                 else {
                     reporter.report(status,files=if(status==TaskStatus.COMPLETE||status==TaskStatus.PARTIAL)countProgress(1,1)else null,
                         errors=if(status==TaskStatus.FAILED)1 else 0,details=details(r,recovered,outcomes,failure))
-                    mutable.value=State(r.version,false,resultMessage,mutable.value.serial+1)
+                    mutable.value=State(r.version,false,resultMessage,mutable.value.serial+1,
+                        completedTextHash=if(status==TaskStatus.COMPLETE)r.text else null)
                 }
                 TaskHistoryStore.persistCurrent(TaskCenter.registry)
             }

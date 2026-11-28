@@ -144,11 +144,11 @@ internal fun TrackLyricsSheet(
         catch(_:Exception){if(key===latestKey)message="Трек недоступен"}
         finally {if(key===latestKey)loading=false}
     }
-    LaunchedEffect(alignment.serial,key) {
+    LaunchedEffect(alignment.serial,key,loading,version,lyrics) {
         if(alignment.version==version && !alignment.running && !loading) {
             try {
                 val verified=authorize();val found=read(verified)
-                if(key===latestKey && currentMedia()!=null){lyrics=found;message=alignment.message}
+                if(key===latestKey && currentMedia()!=null){lyrics=found;message=LyricsAlignmentCoordinator.messageFor(alignment,found)}
             }catch(cancelled:CancellationException){throw cancelled}
             catch(_:Exception){if(key===latestKey)message="Трек недоступен"}
         }

@@ -32,6 +32,13 @@ public final class AlignmentContractProbe {
     check(cancelled);
     float[][] bad=peaks(1,33);bad[0][0]=Float.NaN;
     check(CtcLyricsAligner.align(bad,new String[]{"а"},()->{})==null);
-    System.out.println("CTC contract: 7 scenarios PASS; synthetic, not Android/music calibration");
+    float[][] mismatch=new float[80][34];
+    for(int t=0;t<80;t++) {
+      double odds=t==1?1.5:(t>=50&&t<=61?.995:1e-7),z=1+odds+32e-12;
+      Arrays.fill(mismatch[t],(float)Math.log(1e-12/z));
+      mismatch[t][33]=(float)Math.log(1/z);mismatch[t][1]=(float)Math.log(odds/z);
+    }
+    check(CtcLyricsAligner.align(mismatch,new String[]{"а"},()->{})==null);
+    System.out.println("CTC contract: 8 scenarios PASS; synthetic, not Android/music calibration");
   }
 }

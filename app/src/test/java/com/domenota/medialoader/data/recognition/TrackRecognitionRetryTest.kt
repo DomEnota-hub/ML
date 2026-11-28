@@ -2,10 +2,43 @@ package com.domenota.medialoader.data.recognition
 
 import com.domenota.medialoader.core.recognition.*
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.awaitCancellation
 import org.junit.Assert.*
 import org.junit.Test
 
 class TrackRecognitionRetryTest {
+    @Test fun cancellationReturnsUnsubmittedWindowButKeepsAnAlreadySubmittedOne()=runBlocking {
+        val initial=TrackRetryState(listOf(0L,24000L),rejected=listOf(wrong))
+        for(sent in listOf(false,true)) {
+            var saved=initial;val waiting=CompletableDeferred<Unit>()
+            val provider=object:SubmissionAwareMusicRecognitionProvider {
+                override suspend fun recognize(pcm16Mono16k:ShortArray):MusicRecognitionResult? {
+                    if(sent)markRecognitionSubmission()
+                    waiting.complete(Unit);awaitCancellation()
+                }
+            }
+            val job=launch{TrackRecognitionRetry.search(initial,3,{pcm()},provider,{saved=it})}
+            waiting.await();job.cancelAndJoin()
+            assertEquals(if(sent)listOf(24000L)else initial.starts,saved.remaining)
+            assertEquals(initial.rejected,saved.rejected)
+        }
+    }
+    @Test fun laterLoopCooldownCannotUndoTheFirstSubmittedRequest()=runBlocking {
+        var requests=0
+        val api=ShazamApi {
+            requests++
+            if(requests==1){markRecognitionSubmission();null}
+            else throw ShazamRateLimitException(60000,requestSent=false)
+        }
+        val provider=ShazamRecognitionProvider(api){ShazamSignatureGenerator.Signature("fixture",4000)}
+        val initial=TrackRetryState(listOf(0L,24000L),rejected=listOf(wrong));var saved=initial
+        try{TrackRecognitionRetry.search(initial,3,{ShortArray(4*16000){1000}},provider,{saved=it});fail("Expected local cooldown")}
+        catch(_:ShazamRateLimitException){}
+        assertEquals(2,requests);assertEquals(listOf(24000L),saved.remaining)
+    }
     @Test fun localCooldownDoesNotConsumeUnsentWindowButActual429Does()=runBlocking {
         val initial=TrackRetryState(listOf(0L,24000L),rejected=listOf(wrong))
         for(sent in listOf(false,true)) {

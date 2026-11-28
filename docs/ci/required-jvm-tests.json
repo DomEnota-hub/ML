@@ -5790,6 +5790,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.AlignmentServiceRunSlotTest#duplicateStartDoesNotCreateAnotherExecutionAndLatestStartIdControlsShutdown": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.AlignmentServiceRunSlotTest#staleStartCannotStealOwnershipAndOldFinishCannotStopNewRequest": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.AsyncPlaybackConnectionTest#blockingBinderConstructionRunsOnWorkerAndCancelledResultReleasesOnApplicationThread": {
     "skipped": false,
     "failed": false
@@ -5983,6 +5991,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.playback.CrossfadePolicyTest#durationRespectsSpeedAndShortTracks": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.CtcLyricsAlignerTest#emittedOnsetMustBelongToItsOwnPosteriorInterval": {
     "skipped": false,
     "failed": false
   },
@@ -6266,6 +6278,10 @@
     "failed": false,
     "skipped": false
   },
+  "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#archiveChangeRevokesBackgroundWriteEvenWhenBookmarkLeaseStillPasses": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#downloadedCacheRequiresSameVersionAndNeverOverwritesImport": {
     "skipped": false,
     "failed": false
@@ -6306,6 +6322,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.LyricsAlignmentMessageTest#successRequiresRereadTimedLyricsForTheSameOriginalText": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.LyricsBatchPlanTest#checkpointRoundtripRetainsOnlyVersionHashesAndRetryFailures": {
     "skipped": false,
     "failed": false
@@ -6323,6 +6343,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.playback.LyricsBatchPlanTest#terminalCheckpointPreservesActualCompletionTime": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.LyricsPcmTimelineTest#continuousPtsAllowOnlyCodecRoundingAndRejectGapsOverlapsAndRateChanges": {
     "skipped": false,
     "failed": false
   },
@@ -7078,11 +7102,19 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.recognition.TrackRecognitionRetryTest#cancellationReturnsUnsubmittedWindowButKeepsAnAlreadySubmittedOne": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.recognition.TrackRecognitionRetryTest#conflictingIndependentResultIsNeverOfferedForWriting": {
     "skipped": false,
     "failed": false
   },
   "com.domenota.medialoader.data.recognition.TrackRecognitionRetryTest#firstMatchDoesNotDoubleRequestAndRetrySkipsRejectedAndConfirmsIndependently": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.recognition.TrackRecognitionRetryTest#laterLoopCooldownCannotUndoTheFirstSubmittedRequest": {
     "skipped": false,
     "failed": false
   },

@@ -14,33 +14,56 @@ import kotlinx.coroutines.*
 /** User-started local media processing; does not own or alter MediaSession. */
 class LyricsAlignmentService:Service() {
     private val scope=CoroutineScope(SupervisorJob()+Dispatchers.IO)
-    private var running=false
+    private val runs=AlignmentServiceRunSlot()
+    private var worker:Job?=null
     override fun onBind(intent:Intent?):IBinder?=null
     override fun onCreate(){
         super.onCreate()
         getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel(CHANNEL,"Синхронизация текста",NotificationManager.IMPORTANCE_LOW))
     }
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
+        runs.observe(startId)
         val token=intent?.getStringExtra("token")
         if(intent?.action==CANCEL){
             if(token!=null&&token==LyricsAlignmentCoordinator.token())LyricsAlignmentCoordinator.cancel(token)
-            if(!running)stopSelf(startId)
+            if(!runs.hasOwner())stopSelfResult(startId)
             return START_NOT_STICKY
         }
-        if(token==null||token!=LyricsAlignmentCoordinator.token()){stopSelf(startId);return START_NOT_STICKY}
-        val notice=notification("Подготовка синхронизации",null)
-        if(Build.VERSION.SDK_INT>=35)startForeground(ID,notice,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING)
-        else if(Build.VERSION.SDK_INT>=29)startForeground(ID,notice,ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-        else startForeground(ID,notice)
-        if(!running){running=true;scope.launch{try{LyricsAlignmentCoordinator.execute(this@LyricsAlignmentService)}finally{stopSelf()}}}
+        if(!runs.claim(token,startId,LyricsAlignmentCoordinator.token())) {
+            if(!runs.hasOwner())stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
+        val owned=requireNotNull(token)
+        try {
+            val notice=notification("Подготовка синхронизации",null,owned)
+            if(Build.VERSION.SDK_INT>=35)startForeground(ID,notice,ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING)
+            else if(Build.VERSION.SDK_INT>=29)startForeground(ID,notice,ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            else startForeground(ID,notice)
+        }catch(error:Exception){
+            LyricsAlignmentCoordinator.promotionFailed(owned,error)
+            finishNotice(owned)
+            runs.finish(owned)?.let{stopSelfResult(it)}
+            return START_NOT_STICKY
+        }
+        val previous=worker
+        worker=scope.launch {
+            try {
+                previous?.join()
+                LyricsAlignmentCoordinator.execute(this@LyricsAlignmentService,owned)
+            }finally{
+                runs.finish(owned)?.let{stopSelfResult(it)}
+            }
+        }
         return START_NOT_STICKY
     }
-    internal fun show(phase:String,percent:Int?){getSystemService(NotificationManager::class.java).notify(ID,notification(phase,percent))}
-    internal fun finishNotice(){stopForeground(STOP_FOREGROUND_REMOVE)}
-    override fun onTimeout(startId:Int,fgsType:Int){scope.cancel();finishNotice();stopSelf(startId)}
-    override fun onDestroy(){scope.cancel();super.onDestroy()}
-    private fun notification(phase:String,percent:Int?):Notification {
-        val token=LyricsAlignmentCoordinator.token()
+    internal fun show(token:String,phase:String,percent:Int?){if(runs.owns(token))getSystemService(NotificationManager::class.java).notify(ID,notification(phase,percent,token))}
+    internal fun finishNotice(token:String){if(runs.owns(token))stopForeground(STOP_FOREGROUND_REMOVE)}
+    override fun onTimeout(startId:Int,fgsType:Int){
+        runs.token()?.let{LyricsAlignmentCoordinator.serviceStopped(it);finishNotice(it)}
+        scope.cancel();stopSelf(startId)
+    }
+    override fun onDestroy(){runs.token()?.let(LyricsAlignmentCoordinator::serviceStopped);scope.cancel();super.onDestroy()}
+    private fun notification(phase:String,percent:Int?,token:String):Notification {
         val cancel=PendingIntent.getService(this,0,Intent(this,LyricsAlignmentService::class.java).setAction(CANCEL)
             .setData(android.net.Uri.parse("ml-task://lyrics-alignment/$token")).putExtra("token",token),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)

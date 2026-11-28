@@ -50,6 +50,8 @@ internal object LyricsAudioDecoder {
             var rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var encoding = AudioFormat.ENCODING_PCM_16BIT
+            require(rate in 16000..384000 && channels in 1..16)
+            val timeline=PcmTimeline()
             var inputDone = false
             var emptyPolls = 0
             val info = MediaCodec.BufferInfo()
@@ -71,10 +73,12 @@ internal object LyricsAudioDecoder {
                 when (val index = codec.dequeueOutputBuffer(info,10000)) {
                     MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         val output = codec.outputFormat
-                        rate = output.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-                        channels = output.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-                        encoding = if (output.containsKey(MediaFormat.KEY_PCM_ENCODING)) output.getInteger(MediaFormat.KEY_PCM_ENCODING) else AudioFormat.ENCODING_PCM_16BIT
-                        require(rate >= 16000 && channels in 1..16)
+                        val nextRate=output.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+                        val nextChannels=output.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        val nextEncoding=if(output.containsKey(MediaFormat.KEY_PCM_ENCODING))output.getInteger(MediaFormat.KEY_PCM_ENCODING)else AudioFormat.ENCODING_PCM_16BIT
+                        require(!started || (nextRate==rate && nextChannels==channels && nextEncoding==encoding)){"Формат PCM изменился"}
+                        rate=nextRate;channels=nextChannels;encoding=nextEncoding
+                        require(rate in 16000..384000 && channels in 1..16)
                     }
                     MediaCodec.INFO_TRY_AGAIN_LATER -> { check(++emptyPolls < 1000) { "Audio decoder stalled" } }
                     else -> if (index >= 0) {
@@ -85,8 +89,10 @@ internal object LyricsAudioDecoder {
                             val sampleBytes = when (encoding) { AudioFormat.ENCODING_PCM_16BIT -> 2; AudioFormat.ENCODING_PCM_FLOAT -> 4; else -> error("Unsupported PCM encoding") }
                             val frameBytes=sampleBytes*channels
                             val frames=buffer.remaining()/frameBytes
+                            require(info.presentationTimeUs in -1000000L..601000000L)
                             val skip=((startUs-info.presentationTimeUs).coerceAtLeast(0)*rate/1_000_000L).coerceAtMost(frames.toLong()).toInt()
                             val until=if(endUs==null)frames else ((endUs-info.presentationTimeUs).coerceAtLeast(0)*rate/1_000_000L).coerceAtMost(frames.toLong()).toInt()
+                            timeline.accept(info.presentationTimeUs+skip*1_000_000L/rate,(until-skip).coerceAtLeast(0),rate)
                             buffer.position(buffer.position()+skip*frameBytes)
                             if(!started&&until>skip){beginWindow((info.presentationTimeUs+skip*1_000_000L/rate)/1000);started=true}
                             repeat((until-skip).coerceAtLeast(0)) {

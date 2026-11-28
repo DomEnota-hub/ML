@@ -3,6 +3,8 @@ package com.domenota.medialoader.data.recognition
 import com.domenota.medialoader.core.recognition.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 internal enum class TrackVerification { FIRST_MATCH, CONFIRMED, UNCONFIRMED }
 internal data class CheckedAudioWindow(val startMs: Long, val durationMs: Long)
@@ -41,6 +43,7 @@ internal object TrackRecognitionRetry {
         if (state.candidate != null) return state
         var budget = maxAttempts
         val retry = state.rejected.isNotEmpty()
+        val aware=provider is SubmissionAwareMusicRecognitionProvider
         var proposed: RetryCandidate? = null
         while (budget > 0 && state.remaining.isNotEmpty()) {
             currentCoroutineContext().ensureActive()
@@ -55,16 +58,27 @@ internal object TrackRecognitionRetry {
             progress(TrackRecognitionProgress(index,state.starts.size,TrackRecognitionStage.DECODING,start,null))
             val pcm = decode(start)
             val window = CheckedAudioWindow(start, RecognitionAudio.durationMs(pcm))
-            state = state.copy(checked = state.checked + window)
-            persist(state)
+            val next=state.copy(checked=state.checked+window)
+            var reserved=false
+            suspend fun reserve(){state=next;reserved=true;persist(state)}
+            if(!aware || !RecognitionAudio.eligible(pcm))reserve()
             budget--
             if (!RecognitionAudio.eligible(pcm)) continue
             progress(TrackRecognitionProgress(index,state.starts.size,TrackRecognitionStage.SEARCHING,start,window.durationMs))
-            val result = try{provider.recognize(pcm)}catch(limit:ShazamRateLimitException){
-                // A local cooldown is not an acoustic attempt: do not burn an unseen window.
-                if(!limit.requestSent){state=state.copy(checked=state.checked.dropLast(1));persist(state)}
-                throw limit
-            }?.takeIf { it.title.isNotBlank() && it.artist.isNotBlank() } ?: continue
+            // Do not durably spend a fragment while waiting for the shared network gate.
+            val submission=RecognitionSubmission{withContext(NonCancellable){reserve()}}
+            val result = try{
+                if(aware)withContext(submission){provider.recognize(pcm)} else provider.recognize(pcm)
+            }catch(failure:Exception){
+                val unsent=if(aware)!submission.sent else failure is ShazamRateLimitException&&!failure.requestSent
+                if(unsent && reserved) {
+                    // Cancellation during mutex/spacing waits must not spend a fragment.
+                    // A later loop wait cannot undo an earlier actual send in this scope.
+                    try{withContext(NonCancellable){state=state.copy(checked=state.checked.dropLast(1));persist(state)}}
+                    catch(saveFailure:Exception){failure.addSuppressed(saveFailure)}
+                }
+                throw failure
+            }.also{if(aware&&!reserved)reserve()}?.takeIf { it.title.isNotBlank() && it.artist.isNotBlank() } ?: continue
             if (state.rejected.any { rejectedRecognition(it,result) }) {
                 // A repeat of the rejected song is not an alternative or a confirmation.
                 if(pending!=null){

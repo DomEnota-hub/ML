@@ -1,3 +1,17 @@
+# Current status — 28 November 2026, 19:51 MSK
+
+RELEASE_HOLD / RESEARCH_NOT_READY. Owner explicitly deferred release after MUKKA rejection. Last delivered remains1.7.239(299), no new APK or version. Prior sections below are historical checkpoints and do not override this status.
+
+CI317 on97cf9a0: editors912/912 PASS; AndroidTest sources compile. Current review corrections require quick-archive and mandatory Lint. No QA candidate, signing or delivery in this check.
+
+CTC qa2 local Java contract:8/8 synthetic scenarios PASS; emitted Viterbi onset must lie inside its own narrow posterior interval. Retained emissions: Markul54/54 accepted unchanged, MUKKA declined, reversed/foreign pairs declined. No new inference, independent full-song calibration or Android performance evidence. Numeric outcomes are in docs/research/2026-11-28-ctc-qa2-contract.json. Full-mix LRC references remain candidate references, not ear-validated ground truth.
+
+Review fixes prepared: full background visibility admission, continuous PCM timeline validation, token-owned service lifecycle, cancellation-safe Shazam request accounting and current-text-bound completion feedback. Their Android regressions and Lint are not yet confirmed.
+
+The explicit automatic action writes a guarded generated-cache overlay atomically; original words remain unchanged. Supersedes the earlier pilot suggestion of a separate preview/save step. Existing authoritative synced lyrics are never overwritten.
+
+---
+
 # QA238-09 continuation checkpoint — 28 November 2026
 
 Last delivered1.7.239/299, delivered SHA c2a61fce5f8d8c623696f64666e833549d2100d5. Current branch research/ml-ci-optimization-20261126, PR200 draft, DO NOT MERGE. No new version, APK or device acceptance.

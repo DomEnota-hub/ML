@@ -6,6 +6,15 @@ import org.junit.Test
 import kotlin.math.ln
 
 class CtcLyricsAlignerTest {
+    @Test fun emittedOnsetMustBelongToItsOwnPosteriorInterval() {
+        val p=Array(80){t->
+            val odds=if(t==1)1.5 else if(t in 50..61).995 else 1e-7
+            val z=1+odds+32e-12
+            FloatArray(34){v->ln(when(v){33->1/z;1->odds/z;else->1e-12/z}).toFloat()}
+        }
+        // Viterbi enters at40ms, but97% of valid paths enter around2s.
+        assertNull(CtcLyricsAligner.align(p,arrayOf("а")){})
+    }
     private fun peaks(vararg labels:Int)=Array(labels.size){t->FloatArray(34){v->ln(if(v==labels[t]) .99 else .01/33).toFloat()}}
     @Test fun repeatsRequireBlankAndPausesDoNotReceiveInterpolatedLines() {
         val result=CtcLyricsAligner.align(peaks(33,1,33,1,33,0,33,2,33),arrayOf("аа","б")){}
