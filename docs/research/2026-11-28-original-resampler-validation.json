@@ -127,7 +127,15 @@
   "unsupported_native_rates": "decline; supported original rates8/11.025/16/22.05/24/32/44.1/48kHz;16k direct",
   "limitations": [
     "MediaCodec/device clock and native Android ORT are not measured",
-    "Full-song chosen-model revalidation with original resampling frontend still pending",
+    "Full-song chosen-model changed-frontend probe completed separately: Markul accepted, MUKKA declined; public candidate LRC only",
+    "Independent unique singing changed-frontend probe14/15 accepted, one alto only",
     "This validation cannot clear release hold"
-  ]
+  ],
+  "synthetic_tone_source": {
+    "sample_rate": 48000,
+    "duration_seconds": 2,
+    "amplitude": 1,
+    "waveform": "sine",
+    "discard_output_edge_samples": 1600
+  }
 }

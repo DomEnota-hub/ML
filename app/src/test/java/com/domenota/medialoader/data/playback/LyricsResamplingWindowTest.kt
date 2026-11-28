@@ -11,12 +11,12 @@ class LyricsResamplingWindowTest {
             val stream=PcmResamplingWindow(rate,{input->
                 largest=maxOf(largest,input.size)
                 // An ideal resampler of an absolute-index ramp is analytically known.
-                FloatArray(((input.size.toLong()*16000+rate-1)/rate).toInt()){i->input[0]+(i*rate/16000.0).toFloat()}
+                FloatArray(((input.size.toLong()*16000+rate-1)/rate).toInt()){i->input[0]+(i.toDouble()*rate/16000.0).toFloat()}
             },{result.add(it)},{})
             val count=rate*3+17
             repeat(count){stream.accept(it.toFloat())};stream.finish();stream.finish()
             assertEquals(((count.toLong()*16000+rate-1)/rate).toInt(),result.size)
-            result.forEachIndexed{i,value->assertEquals(i*rate/16000.0,value.toDouble(),.02)}
+            result.forEachIndexed{i,value->assertEquals(i.toDouble()*rate/16000.0,value.toDouble(),.02)}
             assertTrue(largest<=rate+2*(rate/25))
         }
     }

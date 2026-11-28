@@ -1,0 +1,176 @@
+{
+  "status": "RESEARCH_ONLY_NOT_RELEASE_READY",
+  "runtime": "1.20.0",
+  "device": "Linux CPU, not Android",
+  "algorithm": "gigaam-ctc-qa4",
+  "frontend": "Arithmetic channel mean + original fixed onnx-asr resampling filters; source/native timeline not measured on Android",
+  "unit": "one complete short singing phrase",
+  "dataset_revision": "4426c862beed558b7e1cb8a4dce7e8c0c83bb208",
+  "excluded": [
+    {
+      "id": "gts-01",
+      "reason": "paired_speech"
+    },
+    {
+      "id": "gts-06",
+      "reason": "paired_speech"
+    },
+    {
+      "id": "gts-14",
+      "reason": "paired_speech"
+    },
+    {
+      "id": "gts-16",
+      "reason": "duplicate_audio_hash"
+    },
+    {
+      "id": "gts-19",
+      "reason": "duplicate_audio_hash"
+    }
+  ],
+  "cases": [
+    {
+      "id": "gts-00",
+      "source_sha256": "acb4f276e3fe61e39d097f1d4e1979d1abd0ccd3ad7284a2740d09ea0ad2ea0a",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 280.0,
+      "onset_ms": 400,
+      "signed_error_ms": 120.0
+    },
+    {
+      "id": "gts-02",
+      "source_sha256": "104058715547c928576abedef8652e5323b6ad4c47d35e6e55ef8c46ea10be86",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 970.0,
+      "onset_ms": 1080,
+      "signed_error_ms": 110.0
+    },
+    {
+      "id": "gts-03",
+      "source_sha256": "585b0bef1c822df5817f9c8f07483efa941f4377e84cddf170cee3a018e1a11c",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 0.0,
+      "onset_ms": 240,
+      "signed_error_ms": 240.0
+    },
+    {
+      "id": "gts-04",
+      "source_sha256": "07dac82c2d34c659edc6cd1c4fde01614f35261d254e2ce2536972700a72ec9c",
+      "accepted": false,
+      "foreign_accepted": false,
+      "reference_onset_ms": 1140.0
+    },
+    {
+      "id": "gts-05",
+      "source_sha256": "f32e960f7eb06415b44cefe0e0a5736a8dcb0454f37829c6383d82e01470a77a",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 260.0,
+      "onset_ms": 320,
+      "signed_error_ms": 60.0
+    },
+    {
+      "id": "gts-07",
+      "source_sha256": "65879c4cf1a2ac0f30064cf5e62c6b4a858bc9b6f65f967401aa35662ec81ac0",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 1320.0,
+      "onset_ms": 1480,
+      "signed_error_ms": 160.0
+    },
+    {
+      "id": "gts-08",
+      "source_sha256": "0839b9ef90f83044c4f0886c8fd109f60a871200307b3df7aa9b52faa9c02d01",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 120.0,
+      "onset_ms": 280,
+      "signed_error_ms": 160.0
+    },
+    {
+      "id": "gts-09",
+      "source_sha256": "02f596a06baeb6d6efb66eec7f5e9c688244a503aa94234f4b08e134b7bbe4e1",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 430.0,
+      "onset_ms": 560,
+      "signed_error_ms": 130.0
+    },
+    {
+      "id": "gts-10",
+      "source_sha256": "e503f498bd03df37e9297f18f329959d8d0bdae74c1b94710b8a9dcb95691cd8",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 460.0,
+      "onset_ms": 560,
+      "signed_error_ms": 100.0
+    },
+    {
+      "id": "gts-11",
+      "source_sha256": "eb153dfc953317f2a649d8c17d30cd5448213fcd3bcd9f1631f252a606d15e0c",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 370.0,
+      "onset_ms": 480,
+      "signed_error_ms": 110.0
+    },
+    {
+      "id": "gts-12",
+      "source_sha256": "97f3cb2e568ff833adc7a5ee0275f901c4e47a3a7bf786eb8d1aecc190961474",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 180.0,
+      "onset_ms": 360,
+      "signed_error_ms": 180.0
+    },
+    {
+      "id": "gts-13",
+      "source_sha256": "13ca635c89df26d805c31d3ab9c736e5a1bc6c5c383fb80b54686c00bf10c672",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 0.0,
+      "onset_ms": 120,
+      "signed_error_ms": 120.0
+    },
+    {
+      "id": "gts-15",
+      "source_sha256": "1c829e1dfeb58fe0b33e4abecdc6f42a544e9719fce4b056bad1f91dbe993470",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 160.0,
+      "onset_ms": 440,
+      "signed_error_ms": 280.0
+    },
+    {
+      "id": "gts-17",
+      "source_sha256": "72e62c9c9b3477ffb3c4d3c4d986784da8d16edb5643c2854709f52b49f41794",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 280.0,
+      "onset_ms": 360,
+      "signed_error_ms": 80.0
+    },
+    {
+      "id": "gts-18",
+      "source_sha256": "d6ef218d3004e77043632ed04e3ed63685ec884db3de6aacf1ed6f1598b9c80d",
+      "accepted": true,
+      "foreign_accepted": false,
+      "reference_onset_ms": 120.0,
+      "onset_ms": 200,
+      "signed_error_ms": 80.0
+    }
+  ],
+  "limitations": "15 unique short singing clips, one Russian alto; not full-song/genre/long-track/Android acceptance. No posthoc thresholds or offset corrections.",
+  "summary": {
+    "accepted": 14,
+    "total": 15,
+    "foreign_accepted": 0,
+    "median_abs_ms": 120.0,
+    "p90_abs_ms": 222.00000000000006,
+    "max_abs_ms": 280.0,
+    "within500_count": 14
+  }
+}
