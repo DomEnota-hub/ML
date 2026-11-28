@@ -2826,6 +2826,14 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.editor.EditorExportNotificationsTest#batchOutcomeIsTypedAndExceptionContentsNeverBecomeNotificationText": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.editor.EditorExportNotificationsTest#staleCancelNeverAppliesToNewOperationOrProtectedOriginalWrite": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.editor.GlyphContentMaskTest#blankPhotoNeverProducesASyntheticRectangularMask": {
     "skipped": false,
     "failed": false
@@ -6222,11 +6230,19 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#explicitNetworkReplacementOverridesImportButAutomaticLookupDoesNot": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#importedDocumentIsVersionScopedAndPrivacyRemovalIsTargeted": {
     "skipped": false,
     "failed": false
   },
   "com.domenota.medialoader.data.playback.LocalTrackLyricsTest#localSidecarRequiresLivePublicSourceAndNeverWritesAudio": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.playback.LrclibLyricsProviderTest#bothSupplierVersionsRemainSelectableWithoutChangingWordsOrPauseTiming": {
     "skipped": false,
     "failed": false
   },
@@ -7615,6 +7631,18 @@
     "failed": false
   },
   "com.domenota.medialoader.data.tasks.TaskHistoryCodecTest#typedHistoryRoundTripsWithoutExecutableOrPrivateMetadata": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskNotificationsTest#iconsAreDistinctAndCompletionHasOnlyOneOwner": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskNotificationsTest#notificationOnlyAcceptsOpaqueTaskIdsAndConsumptionIsRequestBound": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.tasks.TaskNotificationsTest#realCountersDistinguishCacheSkipsErrorsAndPausedWaitingStates": {
     "skipped": false,
     "failed": false
   },
@@ -10951,6 +10979,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.screens.tasks.TaskCenterUiTest#lyricsPausedTaskDispatchesResumeAndCancel": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.screens.tasks.TaskCenterUiTest#notificationOpensExactHistoricalTaskAndExpandedResult": {
     "skipped": false,
     "failed": false
   },

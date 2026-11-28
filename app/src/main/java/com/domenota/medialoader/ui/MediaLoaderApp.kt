@@ -318,7 +318,8 @@ fun MediaLoaderApp(
     var journalRequested by rememberSaveable{mutableStateOf(false)}
     val journalUnlocked=rememberJournalUnlocked(uiPrefs)
     val journalViewerState=remember { com.domenota.medialoader.ui.screens.JournalViewerState() }
-    LaunchedEffect(journalUnlocked){if(!journalUnlocked)journalViewerState.clear()}
+    val taskJournalSession=remember{com.domenota.medialoader.ui.screens.TaskJournalSession()}
+    LaunchedEffect(journalUnlocked){if(!journalUnlocked){journalViewerState.clear();taskJournalSession.clear()}}
     val drawerConfiguration=rememberDrawerConfiguration(uiPrefs)
     val advancedDrawerTools=com.domenota.medialoader.ui.navigation.rememberAdvancedDrawerTools(uiPrefs)
     val phoneGallery by libraryModel.gallery.collectAsStateWithLifecycle()
@@ -2122,6 +2123,15 @@ fun MediaLoaderApp(
         }
     }
 
+    val taskNotificationRequest by com.domenota.medialoader.data.tasks.TaskNotificationNavigation.request.collectAsStateWithLifecycle()
+    LaunchedEffect(taskNotificationRequest,privateNavigation) {
+        val request=taskNotificationRequest ?: return@LaunchedEffect
+        if(privateNavigation)return@LaunchedEffect
+        navController.navigate("task-center"){launchSingleTop=true}
+        navController.currentBackStackEntry?.savedStateHandle?.set("notification_task",request.id)
+        navController.currentBackStackEntry?.savedStateHandle?.set("notification_sequence",request.sequence)
+        com.domenota.medialoader.data.tasks.TaskNotificationNavigation.consume(request)
+    }
     LaunchedEffect(shortcutMode, shortcutGeneration) {
         val mode = shortcutMode ?: return@LaunchedEffect
         if (mode != AppMode.GALLERY && mode != AppMode.MUSIC) return@LaunchedEffect
@@ -2232,7 +2242,9 @@ fun MediaLoaderApp(
             LibraryRouteContent("task-center") {
                 val focusOcr=navController.currentBackStackEntry?.savedStateHandle?.get<Boolean>("focus_ocr")==true
                 com.domenota.medialoader.ui.screens.tasks.TaskCenterScreen(journalAllowed=journalUnlocked,
-                    canReadJournal={JournalAccess.allowed(uiPrefs)},ocr=galleryOcr,initialOcrFocus=focusOcr) { navController.popBackStack() }
+                    canReadJournal={JournalAccess.allowed(uiPrefs)},ocr=galleryOcr,initialOcrFocus=focusOcr,
+                    initialTaskId=navController.currentBackStackEntry?.savedStateHandle?.get<String>("notification_task"),
+                    notificationSequence=navController.currentBackStackEntry?.savedStateHandle?.get<Long>("notification_sequence") ?: 0L) { navController.popBackStack() }
             },
             LibraryRouteContent(AppDestination.Home.route) {
                 CompositionLocalProvider(LocalDrawerAdmission provides drawerAdmission.takeIf{currentRoute==AppDestination.Home.route}){
@@ -3832,7 +3844,8 @@ fun MediaLoaderApp(
             onExit = if (appMode != AppMode.DOWNLOADER && currentRoute == AppDestination.Home.route)
                 ({ changeAppMode(AppMode.DOWNLOADER) }) else null,
         ) {
-        CompositionLocalProvider(com.domenota.medialoader.ui.screens.LocalJournalViewerState provides journalViewerState) {
+        CompositionLocalProvider(com.domenota.medialoader.ui.screens.LocalJournalViewerState provides journalViewerState,
+            com.domenota.medialoader.ui.screens.LocalTaskJournalSession provides taskJournalSession) {
         StableLibraryNavHost(
             navController = navController,
             startDestination = AppDestination.Home.route,

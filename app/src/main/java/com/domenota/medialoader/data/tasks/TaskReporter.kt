@@ -4,6 +4,7 @@ import java.util.UUID
 
 /** Observes executor events; never starts, retries or schedules work itself. */
 internal class TaskReporter private constructor(private val owner: TaskOwner, private val kind: TaskKind, private val id: String) {
+    val taskId:String get()=id
     private var last: TaskSnapshot? = null
     private var operation: TaskDetails? = null
     @Synchronized fun report(status: TaskStatus = TaskStatus.RUNNING, files: TaskProgress? = null,

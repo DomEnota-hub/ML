@@ -106,6 +106,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
@@ -844,7 +845,7 @@ fun SettingsScreen(
 
     if (recoveryLabOpen && (developerVisible || recoveryLabBusy)) {
         androidx.activity.compose.BackHandler { setRecoveryLabOpen(false) }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        Column(Modifier.fillMaxSize().then(if(logsDialog)Modifier.clearAndSetSemantics{} else Modifier).verticalScroll(rememberScrollState())
             .padding(horizontal=20.dp,vertical=12.dp)){
             TextButton(onClick={setRecoveryLabOpen(false)},enabled=!recoveryLabBusy){Text("Назад")}
         // Temporary MediaStore/EXIF migration laboratory. To retire after the

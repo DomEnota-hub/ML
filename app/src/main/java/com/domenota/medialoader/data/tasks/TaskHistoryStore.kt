@@ -38,6 +38,7 @@ internal object TaskHistoryStore {
         mutable.value=TaskSettings(prefs.getInt("retention",7).takeIf{it in TaskSettings.RETENTION}?:7,
             prefs.getBoolean("charging",false),prefs.getBoolean("batterySaver",true),prefs.getBoolean("notifications",false))
         registry.configure(mutable.value.retention) { row -> scope.launch { notifyCompletion(context,row) } }
+        TaskNotifications.observe(context,registry,scope)
         val file=AtomicFile(File(context.noBackupFilesDir,"task-center-history.json"))
         historyFile=file
         scope.launch {
@@ -103,15 +104,15 @@ internal object TaskHistoryStore {
         return indexingWait(s,localChargeOnly,charging,powerSave)
     }
     private fun notifyCompletion(context: Context,row:TaskSnapshot) {
-        if(!settings.value.notifications || row.kind !in setOf(TaskKind.EXPORT,TaskKind.BATCH_EDIT,TaskKind.OCR,TaskKind.MODEL))return
+        if(!settings.value.notifications || !TaskNotifications.completionOwned(row.kind,row.status))return
         if(Build.VERSION.SDK_INT>=33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)return
         runCatching {
             val manager=context.getSystemService(NotificationManager::class.java)
             val channel="task-center-completion"
             manager.createNotificationChannel(NotificationChannel(channel,"Завершение задач",NotificationManager.IMPORTANCE_DEFAULT))
-            manager.notify(row.id.hashCode(),Notification.Builder(context,channel)
-                .setSmallIcon(android.R.drawable.stat_sys_download_done).setContentTitle(row.kind.label)
-                .setContentText(row.status.label).setAutoCancel(true).build())
+            manager.notify("ml-task-result",row.id.hashCode(),TaskNotifications.apply(context,
+                androidx.core.app.NotificationCompat.Builder(context,channel),row,actions=false)
+                .setAutoCancel(true).build())
         }
     }
     internal fun encode(data:TaskHistoryData)=JSONObject().put("clearedAt",data.clearedAt).put("rows",JSONArray(data.rows.filter{it.status.terminal}.map { row ->

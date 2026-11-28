@@ -38,10 +38,14 @@ class MediaProcessingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if(intent?.action==ACTION_CANCEL && !coordinator.state.value.canCancelNotification(intent.getStringExtra("operation_nonce"))){
+            if(!coordinator.state.value.exporting)stopSelf()
+            return START_NOT_STICKY
+        }
         startAsForeground(coordinator.state.value)
 
         if (intent?.action == ACTION_CANCEL) {
-            coordinator.cancel("Обработка отменена")
+            coordinator.cancelFromNotification(intent.getStringExtra("operation_nonce"))
         }
 
         if (observer == null) {
@@ -112,64 +116,38 @@ class MediaProcessingService : Service() {
     }
 
     private fun notification(state: EditorExportState): Notification {
-        val openIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val cancelIntent = PendingIntent.getService(
-            this,
-            1,
-            Intent(this, MediaProcessingService::class.java).setAction(ACTION_CANCEL),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val openIntent = com.domenota.medialoader.data.tasks.TaskNotifications.open(this,state.notificationTaskId)
+        val cancelIntent = PendingIntent.getService(this,state.notificationNonce.hashCode(),
+            Intent(this,MediaProcessingService::class.java).setAction(ACTION_CANCEL)
+                .setData(android.net.Uri.parse("ml-task://cancel-export/${state.notificationNonce}"))
+                .putExtra("operation_nonce",state.notificationNonce),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-        return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle(state.operation)
-            .setContentText(
-                if (state.progress > 0) "Готово на ${state.progress}%"
-                else "Подготовка…",
-            )
+        return com.domenota.medialoader.data.tasks.TaskNotifications.decorate(NotificationCompat.Builder(this,CHANNEL),
+            if(state.notificationTotal!=null)com.domenota.medialoader.data.tasks.TaskKind.BATCH_EDIT else com.domenota.medialoader.data.tasks.TaskKind.EXPORT,
+            state.operation,if(state.progress>0)"Готово на ${state.progress}%" else "Подготовка…")
             .setProgress(100, state.progress.coerceIn(0, 100), state.progress <= 0)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(openIntent)
-            .addAction(0, "Отменить", cancelIntent)
+            .also{if(state.canCancelNotification(state.notificationNonce))it.addAction(0,"Отменить",cancelIntent)}
             .build()
     }
 
     private fun completionNotification(state: EditorExportState): Notification {
-        val openIntent = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val success = state.completedItemId != null
-        return NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(
-                if (success) android.R.drawable.stat_sys_download_done
-                else android.R.drawable.stat_notify_error,
-            )
-            .setContentTitle(if (success) "Обработка завершена" else "Ошибка обработки")
-            .setContentText(
-                if (success) state.outputDetails ?: state.operation
-                else state.message ?: "Не удалось обработать файл",
-            )
+        val content=editorNotificationMessage(state)
+        return com.domenota.medialoader.data.tasks.TaskNotifications.decorate(
+            NotificationCompat.Builder(this,CHANNEL),
+            if(state.notificationTotal!=null)com.domenota.medialoader.data.tasks.TaskKind.BATCH_EDIT else com.domenota.medialoader.data.tasks.TaskKind.EXPORT,
+            content.first,content.second)
             .setAutoCancel(true)
-            .setContentIntent(openIntent)
+            .setContentIntent(com.domenota.medialoader.data.tasks.TaskNotifications.open(this,state.notificationTaskId))
             .build()
     }
 
     companion object {
         private const val CHANNEL = "media_processing"
-        private const val NOTIFICATION_ID = 8293
+        private const val NOTIFICATION_ID = 8491
         private const val ACTION_CANCEL = "com.domenota.medialoader.CANCEL_MEDIA_PROCESSING"
 
         fun start(context: Context) {

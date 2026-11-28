@@ -5,6 +5,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import com.domenota.medialoader.data.tasks.*
 import org.junit.Rule
@@ -81,4 +82,17 @@ class TaskCenterUiTest {
         compose.onNodeWithText("Отмена").performClick()
         compose.runOnIdle{org.junit.Assert.assertEquals(listOf(task.id to TaskCommand.PAUSE,task.id to TaskCommand.CANCEL),seen)}
     }
+    @Test fun notificationOpensExactHistoricalTaskAndExpandedResult() {
+        val task=TaskSnapshot(taskId(TaskOwner.WAVEFORM,"notification"),TaskKind.WAVEFORM,TaskStatus.PARTIAL,
+            files=TaskProgress(2,2),updatedAt=100,details=TaskDetails(TaskCorrelation.create(),10,
+                TaskTrigger.PERIODIC,outcomes=TaskOutcomes(cached=1,failed=1)))
+        compose.setContent { MaterialTheme(colorScheme=darkColorScheme()) {
+            TaskCenterContent(listOf(task),emptyList(),setOf(TaskOwner.WAVEFORM),{},{},{_,_->false},
+                initialTaskId=task.id,notificationSequence=1)
+        } }
+        compose.waitUntil(10000){compose.onAllNodesWithText("Уже в кэше:").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithText("Уже в кэше:").assertExists()
+        compose.onNodeWithText("2 из 2 треков").assertExists()
+    }
+
 }

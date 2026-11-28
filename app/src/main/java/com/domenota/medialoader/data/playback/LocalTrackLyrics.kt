@@ -28,9 +28,8 @@ internal class LocalTrackLyrics(private val context:Context) {
         return (ref.aliases + ref.key + ref.item.id + listOfNotNull(ref.appDownloadId) +
             PublicMediaIdentity.uriKeys(source(access).toString())).mapTo(linkedSetOf(),::hash)
     }
-    private fun load(key:String,access:AudioBookmarkAdmission):TrackLyrics?=runCatching {
-        val f=file(key)
-        val o=readRecord(f) ?: return@runCatching null
+    private fun load(key:String,access:AudioBookmarkAdmission,o:JSONObject?=readRecord(file(key))):TrackLyrics?=runCatching {
+        if(o==null)return@runCatching null
         if(o.getInt("schema")!=2 || o.getString("key")!=key || recordAliases(o).none(aliases(access)::contains)) return@runCatching null
         val rows=o.getJSONArray("timed")
         if(rows.length()>LyricsParser.MAX_LINES) return@runCatching null
@@ -63,11 +62,16 @@ internal class LocalTrackLyrics(private val context:Context) {
         val uri=source(access)
         val version=key(uri) ?: return null
         if(!readable(uri)) return null
-        val cached=synchronized(DuplicatePrivacyGuard.lock) {
-            if(admitted(access,allowed)) load(version,access) else null
+        val record=synchronized(DuplicatePrivacyGuard.lock) {
+            if(admitted(access,allowed)){
+                val json=readRecord(file(version))
+                load(version,access,json) to (json?.optBoolean("preferred",false)==true)
+            }else null
         }
         if(!admitted(access,allowed)) return null
-        val imported=cached?.takeIf{it.origin==LyricsOrigin.IMPORTED}
+        val cached=record?.first
+        val preferred=cached?.takeIf{it.origin==LyricsOrigin.IMPORTED || record?.second==true}
+        val imported=preferred
         val embedded=if(imported==null) runCatching {
             context.contentResolver.openInputStream(uri)?.use(EmbeddedLyrics::read)
         }.getOrNull() else null
@@ -82,7 +86,7 @@ internal class LocalTrackLyrics(private val context:Context) {
         if(!readable(uri)) return null
         val lyrics=runCatching{context.contentResolver.openInputStream(document)?.use(LyricsParser::read)}
             .getOrNull()?.let{LyricsParser.parse(it,LyricsOrigin.IMPORTED)} ?: return null
-        return persist(access,version,lyrics,allowed)
+        return persist(access,version,lyrics,allowed,preferred=true)
     }
     fun versionKey(access:AudioBookmarkAdmission,allowed:()->Boolean):String? {
         if(!admitted(access,allowed))return null
@@ -120,21 +124,26 @@ internal class LocalTrackLyrics(private val context:Context) {
         if(lyrics.origin!=LyricsOrigin.LRCLIB || !networkCurrent(access,target,allowed)) return null
         return persist(access,target.version,lyrics,allowed)
     }
-    private fun persist(access:AudioBookmarkAdmission,version:String,lyrics:TrackLyrics,allowed:()->Boolean):TrackLyrics? {
+    /** Explicit user selection may replace an imported/default version; background search cannot. */
+    fun replaceNetwork(access:AudioBookmarkAdmission,target:NetworkLyricsTarget,lyrics:TrackLyrics,allowed:()->Boolean):TrackLyrics? {
+        if(lyrics.origin!=LyricsOrigin.LRCLIB || !networkCurrent(access,target,allowed))return null
+        return persist(access,target.version,lyrics,allowed,preferred=true)
+    }
+    private fun persist(access:AudioBookmarkAdmission,version:String,lyrics:TrackLyrics,allowed:()->Boolean,preferred:Boolean=false):TrackLyrics? {
         if(!admitted(access,allowed)) return null
         val uri=source(access)
         if(key(uri)!=version) return null
         val addressAliases=aliases(access)
         if(addressAliases.size !in 1..256) return null
         val o=JSONObject().put("schema",2).put("key",version).put("plain",lyrics.plain)
-            .put("origin",lyrics.origin.name).put("aliases",JSONArray(addressAliases.sorted()))
+            .put("origin",lyrics.origin.name).put("preferred",preferred).put("aliases",JSONArray(addressAliases.sorted()))
             .put("timed",JSONArray().apply{lyrics.timed.forEach{put(JSONArray().put(it.atMs).put(it.text))}})
         val bytes=o.toString().toByteArray(Charsets.UTF_8)
         if(bytes.size>2*LyricsParser.MAX_BYTES) return null
         if(key(uri)!=version || !readable(uri)) return null
         val stored=synchronized(DuplicatePrivacyGuard.lock) {
             if(!admitted(access,allowed) || key(uri)!=version) return@synchronized false
-            if(lyrics.origin==LyricsOrigin.LRCLIB && load(version,access)?.origin==LyricsOrigin.IMPORTED) return@synchronized false
+            if(!preferred && lyrics.origin==LyricsOrigin.LRCLIB && (load(version,access)?.origin==LyricsOrigin.IMPORTED || readRecord(file(version))?.optBoolean("preferred",false)==true)) return@synchronized false
             runCatching {
                 check(root.isDirectory || root.mkdirs())
                 val f=AtomicFile(file(version))

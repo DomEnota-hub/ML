@@ -52,4 +52,16 @@ class LrclibLyricsProviderTest {
         val malformed=LrclibLyricsProvider({_,_->LyricsHttpResponse(200,"application/json",null,"broken")},{1000L},{})
         assertEquals(LyricsLookup.Unavailable,malformed.search(track){true})
     }
+    @Test fun bothSupplierVersionsRemainSelectableWithoutChangingWordsOrPauseTiming() {
+        val payload=row(1).replace("Invented fixture\",\"syncedLyrics", "Plain original\",\"syncedLyrics")
+            .replace("[00:01.00]Invented fixture", "[00:01.00]Synced original\\n[00:02.00]\\n[00:03.00]Last line")
+        val hit=LrclibProtocol.parse("[$payload]").single()
+        assertEquals(2,hit.variants.size)
+        assertEquals("Plain original",hit.variants.single{it.timed.isEmpty()}.plain)
+        val timed=hit.variants.single{it.timed.isNotEmpty()}
+        assertEquals(listOf(1000L,2000L,3000L),timed.timed.map{it.atMs})
+        assertEquals("",timed.timed[1].text)
+        assertEquals("Synced original",timed.timed[0].text)
+    }
+
 }

@@ -17,7 +17,9 @@ import kotlin.math.roundToLong
 import kotlin.random.Random
 
 internal data class NetworkLyricsTarget(val version:String,val signature:LyricsTrackSignature)
-internal data class NetworkLyricsHit(val candidate:LyricsCandidate,val lyrics:TrackLyrics?)
+internal data class NetworkLyricsHit(val candidate:LyricsCandidate,val lyrics:TrackLyrics?,val plainLyrics:TrackLyrics?=null) {
+    val variants:List<TrackLyrics> get()=listOfNotNull(lyrics,plainLyrics).distinct()
+}
 internal sealed interface LyricsLookup {
     data class Matches(val hits:List<NetworkLyricsHit>):LyricsLookup
     data class RetryLater(val seconds:Long):LyricsLookup
@@ -52,7 +54,7 @@ internal object LrclibProtocol {
             fun text(key:String)=if(row.isNull(key)) null else row.getString(key).takeIf{it.length<=LyricsParser.MAX_TEXT}
             val synced=if(instrumental)null else text("syncedLyrics")?.let{LyricsParser.parse(it,LyricsOrigin.LRCLIB)}?.takeIf{it.timed.isNotEmpty()}
             val plain=if(instrumental)null else text("plainLyrics")?.let{LyricsParser.parse(it,LyricsOrigin.LRCLIB)}
-            NetworkLyricsHit(LyricsCandidate(id,signature,instrumental),synced ?: plain)
+            NetworkLyricsHit(LyricsCandidate(id,signature,instrumental),synced ?: plain,plain)
         }
         require(hits.groupBy{it.candidate.id}.values.none{it.distinct().size>1})
         return hits.distinctBy{it.candidate.id}

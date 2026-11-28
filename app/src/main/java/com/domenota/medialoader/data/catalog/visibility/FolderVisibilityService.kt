@@ -1,5 +1,6 @@
 package com.domenota.medialoader.data.catalog.visibility
 
+import com.domenota.medialoader.data.tasks.*
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -47,6 +48,9 @@ class FolderVisibilityService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var operation: Job? = null
     private var observer: Job? = null
+    private var reporter:TaskReporter?=null
+    private var taskTerminal=false
+    private var reportedStatus:TaskStatus?=null
 
     override fun onCreate() {
         super.onCreate()
@@ -102,8 +106,10 @@ class FolderVisibilityService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        reporter=TaskReporter.create(TaskOwner.FILES,TaskKind.FILE_OPERATION,"visibility:$id")
         observer = scope.launch {
             coordinator.state.collectLatest { snapshot ->
+                reportNotificationState(snapshot)
                 runCatching {
                     getSystemService(NotificationManager::class.java)
                         .notify(NOTIFICATION_ID,buildNotification(snapshot))
@@ -114,7 +120,7 @@ class FolderVisibilityService : Service() {
             try { coordinator.executeReserved(request) }
             // A duplicate/stale onStartCommand may advance the platform
             // startId. Do not leak a running notification after work completes.
-            finally { stopSelf() }
+            finally { reportNotificationState(coordinator.state.value);stopSelf() }
         }
         return START_NOT_STICKY
     }
@@ -132,6 +138,7 @@ class FolderVisibilityService : Service() {
     }
 
     override fun onDestroy() {
+        if(!taskTerminal && reportedStatus==TaskStatus.RUNNING)reporter?.report(TaskStatus.PARTIAL,details=TaskDetails(failure=TaskFailure.INTERRUPTED))
         operation?.cancel()
         observer?.cancel()
         scope.cancel()
@@ -139,16 +146,28 @@ class FolderVisibilityService : Service() {
     }
     override fun onBind(intent:Intent?): IBinder? = null
 
+    private fun reportNotificationState(state:VisibilityExecutionSnapshot) {
+        val status=when(state.phase){
+            VisibilityExecutionPhase.COMPLETED->if(state.hasPendingJournal)TaskStatus.PARTIAL else TaskStatus.COMPLETE
+            VisibilityExecutionPhase.FAILED->TaskStatus.FAILED
+            VisibilityExecutionPhase.RECOVERABLE_PENDING->TaskStatus.PARTIAL
+            VisibilityExecutionPhase.PAUSED->TaskStatus.PAUSED
+            VisibilityExecutionPhase.WAITING_FOR_ANDROID->TaskStatus.WAITING
+            else->TaskStatus.RUNNING
+        }
+        taskTerminal=status.terminal
+        reportedStatus=status
+        reporter?.report(status,files=countProgress(state.confirmed,state.total),
+            wait=if(status==TaskStatus.WAITING)TaskWait.USER_ACTION else null,
+            errors=if(status==TaskStatus.FAILED)1 else 0,
+            stage=if(state.phase==VisibilityExecutionPhase.VERIFYING)TaskStage.SAVING else TaskStage.PROCESSING)
+    }
+
     private fun buildNotification(state: VisibilityExecutionSnapshot): Notification {
-        val open = PendingIntent.getActivity(this, 201,
-            Intent(this,MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            },PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val open = TaskNotifications.open(this,reporter?.taskId)
         val text=visibilityForegroundMessage(state)
-        val builder = NotificationCompat.Builder(this,CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setContentTitle("ML • Перенос файлов")
-            .setContentText(text)
+        val builder = TaskNotifications.decorate(NotificationCompat.Builder(this,CHANNEL),TaskKind.FILE_OPERATION,
+            "Операции с файлами",text)
             .setContentIntent(open)
             .setOngoing(state.active)
             .setOnlyAlertOnce(true)

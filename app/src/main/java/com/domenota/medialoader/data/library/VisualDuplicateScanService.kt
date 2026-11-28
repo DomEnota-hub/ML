@@ -187,8 +187,9 @@ class VisualDuplicateScanService : Service() {
                 synchronized(DuplicatePrivacyGuard.lock){DuplicateReportJournal.clearPartial(this@VisualDuplicateScanService,"gallery")}
                 terminal = true
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                notifyAllowed(DONE_ID,notificationBase().setContentTitle("Поиск фото и видео завершён")
-                    .setContentText("Групп: ${result.groups.size} · файлов: ${result.groups.sumOf { it.files.size }}")
+                notifyAllowed(DONE_ID,com.domenota.medialoader.data.tasks.TaskNotifications.decorate(notificationBase(),
+                    com.domenota.medialoader.data.tasks.TaskKind.VISUAL_DUPLICATES,"Поиск фото и видео завершён",
+                    "Групп: ${result.groups.size} · файлов: ${result.groups.sumOf { it.files.size }}")
                     .setAutoCancel(true).build())
                 VisualDuplicateBackgroundScan.finish(this@VisualDuplicateScanService,scanToken,session)
             } catch (e: CancellationException) { throw e }
@@ -221,14 +222,15 @@ class VisualDuplicateScanService : Service() {
     private fun notificationBase(): NotificationCompat.Builder {
         val launch = Intent(this,MainActivity::class.java).setAction(VisualDuplicateBackgroundScan.OPEN_ACTION)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        return NotificationCompat.Builder(this,CHANNEL).setSmallIcon(android.R.drawable.ic_media_play)
+        return NotificationCompat.Builder(this,CHANNEL).setSmallIcon(com.domenota.medialoader.data.tasks.TaskNotifications.icon(com.domenota.medialoader.data.tasks.TaskKind.VISUAL_DUPLICATES))
             .setContentIntent(PendingIntent.getActivity(this,ID,launch,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             .setOnlyAlertOnce(true)
     }
     private fun notice(done: Int,total: Int): Notification {
         val phase=VisualDuplicateBackgroundScan.state.value.phase
         val cancel = PendingIntent.getService(this,ID,Intent(this,VisualDuplicateScanService::class.java).setAction(CANCEL),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return notificationBase().setContentTitle("Поиск дубликатов фото и видео").setContentText("${phase.caption} · $done из $total")
+        return com.domenota.medialoader.data.tasks.TaskNotifications.decorate(notificationBase(),
+            com.domenota.medialoader.data.tasks.TaskKind.VISUAL_DUPLICATES,"Поиск дубликатов фото и видео","${phase.caption} · $done из $total")
             .setProgress(total,done,total == 0).setOngoing(true).addAction(0,"Отменить",cancel).build()
     }
     companion object {

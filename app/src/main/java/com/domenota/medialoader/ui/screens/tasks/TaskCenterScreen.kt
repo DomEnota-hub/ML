@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
@@ -97,26 +99,33 @@ private fun kindIcon(kind:TaskKind):ImageVector=when(kind) {
     }
 }
 @Composable
-internal fun TaskCenterScreen(journalAllowed:Boolean=false,canReadJournal:()->Boolean={false},ocr:GalleryOcrController?=null,initialOcrFocus:Boolean=false,onBack: () -> Unit) {
+internal fun TaskCenterScreen(journalAllowed:Boolean=false,canReadJournal:()->Boolean={false},ocr:GalleryOcrController?=null,initialOcrFocus:Boolean=false,initialTaskId:String?=null,notificationSequence:Long=0L,onBack: () -> Unit) {
     ReportDrawerScreen(true)
     val tasks by TaskCenter.registry.tasks.collectAsStateWithLifecycle()
     val live by TaskCenter.registry.liveTasks.collectAsStateWithLifecycle()
     val known by TaskCenter.registry.registeredOwners.collectAsStateWithLifecycle()
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
-    var related by remember { mutableStateOf<TaskCorrelation?>(null) }
+    val journalSession=com.domenota.medialoader.ui.screens.LocalTaskJournalSession.current
+        ?: remember{com.domenota.medialoader.ui.screens.TaskJournalSession()}
+    var related by journalSession::token
+    LaunchedEffect(notificationSequence){
+        if(notificationSequence>0 && notificationSequence!=journalSession.lastNotificationSequence){
+            settingsOpen=false;journalSession.clear();journalSession.lastNotificationSequence=notificationSequence
+        }
+    }
     LaunchedEffect(journalAllowed){if(!journalAllowed)related=null}
     BackHandler(enabled=settingsOpen){settingsOpen=false}
     if(settingsOpen)TaskSettingsScreen{settingsOpen=false}
     else TaskCenterContent(tasks,live,known,onBack,{settingsOpen=true},TaskCenter.registry::dispatch,
-        onJournal=if(journalAllowed){{token->if(canReadJournal())related=token}}else null,ocr=ocr,initialOcrFocus=initialOcrFocus)
-    related?.takeIf{journalAllowed}?.let{token->RelatedTaskJournal(token,canReadJournal){related=null}}
+        onJournal=if(journalAllowed){{token->if(canReadJournal())journalSession.open(token)}}else null,ocr=ocr,initialOcrFocus=initialOcrFocus,initialTaskId=initialTaskId,notificationSequence=notificationSequence,modifier=if(related!=null)Modifier.clearAndSetSemantics{} else Modifier)
+    related?.takeIf{journalAllowed}?.let{token->RelatedTaskJournal(token,canReadJournal,journalSession.viewer){journalSession.clear()}}
 }
 
 /** One real task projection; cards never start or infer executor actions. */
 @Composable
 internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,known:Set<TaskOwner>,
     onBack:()->Unit,onSettings:()->Unit,dispatch:(String,TaskCommand)->Boolean,onJournal:((TaskCorrelation)->Unit)?=null,
-    ocr:GalleryOcrController?=null,initialOcrFocus:Boolean=false) {
+    ocr:GalleryOcrController?=null,initialOcrFocus:Boolean=false,initialTaskId:String?=null,notificationSequence:Long=0L,modifier:Modifier=Modifier) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var filter by rememberSaveable { mutableIntStateOf(0) }
     var historyFilter by rememberSaveable { mutableIntStateOf(0) }
@@ -140,6 +149,15 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         },focus)
     }
     fun openTask(row:TaskSnapshot){if(row.idle)return;focus=row.id;filter=0;historyFilter=0;tab=if(row.status.terminal)2 else 1}
+    val taskListState=rememberLazyListState()
+    var consumedNotification by rememberSaveable{mutableLongStateOf(-1L)}
+    LaunchedEffect(initialTaskId,notificationSequence,tasks) {
+        if(notificationSequence==consumedNotification || notificationSequence<=0)return@LaunchedEffect
+        val target=tasks.firstOrNull{it.id==initialTaskId}
+        if(target!=null){openTask(target);consumedNotification=notificationSequence;withFrameNanos{};taskListState.scrollToItem(0)}
+        else if(initialTaskId==null){tab=0;focus=null;consumedNotification=notificationSequence}
+        // History hydration may still supply the requested row. Do not consume a missing ID yet.
+    }
     val activeCount=active.size+waiting.size+paused.size
     val defaultOpened=TaskSection.entries.filter{section->section.kinds.any{kind->liveKinds[kind].orEmpty().any{!it.idle&&!it.status.terminal}} || initialOcrFocus&&section==TaskSection.LIBRARY}.map{it.name}.toSet()
     val effectiveOpened=(defaultOpened+openSections)-closedSections.toSet()
@@ -148,7 +166,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         val ocrRow=live.firstOrNull{it.kind==TaskKind.OCR}
         if(initialOcrFocus&&ocrRow!=null)listOf(ocrRow)+rows.filter{it.id!=ocrRow.id} else rows
     }
-    Column(Modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal=8.dp,vertical=4.dp),verticalAlignment=Alignment.CenterVertically) {
             IconButton(onBack){Icon(Icons.AutoMirrored.Rounded.ArrowBack,"Назад")}
             Text("Центр задач",Modifier.weight(1f),style=MaterialTheme.typography.headlineSmall)
@@ -161,7 +179,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                     unselectedContentColor=MaterialTheme.colorScheme.onSurfaceVariant,text={Text(label)})
             }
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(),contentPadding=PaddingValues(12.dp),
+        LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=taskListState,contentPadding=PaddingValues(12.dp),
             verticalArrangement=Arrangement.spacedBy(10.dp)){
             if(tab==0){
                 item("summary"){
@@ -428,8 +446,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
         Text(value,Modifier.weight(1f),style=MaterialTheme.typography.bodySmall)
     }
 }
-@Composable private fun RelatedTaskJournal(token:TaskCorrelation,allowed:()->Boolean,onClose:()->Unit){
-    val viewerState=remember(token){com.domenota.medialoader.ui.screens.JournalViewerState()}
+@Composable private fun RelatedTaskJournal(token:TaskCorrelation,allowed:()->Boolean,viewerState:com.domenota.medialoader.ui.screens.JournalViewerState,onClose:()->Unit){
     var text by remember(token){mutableStateOf<String?>(null)}
     var readable by rememberSaveable{mutableStateOf(true)}
     val latestAllowed by rememberUpdatedState(allowed)
@@ -478,7 +495,7 @@ internal fun TaskCenterContent(tasks:List<TaskSnapshot>,live:List<TaskSnapshot>,
                 Text("Уведомления",style=MaterialTheme.typography.titleSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Card(Modifier.fillMaxWidth().padding(top=6.dp),shape=RoundedCornerShape(16.dp)){
                     Column(Modifier.padding(12.dp)){
-                        TaskSettingSwitch("О завершении задач","Для поддерживаемых фоновых операций",value.notifications){TaskHistoryStore.update(value.copy(notifications=it))}
+                        TaskSettingSwitch("Ход работы и результаты","Для поддерживаемых фоновых операций",value.notifications){TaskHistoryStore.update(value.copy(notifications=it))}
                     }
                 }
             }

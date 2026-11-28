@@ -4,6 +4,10 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -58,6 +62,8 @@ internal fun TrackLyricsSheet(
     var follow by remember(key){mutableStateOf(true)}
     var networkTarget by remember(key){mutableStateOf<NetworkLyricsTarget?>(null)}
     var candidates by remember(key){mutableStateOf<List<NetworkLyricsHit>>(emptyList())}
+    var settingsOpen by remember(key){mutableStateOf(false)}
+    var manualPrepared by remember(key){mutableStateOf(false)}
     var manualOpen by remember(key){mutableStateOf(false)}
     var manualTitle by remember(key){mutableStateOf("")}
     var manualArtist by remember(key){mutableStateOf("")}
@@ -88,8 +94,8 @@ internal fun TrackLyricsSheet(
         val allowed={alive.get() && job?.isActive!=false}
         val target=withContext(Dispatchers.IO){store.networkTarget(verified,manual,allowed)}
         if(key!==latestKey || currentMedia()==null)return
-        if(target==null){message="Недостаточно подтверждённых метаданных для поиска";manualOpen=true;return}
-        if(manual==null){manualTitle=target.signature.title;manualArtist=target.signature.artist}
+        if(target==null){message="Недостаточно подтверждённых метаданных для поиска";manualOpen=true;settingsOpen=true;return}
+        if(manual==null){manualTitle=target.signature.title;manualArtist=target.signature.artist;manualPrepared=true}
         manualOpen=false
         networkTarget=target
         val result=LrclibLyricsProvider.shared.search(target.signature){
@@ -110,6 +116,7 @@ internal fun TrackLyricsSheet(
                 } else {
                     candidates=result.hits.filter{it.lyrics!=null}
                     message=if(candidates.isEmpty())"Текст не найден" else null
+                    if(candidates.isNotEmpty())settingsOpen=true
                 }
             }
             is LyricsLookup.RetryLater -> message="LRCLIB временно ограничил запросы. Повтор через ${result.seconds} с или позже."
@@ -172,19 +179,18 @@ internal fun TrackLyricsSheet(
     }
     NoticeSheet(onDismissRequest=onDismiss) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
-        Column(Modifier.fillMaxWidth().padding(horizontal=20.dp).padding(bottom=20.dp),
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal=20.dp).padding(bottom=20.dp),
             verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text("Текст песни",style=MaterialTheme.typography.titleLarge)
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                Text("Текст песни",Modifier.weight(1f),style=MaterialTheme.typography.titleLarge)
+                IconButton(onClick={settingsOpen=!settingsOpen}){
+                    Icon(Icons.Rounded.Settings,if(settingsOpen)"Свернуть настройки текста" else "Настройки текста")
+                }
+            }
             if(loading || busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if(data!=null) {
-                Text(when(data.origin){
-                    LyricsOrigin.EMBEDDED->"Из тегов аудиофайла"
-                    LyricsOrigin.SIDECAR->"Из файла LRC рядом с треком"
-                    LyricsOrigin.IMPORTED->"Импортированный файл"
-                    LyricsOrigin.LRCLIB->"LRCLIB · сохранённый текст"
-                },style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 if(data.timed.isNotEmpty()) {
-                    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
+                    if(settingsOpen)Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
                         horizontalArrangement=Arrangement.SpaceBetween) {
                         Text("Автопрокрутка",style=MaterialTheme.typography.bodyMedium)
                         Switch(checked=follow,onCheckedChange={follow=it})
@@ -192,13 +198,14 @@ internal fun TrackLyricsSheet(
                     LazyColumn(state=listState,modifier=Modifier.fillMaxWidth().heightIn(min=120.dp,max=360.dp),
                         verticalArrangement=Arrangement.spacedBy(4.dp)) {
                         itemsIndexed(data.timed){index,line->
-                            Text(line.text.ifBlank{"♪"},
+                            Text(line.text,
                                 modifier=Modifier.fillMaxWidth().clickable(enabled=seekAvailable && data.seek(index,correction,durationMs)!=null){seek(index)}.padding(vertical=9.dp),
                                 style=MaterialTheme.typography.titleMedium,
                                 color=if(index==active)musicPlaybackAccent else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight=if(index==active)FontWeight.SemiBold else FontWeight.Normal)
                         }
                     }
+                    if(settingsOpen) {
                     Text("Сдвиг синхронизации",style=MaterialTheme.typography.labelMedium)
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,
                         horizontalArrangement=Arrangement.SpaceBetween) {
@@ -206,15 +213,17 @@ internal fun TrackLyricsSheet(
                         TextButton(onClick={correction=0L}){Text(String.format(java.util.Locale.getDefault(),"%+.2f с",correction/1000.0))}
                         TextButton(onClick={correction=(correction+250).coerceAtMost(60000)}){Text("+ 0,25 с")}
                     }
+                    }
                 } else LazyColumn(Modifier.fillMaxWidth().heightIn(max=360.dp)) {
                     itemsIndexed(plainLines){_,line->Text(line,Modifier.padding(vertical=3.dp),style=MaterialTheme.typography.bodyLarge)}
                 }
             } else if(!loading && !busy && candidates.isEmpty() && message==null) Text(if(ready)"Текст песни не найден" else "Нет подтверждённого доступа к треку.",
                 color=MaterialTheme.colorScheme.onSurfaceVariant)
-            if(candidates.isNotEmpty() && ready && !busy && data==null) {
+            if(candidates.isNotEmpty() && ready && !busy && settingsOpen) {
                 Text("Выбрать совпадение",style=MaterialTheme.typography.titleSmall)
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max=200.dp)) {
-                    itemsIndexed(candidates){_,hit->
+                    itemsIndexed(candidates.flatMap{hit->hit.variants.map{hit to it}}){_,entry->
+                        val (hit,version)=entry
                         val signature=hit.candidate.signature
                         TextButton(onClick={
                             val target=networkTarget ?: return@TextButton
@@ -224,7 +233,7 @@ internal fun TrackLyricsSheet(
                                     val verified=authorize()
                                     val job=currentCoroutineContext()[Job]
                                     val found=withContext(Dispatchers.IO){
-                                        hit.lyrics?.let{store.saveNetwork(verified,target,it){alive.get() && job?.isActive!=false}}
+                                        store.replaceNetwork(verified,target,version){alive.get() && job?.isActive!=false}
                                     }
                                     if(key===latestKey && currentMedia()!=null){
                                         if(found!=null){lyrics=found;candidates=emptyList();correction=0L}
@@ -237,15 +246,33 @@ internal fun TrackLyricsSheet(
                         },modifier=Modifier.fillMaxWidth()){
                             Column {
                                 Text(signature.title+" · "+signature.artist)
+                                Text(if(version.timed.isEmpty())"Обычный текст" else "С синхронизацией",style=MaterialTheme.typography.labelMedium)
                                 Text(signature.album.orEmpty()+" · "+(signature.durationMs/1000)+" с",style=MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
                 }
             }
-            if(ready && !busy && data==null) {
-                TextButton(onClick={manualOpen=!manualOpen},modifier=Modifier.fillMaxWidth()){
-                    Text(if(manualOpen)"Свернуть поиск" else "Найти в LRCLIB")
+            if(ready && !busy && settingsOpen) {
+                TextButton(onClick={
+                    manualOpen=!manualOpen
+                    if(manualOpen && !manualPrepared){
+                        manualPrepared=true;busy=true
+                        scope.launch {
+                            try {
+                                val verified=authorize()
+                                val job=currentCoroutineContext()[Job]
+                                val target=withContext(Dispatchers.IO){store.networkTarget(verified,null){alive.get() && job?.isActive!=false}}
+                                if(key===latestKey && currentMedia()!=null && target!=null){
+                                    manualTitle=target.signature.title;manualArtist=target.signature.artist
+                                }
+                            } catch(cancelled:CancellationException){throw cancelled}
+                            catch(_:Exception){if(key===latestKey)message="Метаданные недоступны"}
+                            finally{if(key===latestKey)busy=false}
+                        }
+                    }
+                },modifier=Modifier.fillMaxWidth()){
+                    Text(if(manualOpen)"Свернуть поиск" else if(data!=null)"Сменить версию текста" else "Найти в LRCLIB")
                 }
                 if(manualOpen){
                     OutlinedTextField(value=manualTitle,onValueChange={if(it.length<=512)manualTitle=it},
@@ -266,7 +293,7 @@ internal fun TrackLyricsSheet(
                 }
             }
             message?.let{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodySmall)}
-            OutlinedButton(onClick={pending=key;picker.launch(arrayOf("*/*"))},
+            if(settingsOpen)OutlinedButton(onClick={pending=key;picker.launch(arrayOf("*/*"))},
                 enabled=ready && !busy && pending==null,modifier=Modifier.fillMaxWidth()){Text("Импортировать текст")}
         }
     }

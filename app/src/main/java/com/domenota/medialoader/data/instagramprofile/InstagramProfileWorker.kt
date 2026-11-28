@@ -24,6 +24,10 @@ import com.domenota.medialoader.data.bulk.BulkIdentity
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 
 class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
     CoroutineWorker(context, parameters) {
@@ -41,8 +45,17 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
         val report=TaskReporter.create(TaskOwner.PROFILE,TaskKind.PROFILE,"$id:$mode")
         task=report
         report.report(stage=if(mode==MODE_SCAN)TaskStage.SCANNING else TaskStage.ENQUEUE)
+        var noticeObserver:kotlinx.coroutines.Job?=null
         return try {
             setForeground(notification(id, mode))
+            noticeObserver=CoroutineScope(currentCoroutineContext()).launch {
+                TaskCenter.registry.liveTasks.collect{rows->
+                    val row=rows.firstOrNull{it.id==taskId(TaskOwner.PROFILE,"$id:$mode")} ?: return@collect
+                    if(!row.status.terminal)try{setForeground(notification(id,mode,row))}
+                    catch(cancelled:CancellationException){throw cancelled}
+                    catch(_:Exception){/* Optional progress must not fail the executor. */}
+                }
+            }
             when (mode) {
                 MODE_SCAN -> scan(id)
                 MODE_DOWNLOAD -> download(id)
@@ -76,7 +89,7 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
                 InstagramProfileController(applicationContext).scheduleNextFavoriteCheck(id)
             report.report(TaskStatus.FAILED,errors=failedPosts+1)
             Result.failure()
-        } finally { task=null }
+        } finally { noticeObserver?.cancel();task=null }
     }
 
     private suspend fun scan(id: String) {
@@ -173,18 +186,18 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
         AppLog.ok("InstagramProfile", "Selected files queued · id=$id")
     }
 
-    private fun notification(id: String, mode: String): ForegroundInfo {
+    private fun notification(id: String, mode: String, snapshot:TaskSnapshot?=null): ForegroundInfo {
         val manager = applicationContext.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("instagram-profile",
             "Загрузка из профиля Instagram", NotificationManager.IMPORTANCE_LOW))
-        val intent = PendingIntent.getActivity(applicationContext, 0,
-            Intent(applicationContext, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notice = NotificationCompat.Builder(applicationContext, "instagram-profile")
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+        val intent = TaskNotifications.open(applicationContext,taskId(TaskOwner.PROFILE,"$id:$mode"))
+        val builder = NotificationCompat.Builder(applicationContext, "instagram-profile")
+            .setSmallIcon(TaskNotifications.icon(TaskKind.PROFILE))
             .setContentTitle("Профиль Instagram")
             .setContentText(if (mode == MODE_SCAN) "Поиск публикаций" else "Добавление файлов в загрузки")
-            .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(intent).build()
+            .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(intent)
+        if(snapshot!=null)TaskNotifications.apply(applicationContext,builder,snapshot,actions=false)
+        val notice=builder.build()
         val noticeId = 5400 + (id.hashCode() and 1023)
         return if (Build.VERSION.SDK_INT >= 29)
             ForegroundInfo(noticeId, notice, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)

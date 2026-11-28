@@ -26,8 +26,7 @@ internal fun JournalSurface(onClose:()->Unit, content:@Composable ColumnScope.()
             .clickable(interactionSource=remember{MutableInteractionSource()},indication=null,onClick=onClose))
         Surface(Modifier.fillMaxWidth(.95f).fillMaxHeight(.88f),shape=MaterialTheme.shapes.extraLarge,
             tonalElevation=if(com.domenota.medialoader.ui.theme.isDarkPalette)0.dp else 6.dp) {
-            Column(Modifier.fillMaxSize().clickable(interactionSource=remember{MutableInteractionSource()},indication=null){}
-                .padding(16.dp)) {
+            Column(Modifier.fillMaxSize().padding(16.dp)) {
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Rounded.Article,null,tint=MaterialTheme.colorScheme.primary)
                     Text("Журнал приложения",style=MaterialTheme.typography.titleLarge)

@@ -105,4 +105,28 @@ class LocalTrackLyricsTest {
             assertNull(store.read(admission){true})
         } finally {audio.delete();lrc.delete()}
     }
+    @Test fun explicitNetworkReplacementOverridesImportButAutomaticLookupDoesNot() {
+        val audio=File.createTempFile("lyrics-replace-",".mp3",context.cacheDir).apply{writeBytes(byteArrayOf(1,2,3))}
+        val doc=Uri.parse("content://test.lyrics/document/replacement")
+        org.robolectric.Shadows.shadowOf(context.contentResolver).registerInputStreamSupplier(doc) {
+            java.io.ByteArrayInputStream("Imported original".toByteArray())
+        }
+        try {
+            val store=LocalTrackLyrics(context)
+            val admission=access(audio)
+            store.importDocument(admission,doc){true}
+            val version=requireNotNull(store.versionKey(admission){true})
+            val target=NetworkLyricsTarget(version,LyricsTrackSignature("Fixture","Artist",null,120000))
+            val network=TrackLyrics("Chosen original",emptyList(),LyricsOrigin.LRCLIB)
+            assertNull(store.saveNetwork(admission,target,network){true})
+            assertEquals("Imported original",store.read(admission){true}?.plain)
+            assertEquals(network,store.replaceNetwork(admission,target,network){true})
+            assertEquals(network,LocalTrackLyrics(context).read(admission){true})
+            assertNull(store.replaceNetwork(admission,target,network){false})
+            audio.appendBytes(byteArrayOf(4))
+            assertNull(store.replaceNetwork(admission,target,network){true})
+            assertNull(store.read(access(audio)){true})
+        } finally { audio.delete() }
+    }
+
 }

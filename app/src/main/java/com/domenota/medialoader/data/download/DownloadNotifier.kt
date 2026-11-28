@@ -31,21 +31,28 @@ class DownloadNotifier(private val context: Context) {
         val waiting = items.count { it.networkWait != null }
         val onlyWaiting = waiting > 0 && items.none { it.state == DownloadState.RUNNING ||
             (it.state == DownloadState.QUEUED && it.networkWait == null) }
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        // The foreground owner already shows active queue progress. Keep only the distinct terminal batch result.
+        if(active && ForegroundServiceObservation.isForegroundObserved()){
+            manager.cancel(batchId.hashCode());return
         }
-        val pending = PendingIntent.getActivity(context, batchId.hashCode(), intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notice = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(if (active) android.R.drawable.stat_sys_download else android.R.drawable.stat_sys_download_done)
-            .setContentTitle(if (onlyWaiting) "Ожидание сети" else if (active) "Загрузка файлов" else if (completed == items.size)
-                "Загрузка завершена" else "Загрузка завершена с ошибками")
-            .setContentText("Скачано $completed из ${items.size}" + if (waiting > 0) " · Ожидают: $waiting" else "")
-            .setOnlyAlertOnce(true)
-            .setOngoing(active)
-            .setAutoCancel(!active)
-            .setContentIntent(pending)
-            .build()
+        val failed=items.count{it.state==DownloadState.FAILED}
+        val cancelled=items.count{it.state==DownloadState.CANCELLED}
+        val rows=com.domenota.medialoader.data.tasks.DownloadTaskFeed.groups(items)
+        val row=rows.singleOrNull()
+        val title=when{
+            onlyWaiting->"Загрузка · ожидание сети"
+            active->"Загрузка файлов"
+            failed>0->"Загрузка · есть ошибки"
+            cancelled>0->"Загрузка · есть отменённые"
+            else->"Загрузка завершена"
+        }
+        val text="Скачано: $completed из ${items.size} · ошибок: $failed · отменено: $cancelled"+
+            if(waiting>0)" · ожидают: $waiting" else ""
+        val builder=com.domenota.medialoader.data.tasks.TaskNotifications.decorate(
+            NotificationCompat.Builder(context,CHANNEL),com.domenota.medialoader.data.tasks.TaskKind.DOWNLOAD,title,text)
+            .setOnlyAlertOnce(true).setOngoing(active).setAutoCancel(!active)
+            .setContentIntent(com.domenota.medialoader.data.tasks.TaskNotifications.open(context,row?.id))
+        val notice=builder.build()
         runCatching { manager.notify(batchId.hashCode(), notice) }
     }
 

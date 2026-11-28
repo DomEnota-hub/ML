@@ -41,6 +41,8 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MediaLoader">
 
+        <receiver android:name=".data.tasks.TaskNotificationCommandReceiver" android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize"

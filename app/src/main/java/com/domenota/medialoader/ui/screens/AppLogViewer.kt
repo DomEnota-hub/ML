@@ -40,6 +40,14 @@ internal class JournalViewerState {
     val expanded=mutableStateMapOf<Int,Boolean>()
     fun clear(){tone=null;query="";newest=false;scopeName=JournalTimeline.Scope.ALL.name;expanded.clear()}
 }
+internal class TaskJournalSession {
+    var lastNotificationSequence by mutableLongStateOf(0L)
+    var token by mutableStateOf<com.domenota.medialoader.data.tasks.TaskCorrelation?>(null)
+    val viewer=JournalViewerState()
+    fun open(value:com.domenota.medialoader.data.tasks.TaskCorrelation){if(value!=token)viewer.clear();token=value}
+    fun clear(){token=null;viewer.clear()}
+}
+internal val LocalTaskJournalSession=staticCompositionLocalOf<TaskJournalSession?>{null}
 internal val LocalJournalViewerState=staticCompositionLocalOf<JournalViewerState?>{null}
 
 /** Presentation only; existing access and export operate on the original log. */

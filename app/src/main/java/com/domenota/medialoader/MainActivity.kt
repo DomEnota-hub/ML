@@ -40,6 +40,10 @@ class MainActivity : ComponentActivity() {
         setIntent(Intent(this, MainActivity::class.java).setAction(Intent.ACTION_MAIN))
         return true
     }
+    private fun acceptTaskNotification(incoming:Intent?) {
+        if(com.domenota.medialoader.data.tasks.TaskNotificationNavigation.accept(incoming))
+            setIntent(Intent(this,MainActivity::class.java).setAction(Intent.ACTION_MAIN))
+    }
     private var sharedText by mutableStateOf<String?>(null)
     private var sharedTextGeneration by mutableIntStateOf(0)
     private var wasForeground = false
@@ -60,6 +64,7 @@ class MainActivity : ComponentActivity() {
         com.domenota.medialoader.core.logging.PerformanceLog.begin("activity_create")
         super.onCreate(savedInstanceState)
         currentPlayerRequests=com.domenota.medialoader.data.playback.CurrentPlayerRequestState.restore(savedInstanceState)
+        acceptTaskNotification(intent)
         acceptCurrentPlayer(intent)
         floatingVideoRequest = savedInstanceState?.getString("floating_video_handoff")
             ?.takeIf { com.domenota.medialoader.data.playback.FloatingVideoService.pendingHandoff(it) != null }
@@ -121,6 +126,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (acceptFloatingVideo(intent)) return
+        acceptTaskNotification(intent)
         acceptCurrentPlayer(intent)
         if (forwardAutomaticShare(intent, !wasForeground)) return
         acceptModeShortcut(intent)
