@@ -5,6 +5,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.hasAnySibling
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
@@ -99,10 +101,15 @@ class TaskCenterUiTest {
         compose.waitUntil(10000){compose.onAllNodesWithText("Уже в кэше:").fetchSemanticsNodes().isNotEmpty()}
         compose.onNodeWithText("Уже в кэше:").assertExists()
         compose.onNodeWithText("2 из 2 треков").assertExists()
-        compose.onNodeWithText("50").assertDoesNotExist()
+        val cacheLabel=hasAnySibling(hasText("Уже в кэше:"))
+        val firstCached=hasText("1") and cacheLabel
+        val laterCached=hasText("50") and cacheLabel
+        compose.onNode(firstCached).assertExists()
+        compose.onNode(laterCached).assertDoesNotExist()
         compose.runOnIdle{selected=later.id;sequence=2L}
-        compose.waitUntil(10000){compose.onAllNodesWithText("50").fetchSemanticsNodes().isNotEmpty()}
-        compose.onNodeWithText("50").assertExists()
+        compose.waitUntil(10000){compose.onAllNodes(laterCached).fetchSemanticsNodes().size==1}
+        compose.onNode(laterCached).assertExists()
+        compose.onNodeWithText("50 из 50 треков").assertExists()
     }
 
 }
