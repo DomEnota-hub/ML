@@ -18,6 +18,10 @@ class VisualDuplicateSessionTest {
     private fun file(id:String)=VisualFingerprint(id,"content://media/$id",MediaType.PHOTO,100,10,"abc",100,100,null,listOf(123L),true)
     private val session=VisualDuplicateSession(VisualScanResult(listOf(VisualDuplicateGroup(listOf(file("a"),file("b"),file("c")),VisualMatch.EXACT)),2),setOf("a","b"),0,17,123)
     @Test fun roundTrip(){assertEquals(session,VisualDuplicateSessionStore.decode(VisualDuplicateSessionStore.encode(session)))}
+    @Test fun selectedFolderScopeSurvivesJournalRoundTrip(){
+        val selected=session.copy(result=session.result.copy(scopeLabel="Выборочно: 3 папок"))
+        assertEquals(selected,VisualDuplicateSessionStore.decode(VisualDuplicateSessionStore.encode(selected)))
+    }
     @Test fun neverSelectAll(){assertEquals(setOf("a","b"),session.copy(selected=setOf("a","b","c","unknown")).normalized().selected)}
     @Test fun partialTrashKeepsUnconfirmed(){val next=session.removeConfirmed(setOf("content://media/a"));assertEquals(setOf("b"),next.selected);assertEquals(listOf("b","c"),next.result.groups.single().files.map{it.id})}
     @Test fun singletonRemovedFromResults(){assertTrue(session.removeConfirmed(setOf("content://media/a","content://media/b")).result.groups.isEmpty())}
@@ -86,5 +90,133 @@ class VisualDuplicateSessionTest {
         val updated=session.copy(result=session.result.copy(coverage=coverage))
         assertEquals(updated,VisualDuplicateSessionStore.decode(VisualDuplicateSessionStore.encode(updated)))
         assertNull(VisualDuplicateSessionStore.decode(VisualDuplicateSessionStore.encode(session)).result.coverage)
+    }
+
+    @Test fun deleteSingleGalleryReportNeverResurrectsFromLateSaveOrScroll()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        VisualDuplicateSessionStore.clearForPrivacy(context)
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val a=session.copy(result=session.result.copy(privacyEpoch=epoch),scannedAt=1700000921000L)
+        val b=a.copy(scannedAt=1700000922000L)
+        val c=a.copy(scannedAt=1700000923000L)
+        try{
+            assertTrue(VisualDuplicateSessionStore.save(context,a))
+            assertTrue(VisualDuplicateSessionStore.save(context,b))
+            assertTrue(VisualDuplicateSessionStore.save(context,c))
+            val partial=a.copy(scannedAt=1700000924000L)
+            VisualDuplicateSessionStore.savePartial(context,partial)
+            assertTrue(VisualDuplicateSessionStore.deleteCompleted(context,b.scannedAt))
+            assertEquals(listOf(c.scannedAt,a.scannedAt),
+                VisualDuplicateSessionStore.history(context).map{it.scannedAt})
+            assertFalse(VisualDuplicateSessionStore.save(context,b))
+            assertFalse(VisualDuplicateSessionStore.savePosition(context,b.scannedAt,0,5))
+            assertEquals(partial,VisualDuplicateSessionStore.partial(context))
+            assertTrue(VisualDuplicateSessionStore.deleteCompleted(context,c.scannedAt))
+            assertNull(VisualDuplicateSessionStore.load(context))
+            assertEquals(listOf(a.scannedAt),
+                VisualDuplicateSessionStore.history(context).map{it.scannedAt})
+        }finally{VisualDuplicateSessionStore.clearForPrivacy(context)}
+    }
+
+    @Test fun clearCompletedGalleryJournalKeepsPartialMusicAndMedia()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        VisualDuplicateSessionStore.clearForPrivacy(context)
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val a=session.copy(result=session.result.copy(privacyEpoch=epoch),scannedAt=1700001001000L)
+        val b=a.copy(scannedAt=1700001002000L)
+        val partial=a.copy(scannedAt=1700001003000L)
+        val media=java.io.File(context.cacheDir,"gallery-journal-media-sentinel").apply{writeText("media")}
+        try{
+            assertTrue(VisualDuplicateSessionStore.save(context,a))
+            assertTrue(VisualDuplicateSessionStore.save(context,b))
+            VisualDuplicateSessionStore.savePartial(context,partial)
+            val music=DuplicateSession(DuplicateScanResult(emptyList(),0,privacyEpoch=epoch),emptySet(),emptyMap(),0,0,1700001004000L)
+            assertTrue(MusicDuplicateSessionStore.save(context,music))
+            assertFalse(VisualDuplicateSessionStore.clearCompletedJournal(context,epoch+1))
+            assertEquals(b,VisualDuplicateSessionStore.load(context))
+            assertTrue(VisualDuplicateSessionStore.clearCompletedJournal(context,epoch))
+            assertTrue(VisualDuplicateSessionStore.history(context).isEmpty())
+            assertNull(VisualDuplicateSessionStore.load(context))
+            assertFalse(VisualDuplicateSessionStore.save(context,a))
+            assertFalse(VisualDuplicateSessionStore.save(context,b))
+            assertFalse(VisualDuplicateSessionStore.savePosition(context,b.scannedAt,0,9))
+            assertEquals(partial,VisualDuplicateSessionStore.partial(context))
+            assertEquals(music,MusicDuplicateSessionStore.load(context))
+            assertEquals("media",media.readText())
+        }finally{media.delete();VisualDuplicateSessionStore.clearForPrivacy(context);MusicDuplicateSessionStore.clearForPrivacy(context)}
+    }
+
+    @Test fun replacingPartialRequiresIdleMatchingTokenAndEpochAndKeepsCompleted()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        VisualDuplicateSessionStore.clearForPrivacy(context)
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val completed=session.copy(result=session.result.copy(privacyEpoch=epoch),scannedAt=1700001005000L)
+        val partial=completed.copy(scannedAt=1700001006000L)
+        try {
+            assertTrue(VisualDuplicateSessionStore.save(context,completed))
+            VisualDuplicateSessionStore.savePartial(context,partial)
+            VisualDuplicateBackgroundScan.start(context,emptyList(),LibrarySource.APP,epoch,setOf("selected"))
+            val token=VisualDuplicateBackgroundScan.state.value.token
+            assertEquals(LibrarySource.APP,VisualDuplicateBackgroundScan.resumeSource(context))
+            assertEquals(setOf("selected"),VisualDuplicateBackgroundScan.resumeScope(context))
+            assertFalse(VisualDuplicateSessionStore.discardPartial(context,epoch,token))
+            assertFalse(VisualDuplicateSessionStore.clearCompletedJournal(context,epoch))
+            VisualDuplicateBackgroundScan.finish(context,token,null,paused=true)
+            assertFalse(VisualDuplicateSessionStore.discardPartial(context,epoch,token+1))
+            assertFalse(VisualDuplicateSessionStore.discardPartial(context,epoch+1,token))
+            assertEquals(partial,VisualDuplicateSessionStore.partial(context))
+            assertTrue(VisualDuplicateSessionStore.discardPartial(context,epoch,token))
+            assertFalse(VisualDuplicateBackgroundScan.interrupted(context))
+            assertNull(VisualDuplicateBackgroundScan.resumeSource(context))
+            assertNull(VisualDuplicateSessionStore.partial(context))
+            assertEquals(completed,VisualDuplicateSessionStore.load(context))
+            assertEquals(listOf(completed.scannedAt),VisualDuplicateSessionStore.history(context).map{it.scannedAt})
+        }finally{VisualDuplicateSessionStore.clearForPrivacy(context)}
+    }
+
+    @Test fun staleServiceWriterCannotRecreateDiscardedCheckpoint()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        VisualDuplicateSessionStore.clearForPrivacy(context)
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val partial=session.copy(result=session.result.copy(privacyEpoch=epoch),scannedAt=1700001007000L)
+        try{
+            assertTrue(VisualDuplicateBackgroundScan.start(context,emptyList(),LibrarySource.APP,epoch))
+            val old=VisualDuplicateBackgroundScan.state.value.token
+            assertTrue(VisualDuplicateSessionStore.savePartial(context,partial,expectedToken=old))
+            VisualDuplicateBackgroundScan.finish(context,old,null,paused=true)
+            assertTrue(VisualDuplicateSessionStore.discardPartial(context,epoch,old))
+            assertFalse(VisualDuplicateSessionStore.savePartial(context,partial,expectedToken=old))
+            assertNull(VisualDuplicateSessionStore.partial(context))
+            assertTrue(VisualDuplicateBackgroundScan.beginJournalMaintenance(old))
+            try{
+                assertFalse(VisualDuplicateBackgroundScan.start(context,emptyList(),LibrarySource.APP,epoch))
+                assertFalse(VisualDuplicateBackgroundScan.beginJournalMaintenance(old))
+            }finally{VisualDuplicateBackgroundScan.endJournalMaintenance()}
+            assertTrue(VisualDuplicateBackgroundScan.start(context,emptyList(),LibrarySource.APP,epoch))
+            val next=VisualDuplicateBackgroundScan.state.value.token
+            assertNotEquals(old,next)
+            assertFalse(VisualDuplicateSessionStore.savePartial(context,partial,expectedToken=old))
+            assertFalse(VisualDuplicateSessionStore.save(context,partial,expectedToken=old))
+            assertFalse(VisualDuplicateSessionStore.save(context,partial,expectedToken=next))
+            VisualDuplicateBackgroundScan.finish(context,next,null,paused=true)
+        }finally{VisualDuplicateSessionStore.clearForPrivacy(context)}
+    }
+    @Test fun fullJournalResetRequiresExplicitPartialFlag()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        VisualDuplicateSessionStore.clearForPrivacy(context)
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        val partial=session.copy(result=session.result.copy(privacyEpoch=epoch),scannedAt=1700001008000L)
+        try{
+            VisualDuplicateBackgroundScan.start(context,emptyList(),LibrarySource.APP,epoch)
+            val token=VisualDuplicateBackgroundScan.state.value.token
+            assertTrue(VisualDuplicateSessionStore.savePartial(context,partial,expectedToken=token))
+            VisualDuplicateBackgroundScan.finish(context,token,null,paused=true)
+            assertTrue(VisualDuplicateSessionStore.clearCompletedJournal(context,epoch))
+            assertTrue(VisualDuplicateBackgroundScan.interrupted(context))
+            assertEquals(partial,VisualDuplicateSessionStore.partial(context))
+            assertTrue(VisualDuplicateSessionStore.clearCompletedJournal(context,epoch,includePartial=true))
+            assertFalse(VisualDuplicateBackgroundScan.interrupted(context))
+            assertNull(VisualDuplicateSessionStore.partial(context))
+        }finally{VisualDuplicateSessionStore.clearForPrivacy(context)}
     }
 }

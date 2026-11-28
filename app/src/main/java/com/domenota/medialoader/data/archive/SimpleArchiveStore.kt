@@ -22,6 +22,12 @@ import kotlinx.coroutines.withContext
  * Any failure reading the index blocks mutations rather than silently resetting it.
  */
 internal class SimpleArchiveStore(context: Context) {
+    companion object {
+        private val revisionCounter=java.util.concurrent.atomic.AtomicLong()
+        private val writers=java.util.concurrent.atomic.AtomicInteger()
+        internal fun revision():Long=revisionCounter.get()
+        internal fun revisionCurrent(value:Long):Boolean=writers.get()==0&&revisionCounter.get()==value
+    }
     private val file = AtomicFile(File(context.applicationContext.noBackupFilesDir,
         "simple-media-archive-v1.json"))
     private val mutex = Mutex()
@@ -32,19 +38,20 @@ internal class SimpleArchiveStore(context: Context) {
         mutex.withLock { read().also { current.value = it } }
     }
 
-    suspend fun archive(rows: List<DownloadEntity>, source: ArchiveEntrySource): List<SimpleArchiveRecord> =
+    suspend fun archive(rows: List<DownloadEntity>, source: ArchiveEntrySource,
+        group: SimpleArchiveGroup? = null): List<SimpleArchiveRecord> =
         withContext(Dispatchers.IO) {
             mutex.withLock {
                 require(rows.isNotEmpty()) { "Не выбраны файлы" }
                 val now = System.currentTimeMillis()
-                val selected = rows.distinctBy { it.id }.map { row ->
+                val selected = rows.map { row ->
                     check(!row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED) {
                         "Недоступный или приватный файл нельзя отправить в обычный Архив"
                     }
                     val uri = row.savedUri?.takeIf(String::isNotBlank)
                         ?: error("У файла нет подтверждённого адреса")
                     SimpleArchiveRecord(row.id, uri, row.mediaType,
-                        row.originalName.ifBlank { "Файл" }, source, row.sizeBytes, now)
+                        row.originalName.ifBlank { "Файл" }, source, row.sizeBytes, now, group)
                 }
                 val next = SimpleArchivePolicy.archive(read(), selected)
                 persist(next)
@@ -91,6 +98,11 @@ internal class SimpleArchiveStore(context: Context) {
                     source = ArchiveEntrySource.valueOf(item.getString("source")),
                     fileSizeBytes = if (item.isNull("fileSizeBytes")) null else item.getLong("fileSizeBytes"),
                     archivedAtMillis = item.getLong("archivedAtMillis"),
+                    group = if (!item.has("group") || item.isNull("group")) null else
+                        item.getJSONObject("group").let { group ->
+                            SimpleArchiveGroup(SimpleArchiveGroupKind.valueOf(group.getString("kind")),
+                                group.getString("key"), group.getString("name"))
+                        },
                 )
             }
             check(rows.map { it.catalogId }.distinct().size == rows.size) {
@@ -103,6 +115,10 @@ internal class SimpleArchiveStore(context: Context) {
     }
 
     private fun persist(rows: List<SimpleArchiveRecord>) {
+        writers.incrementAndGet();revisionCounter.incrementAndGet()
+        try { persistRows(rows) } finally { revisionCounter.incrementAndGet();writers.decrementAndGet() }
+    }
+    private fun persistRows(rows: List<SimpleArchiveRecord>) {
         val data = JSONObject().put("version", 1).put("files", JSONArray().apply {
             rows.forEach { item -> put(JSONObject()
                 .put("catalogId", item.catalogId)
@@ -111,7 +127,10 @@ internal class SimpleArchiveStore(context: Context) {
                 .put("displayName", item.displayName)
                 .put("source", item.source.name)
                 .put("fileSizeBytes", item.fileSizeBytes ?: JSONObject.NULL)
-                .put("archivedAtMillis", item.archivedAtMillis)) }
+                .put("archivedAtMillis", item.archivedAtMillis)
+                .put("group", item.group?.let { group -> JSONObject()
+                    .put("kind", group.kind.name).put("key", group.key).put("name", group.name)
+                } ?: JSONObject.NULL)) }
         })
         val stream = file.startWrite()
         try {

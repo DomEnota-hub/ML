@@ -21,8 +21,13 @@ internal object EqualizerPlaybackFormat {
  * the final clamp is a guard for malformed/overshooting inputs, never a wrapping integer cast.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
-class EqualizerAudioProcessor : BaseAudioProcessor() {
+class EqualizerAudioProcessor(private val publishFormat: Boolean = true) : BaseAudioProcessor() {
     @Volatile private var target = EqualizerSettings()
+    @Volatile private var normalizationTarget = 1.0
+    private var normalizationGain = 1.0
+    internal fun updateNormalizationGain(gain: Double) {
+        normalizationTarget = if (gain.isFinite()) gain.coerceIn(0.0, 2.0) else 1.0
+    }
     private var rate = 0
     private var channels = 0
     private var encoding = C.ENCODING_INVALID
@@ -40,22 +45,25 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
     }
     override fun onFlush() {
         rate = inputAudioFormat.sampleRate; channels = inputAudioFormat.channelCount; encoding = inputAudioFormat.encoding
-        EqualizerPlaybackFormat.update(rate)
+        if (publishFormat) EqualizerPlaybackFormat.update(rate)
         filters = Array(5) { Filter(channels) }
         gains.fill(0.0); desired.fill(0.0); headroom = 1.0; frame = 0
+        normalizationGain = normalizationTarget
     }
-    override fun onReset() { rate = 0; channels = 0; filters = Array(5) { Filter(0) }; gains.fill(0.0); EqualizerPlaybackFormat.update(null) }
+    override fun onReset() { rate = 0; channels = 0; filters = Array(5) { Filter(0) }; gains.fill(0.0); if (publishFormat) EqualizerPlaybackFormat.update(null) }
     override fun queueInput(inputBuffer: ByteBuffer) {
         if (!inputBuffer.hasRemaining()) return
         inputBuffer.order(ByteOrder.nativeOrder())
         val output = replaceOutputBuffer(inputBuffer.remaining()).order(ByteOrder.nativeOrder())
         val snapshot = target
+        val normalTarget = normalizationTarget
         for (band in 0..4) desired[band] = if (snapshot.enabled && EqualizerSettings.FREQUENCIES[band] < rate / 2.0)
             snapshot.gainsDb[band].toDouble() else 0.0
-        if (desired.all { it == 0.0 } && gains.all { it == 0.0 }) {
+        if (desired.all { it == 0.0 } && gains.all { it == 0.0 } && normalTarget == 1.0 && normalizationGain == 1.0) {
             output.put(inputBuffer); output.flip(); return
         }
         val step = 1.0 - exp(-32.0 / (rate * .020))
+        val normalStep = 1.0 - exp(-32.0 / (rate * .250))
         while (inputBuffer.hasRemaining()) {
             if (frame++ % 32 == 0) {
                 for (band in 0..4) {
@@ -64,12 +72,15 @@ class EqualizerAudioProcessor : BaseAudioProcessor() {
                     filters[band].configure(EqualizerSettings.FREQUENCIES[band].toDouble(), rate, gains[band])
                 }
                 headroom = 10.0.pow(-gains.sumOf { max(0.0, it) } / 20.0)
+                normalizationGain += (normalTarget - normalizationGain) * normalStep
+                if (abs(normalizationGain - normalTarget) < .00001) normalizationGain = normalTarget
             }
             for (channel in 0 until channels) {
                 var value = if (encoding == C.ENCODING_PCM_FLOAT) inputBuffer.float.toDouble() else inputBuffer.short / 32768.0
                 if (!value.isFinite()) value = 0.0
                 value *= headroom
                 for (filter in filters) value = filter.sample(value, channel)
+                value *= normalizationGain
                 value = if (value.isFinite()) value.coerceIn(-1.0, 1.0) else 0.0
                 if (encoding == C.ENCODING_PCM_FLOAT) output.putFloat(value.toFloat())
                 else output.putShort((value * 32768).roundToInt().coerceIn(-32768, 32767).toShort())

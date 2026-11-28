@@ -10,15 +10,29 @@ import java.time.ZoneId
 /** All grid data belongs to one browse generation and one selection. Only row
  * references are retained, not duplicated media entities or bitmaps. */
 internal data class GalleryGridKey(val selection:String,val search:String,val detail:Boolean,val tab:Int,
-    val sort:GalleryAlbumFileSort,val excluded:Set<String>,val today:LocalDate,val zone:ZoneId)
+    val sort:GalleryAlbumFileSort,val excluded:Set<String>,val today:LocalDate,val zone:ZoneId,
+    val noteMatches:Set<String> = emptySet())
 internal data class GalleryGridInventory(val allVisible:List<DownloadEntity> = emptyList(),
     val visible:List<DownloadEntity> = emptyList(),val ordered:List<DownloadEntity> = emptyList(),
     val queue:List<String> = emptyList(),val queueSet:Set<String> = emptySet(),
     val sections:Map<LocalDate,List<DownloadEntity>> = emptyMap(),val labels:List<String> = listOf(""),
     val dateRange:GalleryDateRange?=null) {
+    // Built once per grid generation, including a removal-only copy.
+    val dayIds:Map<LocalDate,List<String>> = sections.mapValues { (_,rows)->rows.map{it.id} }
+    val daySizes:Map<LocalDate,Int> = dayIds.mapValues{it.value.size}
+    private val dateById:Map<String,LocalDate> = buildMap {
+        dayIds.forEach { (date,ids)->ids.forEach { put(it,date) } }
+    }
+    fun selectionCounts(selected:Set<String>):Map<LocalDate,Int> {
+        if(selected.isEmpty())return emptyMap()
+        val counts=HashMap<LocalDate,Int>()
+        selected.forEach { id->dateById[id]?.let { day->counts[day]=(counts[day]?:0)+1 } }
+        return counts
+    }
     fun retainAllowed(key: GalleryGridKey, allowed: (DownloadEntity) -> Boolean): GalleryGridInventory {
+        // No list allocation when the retained addresses are all still allowed.
+        if (ordered.all(allowed) && allVisible.all(allowed)) return this
         val kept = ordered.filter(allowed)
-        if (kept.size == ordered.size && allVisible.all(allowed)) return this
         val ids = kept.map { it.id }
         val remainingVisible = visible.filter(allowed)
         return copy(allVisible = allVisible.filter(allowed), visible = remainingVisible,
@@ -32,7 +46,7 @@ internal data class GalleryGridInventory(val allVisible:List<DownloadEntity> = e
             val all=if(key.excluded.isEmpty())browse.media else browse.media.filter{row->
                 visibleInGalleryMedia(row,browse.catalog[row.id],browse.buckets[row.id],key.excluded)
             }
-            val selected=browse.select(key.selection,key.search)
+            val selected=browse.select(key.selection,key.search,key.noteMatches)
             val visible=if(key.tab==0&&key.selection=="all"&&key.excluded.isNotEmpty()) {
                 if(key.search.isBlank())all else selected.filter{row->visibleInGalleryMedia(row,browse.catalog[row.id],browse.buckets[row.id],key.excluded)}
             } else selected

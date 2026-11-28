@@ -179,6 +179,9 @@ fun DownloadsScreen(
     onOpenSafFile: (suspend (String,String)->android.net.Uri)? = null,
     onOpenFromFolder: ((String,List<String>,String?) -> Unit)? = null,
     onShareFromFolder: ((String,String?) -> Unit)? = null,
+    onArchiveFolder: ((String) -> Unit)? = null,
+    onArchivePublication: ((String, String, List<String>) -> Unit)? = null,
+    fullyArchivedFolderIds: Set<String> = emptySet(),
 ) {
     val context = LocalContext.current
     val listScrollState = rememberLazyListState()
@@ -242,12 +245,16 @@ fun DownloadsScreen(
     var folderGroupTargets by remember { mutableStateOf<List<String>>(emptyList()) }
     var deleteGroupTargets by remember { mutableStateOf<List<String>>(emptyList()) }
     var groupBusy by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        !selectionMode && selectedHistoryIds.isEmpty() && !selectedCatalog.startsWith("folder:") &&
+            !folderSheetOpen && folderTargetId==null && folderGroupTargets.isEmpty() &&
+            deleteGroupTargets.isEmpty() && !groupBusy)
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val assignmentById = remember(catalogAssignments) { catalogAssignments.associateBy { it.downloadId } }
     val folderNames = remember(catalogFolders) { catalogFolders.associate { it.id to it.name } }
-    val navigableFolderIds = remember(catalogFolders, items, assignmentById, galleryOnlyFolderIds) {
+    val navigableFolderIds = remember(catalogFolders, items, assignmentById, galleryOnlyFolderIds, fullyArchivedFolderIds) {
         visibleDownloadFolders(catalogFolders, items, assignmentById, galleryOnlyFolderIds,
-            assigning = false).mapTo(mutableSetOf()) { it.id }
+            assigning = false, fullyArchivedFolderIds = fullyArchivedFolderIds).mapTo(mutableSetOf()) { it.id }
     }
     LaunchedEffect(selectedCatalog, navigableFolderIds) {
         if (selectedCatalog.startsWith("folder:") &&
@@ -261,7 +268,7 @@ fun DownloadsScreen(
         groupBusy = true
         scope.launch {
             try {
-                val result = runFileBatch(ids, operation)
+                val result = runFileBatch(ids, true, operation)
                 AppNotice.postBatch(context, "Результат операции", result, "Обработано")
             } finally { groupBusy = false }
         }
@@ -281,7 +288,7 @@ fun DownloadsScreen(
             selectedHistoryIds = emptySet()
             selectionMode = false
             groupAction(ids) { id ->
-                require(items.firstOrNull { it.id == id }?.state == DownloadUiState.COMPLETED) { "Дождитесь завершения загрузки" }
+                require(items.firstOrNull { it.id == id }?.state == DownloadUiState.COMPLETED) { "Дождись завершения загрузки" }
                 onDeleteGroupFile(id)
             } }) {
             Text("В корзину", color = MaterialTheme.colorScheme.error)
@@ -293,8 +300,10 @@ fun DownloadsScreen(
         assignments = assignmentById,
         items = items,
         galleryOnlyFolderIds = galleryOnlyFolderIds,
+        fullyArchivedFolderIds = fullyArchivedFolderIds,
         hiddenFolderIds = hiddenFolderIds,
         onFolderVisibility = onFolderVisibility,
+        onArchiveFolder = onArchiveFolder,
         pendingVisibilityFolderId = pendingVisibilityFolderId,
         nomediaFolderStatuses = nomediaFolderStatuses,
         onCheckFolderAccess = onCheckFolderAccess,
@@ -311,7 +320,7 @@ fun DownloadsScreen(
         onAssign = { id, folder ->
             if (folderGroupTargets.isEmpty()) onSetFolder(id, folder)
             else {
-                val result = runFileBatch(folderGroupTargets) { onSetFolder(it, folder) }
+                val result = runFileBatch(folderGroupTargets, true) { onSetFolder(it, folder) }
                 AppNotice.postBatch(context, "Результат операции", result, "Обработано")
                 check(result.failed == 0) { result.summary }
             }
@@ -437,7 +446,7 @@ fun DownloadsScreen(
             else listOf("group:$id" to group.first()) + if (id in expandedGroups) {
                 group.take(groupLimits[id] ?: 24).map { "child:${it.id}" to it }
             } else emptyList()
-        } + if (gridMode) searchedHistory.flatten().chunked(4).flatMap { row ->
+        } + if (gridMode) downloadGridRows(searchedHistory.flatten()).flatMap { row ->
             row.map { "grid:${row.first().id}" to it }
         } else emptyList()
     }
@@ -578,7 +587,8 @@ fun DownloadsScreen(
                 },
                 onGroupFolder = { ids -> folderGroupTargets = ids; folderTargetId = ids.firstOrNull(); folderSheetOpen = true },
                 onGroupMove = onMoveGroupToPrivate, onGroupDelete = { deleteGroupTargets = it }, groupActionsEnabled = !groupBusy,
-                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
+                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive,
+                onArchivePublication=onArchivePublication)
         }
 
       item(key = "history-header", contentType = "header") {
@@ -663,8 +673,8 @@ fun DownloadsScreen(
                     else -> "История пока пустая"
                 },
                 text = when {
-                    searchText.isNotBlank() -> "Измените запрос или фильтры"
-                    items.isNotEmpty() && filteredItems.isEmpty() -> "Измените источник или тип файлов"
+                    searchText.isNotBlank() -> "Измени запрос или фильтры"
+                    items.isNotEmpty() && filteredItems.isEmpty() -> "Измени источник или тип файлов"
                     selectedCatalog != CATALOG_ALL -> "Добавьте файлы через меню загрузки"
                     else -> "Скачанные фото, видео и аудио будут собраны здесь"
                 },
@@ -724,7 +734,8 @@ fun DownloadsScreen(
                 },
                 onGroupFolder = { ids -> folderGroupTargets = ids; folderTargetId = ids.firstOrNull(); folderSheetOpen = true },
                 onGroupMove = onMoveGroupToPrivate, onGroupDelete = { deleteGroupTargets = it }, groupActionsEnabled = !groupBusy,
-                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive)
+                onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive,
+                onArchivePublication=onArchivePublication)
         }
     }
 }
@@ -759,9 +770,10 @@ private fun LazyListScope.DownloadRows(
     onAddCollection: ((List<String>)->Unit)? = null,
     onPassport: ((String)->Unit)? = null,
     onSimpleArchive: ((List<String>)->Unit)? = null,
+    onArchivePublication: ((String, String, List<String>) -> Unit)? = null,
 ) {
     if (grid) {
-        val rows = items.flatten().chunked(4)
+        val rows = downloadGridRows(items.flatten())
         items(rows, key = { "grid:${it.first().id}" }, contentType = { "grid" }) { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 row.forEach { entry ->
@@ -770,7 +782,7 @@ private fun LazyListScope.DownloadRows(
                         recognitionEnabled, onRecognizeDownload, assignments, folderNames,
                         onFavorite, onChooseFolder, onMoveToPrivate, compact = true, modifier = Modifier.weight(1f),onAddCollection=onAddCollection,onPassport=onPassport,onSimpleArchive=onSimpleArchive) }
                 }
-                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                if (row.none { it.state == DownloadUiState.FAILED }) repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -798,7 +810,11 @@ private fun LazyListScope.DownloadRows(
                     onChooseFolder = { onGroupFolder(groupIds) },
                     onMoveToPrivate = { onGroupMove(groupIds) },
                     onDelete = { onGroupDelete(groupIds) },
-                    actionsEnabled = groupActionsEnabled)
+                    actionsEnabled = groupActionsEnabled,
+                    onArchive = onArchivePublication?.takeIf { group.all { item ->
+                        item.state == DownloadUiState.COMPLETED && item.fileStatus != SavedFileStatus.MISSING &&
+                            item.fileStatus != SavedFileStatus.INACCESSIBLE
+                    } }?.let { archive -> { archive(groupKey, if (VkDownloadGroup.isCommunity(group.first())) "VK" else "Публикация", groupIds) } })
             }
             Spacer(Modifier.height(8.dp))
           }
@@ -938,4 +954,15 @@ private fun HistorySelectionCard(file: DownloadUiItem, checked: Boolean, onToggl
             }
         }
     }
+}
+
+/** Failed rows occupy the full width so the complete message is readable in grid and list. */
+internal fun downloadGridRows(items: List<DownloadUiItem>): List<List<DownloadUiItem>> = buildList {
+    val pending = mutableListOf<DownloadUiItem>()
+    fun flush() { if (pending.isNotEmpty()) { add(pending.toList()); pending.clear() } }
+    items.forEach { item ->
+        if (item.state == DownloadUiState.FAILED) { flush(); add(listOf(item)) }
+        else { pending.add(item); if (pending.size == 4) flush() }
+    }
+    flush()
 }

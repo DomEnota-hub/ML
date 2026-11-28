@@ -57,8 +57,8 @@ android {
         minSdk 26
         targetSdk 35
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        versionCode 273
-        versionName '1.7.213'
+        versionCode 299
+        versionName '1.7.239'
         manifestPlaceholders = [launcherLabel: '@string/app_name']
         // Package only ARM64 native libraries without changing the release app ID.
         if (project.hasProperty('arm64Release')) {
@@ -114,6 +114,7 @@ android {
                 if (isolation in ['music', 'full']) {
                     testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.music.RecentMusicScreenTest')
                     testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.music.SmartMusicScreenTest')
+                    testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.music.MusicScanModeControlsTest')
                 }
                 if (isolation in ['collection', 'full']) {
                     testTask.filter.excludeTestsMatching('com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest')

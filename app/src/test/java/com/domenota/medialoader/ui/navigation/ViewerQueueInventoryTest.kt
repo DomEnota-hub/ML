@@ -7,6 +7,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ViewerQueueInventoryTest {
+    @Test fun audioRefreshRetainsOnlyPreviouslyAdmittedUnchangedPublicLocators() {
+        val a=row("a",MediaType.AUDIO);val b=row("b",MediaType.AUDIO);val c=row("c",MediaType.AUDIO)
+        val old=ViewerQueueInventory(audio=listOf(a,b))
+        assertEquals(listOf(a,b),old.retainPublicAudio(listOf(a,b,c),emptyMap()){true}.audio)
+        assertEquals(listOf(a),old.retainPublicAudio(listOf(a,b.copy(savedUri="content://new/b"),c),emptyMap()){true}.audio)
+        assertEquals(listOf(b),old.retainPublicAudio(listOf(a.copy(isPrivate=true),b),emptyMap()){true}.audio)
+        assertTrue(old.retainPublicAudio(listOf(a,b),mapOf("b" to SavedFileStatus.MISSING)){it.id!="a"}.audio.isEmpty())
+        assertTrue(old.retainPublicAudio(emptyList(),emptyMap()){true}.audio.isEmpty())
+    }
     private fun row(id:String,type:MediaType)=DownloadEntity(id,"device",id,type,DownloadState.COMPLETED,"content://media/$id",null,0)
     @Test fun audioNeverBuildsVisualQueuesAndPreservesOrderAndVisibility(){
         val a=row("a",MediaType.AUDIO);val b=row("b",MediaType.AUDIO)

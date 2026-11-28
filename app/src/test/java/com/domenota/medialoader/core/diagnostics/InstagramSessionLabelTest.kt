@@ -25,7 +25,7 @@ class InstagramSessionLabelTest {
     @Test fun instagramChallengeCallsForAccountConfirmation() {
         val challenge = SessionProbeRules.classify(DiagnosticSource.INSTAGRAM, 400,
             "{\"message\":\"checkpoint_required\"}")
-        assertEquals("Подтвердите вход в Instagram",
+        assertEquals("Подтверди вход в Instagram",
             InstagramSessionLabel.from(true, challenge).text)
         assertEquals(InstagramSessionTone.WARNING,
             InstagramSessionLabel.from(true, challenge).tone)

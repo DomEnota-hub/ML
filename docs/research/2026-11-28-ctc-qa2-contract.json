@@ -1,0 +1,14 @@
+{
+  "revision": "gigaam-ctc-qa2",
+  "scope": "Linux Java core using retained emissions; no model inference and no Android measurement",
+  "synthetic_scenarios": 8,
+  "retained_emissions": {
+    "markul_positive": "ACCEPTED [8720, 11040, 13320, 15800, 18000, 20280, 22720, 24880, 28720, 31080, 33280, 35680, 37920, 40240, 42520, 44960, 48000, 49480, 51080, 52840, 54840, 57160, 60560, 61880, 64000, 65920, 67560, 70680, 76480, 80120, 84920, 87200, 89480, 91960, 94160, 96520, 98840, 101040, 104880, 107200, 109440, 111840, 114080, 116400, 118680, 121040, 124200, 128680, 131080, 133360, 135640, 138120, 140240, 142960]\nelapsed_ms=1648",
+    "markul_reverse": "DECLINED\nelapsed_ms=54",
+    "markul_wrong": "DECLINED\nelapsed_ms=43",
+    "mukka_positive": "DECLINED\nelapsed_ms=1464",
+    "mukka_reverse": "DECLINED\nelapsed_ms=42",
+    "mukka_wrong": "DECLINED\nelapsed_ms=42"
+  },
+  "release_ready": false
+}

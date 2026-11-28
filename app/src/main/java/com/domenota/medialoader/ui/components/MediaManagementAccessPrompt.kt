@@ -24,12 +24,12 @@ internal fun MediaManagementAccessPrompt(enabled: Boolean) {
     }
     if (show) AlertDialog(onDismissRequest = ::dismiss,
         title = { Text("Управление медиафайлами") },
-        text = { Text("Разрешите изменение и удаление фото, видео и музыки без повторных запросов Android. На следующем экране включите доступ для MediaLoader. Для записи тегов может дополнительно потребоваться доступ к метаданным медиа в настройках ML. Перед изменением тегов и удалением приложение всё равно спросит подтверждение.") },
+        text = { Text("Для изменения и удаления фото, видео и музыки без повторных запросов Android необходимо разрешить доступ MediaLoader на следующем экране. Для записи тегов может дополнительно потребоваться доступ к метаданным медиа в настройках ML. Перед изменением тегов и удалением приложение всё равно спросит подтверждение.") },
         confirmButton = { TextButton({
             dismiss()
             try { context.startActivity(Intent(Settings.ACTION_REQUEST_MANAGE_MEDIA,
                 Uri.parse("package:${context.packageName}"))) }
-            catch (_: Exception) { AppNotice.post(context, "Откройте доступ через настройки приложения") }
+            catch (_: Exception) { AppNotice.post(context, "Разрешение можно предоставить в настройках приложения") }
         }) { Text("Разрешить") } },
         dismissButton = { TextButton(::dismiss) { Text("Не сейчас") } })
 }

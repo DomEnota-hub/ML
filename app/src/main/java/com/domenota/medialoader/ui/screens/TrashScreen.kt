@@ -5,6 +5,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,6 +62,9 @@ import com.domenota.medialoader.ui.components.DownloadThumbnail
 import com.domenota.medialoader.ui.model.DownloadUiItem
 import com.domenota.medialoader.data.library.PhoneMediaTrash
 
+/** Root Activity reserves horizontal/bottom safe area; the nested top bar owns status insets. */
+internal fun trashRouteInsets(safe:WindowInsets):WindowInsets = safe.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)
+
 /**
  * App downloads use private trashed URI, while phone media use system MediaStore trash.
  * Selecting via a circular checkbox is independent of opening a file.
@@ -76,8 +82,21 @@ fun TrashScreen(
     onDelete: (Set<String>) -> Unit,
 ) {
     var grid by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var phoneTab by remember { mutableStateOf(false) }
-    val allItems = if (phoneTab) phoneItems else items
+    var phoneTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var mediaType by androidx.compose.runtime.saveable.rememberSaveable {
+        mutableStateOf<com.domenota.medialoader.core.model.MediaType?>(null)
+    }
+    val sourceItems = if (phoneTab) phoneItems else items
+    val allItems=remember(sourceItems,mediaType){
+        com.domenota.medialoader.ui.navigation.filterLibraryMedia(sourceItems,mediaType){item->
+            when(item.kind){
+                com.domenota.medialoader.ui.model.MediaKind.IMAGE->com.domenota.medialoader.core.model.MediaType.PHOTO
+                com.domenota.medialoader.ui.model.MediaKind.VIDEO->com.domenota.medialoader.core.model.MediaType.VIDEO
+                com.domenota.medialoader.ui.model.MediaKind.AUDIO->com.domenota.medialoader.core.model.MediaType.AUDIO
+            }
+        }
+    }
+    val visibleIds=remember(allItems){allItems.mapTo(mutableSetOf()){it.id}}
     fun phoneIds(ids: Set<String>) = ids.filterTo(mutableSetOf(), PhoneMediaTrash::isPhoneTrashId)
     fun appIds(ids: Set<String>) = ids - phoneIds(ids)
     fun restore(ids: Set<String>) {
@@ -89,24 +108,30 @@ fun TrashScreen(
         phoneIds(ids).takeIf { it.isNotEmpty() }?.let(onDeletePhone)
     }
     var selected by remember { mutableStateOf(emptySet<String>()) }
-    LaunchedEffect(phoneTab) { selected = emptySet() }
+    LaunchedEffect(phoneTab,mediaType) { selected = emptySet() }
     var expanded by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var deleteAll by remember { mutableStateOf(false) }
+    var deleteTargets by remember { mutableStateOf(emptySet<String>()) }
+    fun requestDelete(all:Boolean){
+        deleteAll=all
+        deleteTargets=if(all)visibleIds.toSet() else selected.intersect(visibleIds)
+        confirmDelete=deleteTargets.isNotEmpty()
+    }
 
-    LaunchedEffect(allItems.map { it.id }) {
-        selected = selected.intersect(allItems.mapTo(mutableSetOf()) { it.id })
+    LaunchedEffect(visibleIds) {
+        selected = selected.intersect(visibleIds)
     }
 
     if (confirmDelete) AlertDialog(
         onDismissRequest = { confirmDelete = false },
-        title = { Text(if (deleteAll) "Очистить корзину?" else "Удалить выбранные навсегда?") },
+        title = { Text(if (deleteAll && mediaType==null) "Очистить корзину?" else "Удалить выбранные навсегда?") },
         text = {
-            Text("Файлы будут удалены без возможности восстановления. Обычная история загрузок не изменится.")
+            Text("Файлов: ${deleteTargets.size}. Файлы будут удалены без возможности восстановления. Обычная история загрузок не изменится.")
         },
         confirmButton = {
             TextButton(onClick = {
-                val ids = if (deleteAll) allItems.mapTo(mutableSetOf()) { it.id } else selected
+                val ids = com.domenota.medialoader.ui.navigation.confirmedLibraryIds(deleteTargets,visibleIds)
                 confirmDelete = false
                 deleteAll = false
                 if (ids.isNotEmpty()) permanentDelete(ids)
@@ -140,12 +165,11 @@ fun TrashScreen(
                         }
                         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                             DropdownMenuItem(
-                                text = { Text("Очистить корзину") },
+                                text = { Text(if(mediaType==null)"Очистить корзину" else "Удалить файлы этого типа") },
                                 enabled = allItems.isNotEmpty(),
                                 onClick = {
                                     expanded = false
-                                    deleteAll = true
-                                    confirmDelete = true
+                                    requestDelete(true)
                                 },
                             )
                         }
@@ -159,16 +183,19 @@ fun TrashScreen(
                 tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 3.dp) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = {
-                            selected = if (selected.size == allItems.size) emptySet()
-                            else allItems.mapTo(mutableSetOf()) { it.id }
-                        }) { Text(if (selected.size == allItems.size) "Снять выделение" else "Выбрать всё") }
+                        androidx.compose.material3.OutlinedButton(onClick = {
+                            selected = if (selected.intersect(visibleIds) == visibleIds) emptySet()
+                            else visibleIds.toSet()
+                        }, border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)) {
+                            Text(if (selected.intersect(visibleIds) == visibleIds) "Снять выделение" else "Выбрать всё")
+                        }
                         Spacer(Modifier.weight(1f))
                         Text("Выбрано: ${selected.size}", style = MaterialTheme.typography.bodySmall)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
-                            onClick = { val ids = selected; selected = emptySet(); restore(ids) },
+                            onClick = { val ids = selected.intersect(visibleIds); selected = emptySet(); restore(ids) },
                             modifier = Modifier.weight(1f),
                             enabled = selected.isNotEmpty(),
                             colors = ButtonDefaults.buttonColors(
@@ -177,7 +204,7 @@ fun TrashScreen(
                             ),
                         ) { Text("Восстановить") }
                         OutlinedButton(
-                            onClick = { deleteAll = false; confirmDelete = true },
+                            onClick = { requestDelete(false) },
                             modifier = Modifier.weight(1f),
                             enabled = selected.isNotEmpty(),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
@@ -190,14 +217,17 @@ fun TrashScreen(
         Column(Modifier.fillMaxSize().padding(padding)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !phoneTab, onClick = { phoneTab = false },
-                    label = { Text("Загрузчик · ${items.size}") })
-                FilterChip(selected = phoneTab, onClick = { phoneTab = true },
-                    label = { Text("Телефон · ${phoneItems.size}") })
+                FilterChip(selected = !phoneTab, onClick = { selected=emptySet();phoneTab = false },
+                    label = { Text("Загрузчик: ${items.size}") })
+                FilterChip(selected = phoneTab, onClick = { selected=emptySet();phoneTab = true },
+                    label = { Text("Телефон: ${phoneItems.size}") })
             }
+        com.domenota.medialoader.ui.components.LibraryMediaTypeFilters(mediaType,{next->
+            selected=emptySet();mediaType=next
+        },enabled=!confirmDelete)
         if (allItems.isEmpty()) {
             Box(Modifier.fillMaxWidth().heightIn(min = 260.dp),
-                contentAlignment = Alignment.Center) { Text("Корзина пуста") }
+                contentAlignment = Alignment.Center) { Text(if(sourceItems.isEmpty())"Корзина пуста" else "Нет файлов этого типа") }
         } else if (grid) {
             LazyVerticalGrid(columns = GridCells.Adaptive(110.dp), modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),

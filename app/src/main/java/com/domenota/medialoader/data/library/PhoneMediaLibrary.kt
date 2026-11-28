@@ -29,7 +29,14 @@ class PhoneMediaLibrary(context: Context) {
     internal suspend fun scanSnapshot(mode: AppMode, previous: PhoneMediaSnapshot? = null,
         protectedPhysicalKeys: Set<String> = emptySet(),
         onProgress: (suspend (PhoneMediaSnapshot) -> Unit)? = null,
-    ): PhoneMediaSnapshot = withContext(Dispatchers.IO) {
+    ): PhoneMediaSnapshot = scanSnapshotImpl(mode,previous,protectedPhysicalKeys,false,onProgress)
+
+    internal suspend fun scanCompleteAudioSnapshot(protectedPhysicalKeys:Set<String>):PhoneMediaSnapshot =
+        scanSnapshotImpl(AppMode.MUSIC,null,protectedPhysicalKeys,true,null)
+
+    private suspend fun scanSnapshotImpl(mode:AppMode,previous:PhoneMediaSnapshot?,
+        protectedPhysicalKeys:Set<String>,requireComplete:Boolean,
+        onProgress:(suspend (PhoneMediaSnapshot)->Unit)?):PhoneMediaSnapshot = withContext(Dispatchers.IO) {
         com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
             com.domenota.medialoader.core.logging.LibraryWork.MEDIASTORE_SCAN)
         val editedAudio = AudioEditedTags.marked(context)
@@ -42,8 +49,7 @@ class PhoneMediaLibrary(context: Context) {
         }
         val scannedAccess = mutableMapOf<MediaType, Int>()
         val completedRows = mutableListOf<DownloadEntity>()
-        var lastProgress = 0L
-        var published = false
+        val progressPolicy = PhoneScanProgressPolicy()
         val items = types.flatMap { type ->
             coroutineContext.ensureActive()
             val access = accessLevel(type)
@@ -66,7 +72,9 @@ class PhoneMediaLibrary(context: Context) {
             try {
                 com.domenota.medialoader.core.logging.LibraryWorkCounters.increment(
                     com.domenota.medialoader.core.logging.LibraryWork.MEDIASTORE_QUERY)
-                context.contentResolver.query(uri, projection.toTypedArray(), null, null, "date_added DESC, _id DESC")?.use { cursor ->
+                val cursorResult=context.contentResolver.query(uri, projection.toTypedArray(), null, null, "date_added DESC, _id DESC")
+                if(requireComplete)check(cursorResult!=null){"MediaStore unavailable"}
+                cursorResult?.use { cursor ->
                     while (cursor.moveToNext()) {
                         coroutineContext.ensureActive()
                         val indexedRow = mapRow(cursor, type, uri)
@@ -92,24 +100,27 @@ class PhoneMediaLibrary(context: Context) {
                         }
                         rows += row
                         val now = android.os.SystemClock.elapsedRealtime()
-                        if (onProgress != null && ((!published && rows.size >= 64) || (published && now - lastProgress >= 1000))) {
-                            // Deliver a usable first page without waiting for every file/provider.
-                            // Recheck collection access before exposing an incremental snapshot.
-                            if (scannedAccess.all { (kind, level) -> accessLevel(kind) >= level }) {
-                                onProgress(PhoneMediaSnapshot(completedRows + rows, identities.toMap(), fingerprints.toMap()))
-                                published = true
-                                lastProgress = android.os.SystemClock.elapsedRealtime()
-                            }
+                        if (onProgress != null &&
+                            progressPolicy.shouldPublish(completedRows.size + rows.size, now) &&
+                            scannedAccess.all { (kind, level) -> accessLevel(kind) >= level }
+                        ) {
+                            // First page appears promptly. Later immutable copies of the
+                            // full intermediate catalog are bounded by rows AND elapsed
+                            // time, instead of forcing UI/projections every second.
+                            onProgress(PhoneMediaSnapshot(completedRows + rows, identities.toMap(), fingerprints.toMap()))
                         }
                     }
                 }
                 // A revocation during a scan must not publish the rows gathered before it.
+                if(requireComplete)check(accessLevel(type)>=access){"MediaStore access changed"}
                 if (accessLevel(type) >= access) rows.also { completedRows += it } else emptyList()
-            } catch (_: SecurityException) {
+            } catch (denied: SecurityException) {
+                if(requireComplete)throw denied
                 emptyList()
             }
         }
         // Recheck each permission once after the scan, rather than a Binder check for every row.
+        if(requireComplete)check(scannedAccess.all{(type,access)->accessLevel(type)>=access}){"MediaStore access changed"}
         val allowed = scannedAccess.filter { (type, access) -> accessLevel(type) >= access }.keys
         val validated = items.filter { it.mediaType in allowed }
             .sortedWith(compareByDescending<DownloadEntity> { it.createdAtEpochMillis }.thenBy { it.id })

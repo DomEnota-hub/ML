@@ -11,7 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 PATTERN = re.compile(r"0x(?:[0-9a-fA-F]{2})?([0-9a-fA-F]{6})\b|#(?:[0-9a-fA-F]{2})?([0-9a-fA-F]{6})\b")
 ALLOWED = {
     'app/src/main/java/com/domenota/medialoader/ui/theme/Theme.kt': {'7036CB', '7A4DFF', 'BB9CFF', '762DFF', '9B7BFF', '6544B2', '321D77'},  # Original light theme and explicit original Shazam-result exception.
-    'app/src/main/java/com/domenota/medialoader/ui/theme/SettingsIconPalette.kt': {'6C48B6', '42243B', '6F36BB', '8746C4', 'C3A0FF', '392654', '713FA4', 'F0E1FA'},  # Existing light icons + user-approved Hide Extensions icon pair only; main dark accent remains gold.
+    'app/src/main/java/com/domenota/medialoader/ui/theme/SettingsIconPalette.kt': {'6C48B6', '42243B', '6F36BB', 'CEB8E0', '393043', '76528F', '40313D', 'C7A1F5', '39274C', '7844A6'},  # Existing light icons and QA230-06 approved semantic settings icon colors only; main dark accent remains gold.
     'app/src/main/java/com/domenota/medialoader/ui/components/VideoSongSearchDialog.kt': {'9573FF', '8456EC'},  # Light-only recognition loading controls, dark uses current gold.
     'app/src/main/java/com/domenota/medialoader/ui/components/SourceIcon.kt': {'8064CB', '6044A8', '7046E8', '24113F'},  # Source brand gradients plus explicit light-only generic/RUTUBE colors.
     'app/src/main/java/com/domenota/medialoader/ui/components/BulkProgressCard.kt': {'8456EC'},  # Light-only existing progress tint.

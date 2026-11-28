@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 /** Main-thread admission, one service-owned scan. The screen only observes progress. */
 internal object VisualDuplicateBackgroundScan {
     const val OPEN_ACTION = "com.domenota.medialoader.OPEN_VISUAL_DUPLICATES"
-    data class Request(val token: Long, val rows: List<LibraryMediaRef>, val source: LibrarySource, val epoch: Long)
+    data class Request(val token: Long, val rows: List<LibraryMediaRef>, val source: LibrarySource, val epoch: Long, val scopeLabel:String="Все файлы")
     data class Status(val running: Boolean = false, val done: Int = 0, val total: Int = 0,
         val session: VisualDuplicateSession? = null, val error: String? = null, val token: Long = 0, val committing: Boolean = false,
         val stopped: Boolean = false, val phase:DuplicateScanPhase=DuplicateScanPhase.VISUAL,val startedAt:Long=0,val phaseStartedAt:Long=0,val partial:VisualScanResult?=null,val coverage:VisualScanCoverage?=null)
@@ -27,25 +27,46 @@ internal object VisualDuplicateBackgroundScan {
     val state = mutable.asStateFlow()
     private var pending: Request? = null
     private var nextToken = 0L
+    // Reservation only; never hold this monitor across disk I/O. It closes
+    // the gap between the idle check and a journal-only mutation.
+    private var journalMaintenance=false
+    @Synchronized fun beginJournalMaintenance(expectedToken:Long):Boolean {
+        val s=mutable.value
+        if(journalMaintenance||s.running||s.committing||s.token!=expectedToken)return false
+        journalMaintenance=true
+        return true
+    }
+    @Synchronized fun endJournalMaintenance(){journalMaintenance=false}
     private fun prefs(context: Context) = context.getSharedPreferences("visual_duplicate_background_scan",Context.MODE_PRIVATE)
-    fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false)
+    fun interrupted(context: Context) = prefs(context).getBoolean("incomplete",false) &&
+        prefs(context).getLong("journalEpoch",0)==DuplicatePrivacyGuard.generation(context)
+    fun resumeSource(context:Context):LibrarySource? =
+        prefs(context).getString("scopeSource",null)?.let{runCatching{LibrarySource.valueOf(it)}.getOrNull()}
     fun stopped(context: Context) = !state.value.running &&
         prefs(context).getLong("journalEpoch",0)==DuplicatePrivacyGuard.generation(context) &&
         (state.value.stopped || prefs(context).getString("journalStatus",null) in setOf("stopped","paused"))
     fun journalStatus(context:Context):String=if(state.value.running)"Выполняется" else when(prefs(context).getString("journalStatus",null)){
         "paused"->"Приостановлен";"stopped"->"Остановлен";"failed"->"Прерван";else->"Незавершённый поиск"
     }
+    fun resumeScope(context:Context):Set<String>? {
+        val saved=prefs(context)
+        return if(saved.getBoolean("scopeAll",true))null
+            else saved.getStringSet("scopeKeys",emptySet())?.toSet() ?: emptySet()
+    }
     private fun mark(context: Context, value: Boolean) { prefs(context).edit().putBoolean("incomplete",value).apply() }
-    @Synchronized fun start(context: Context, rows: List<LibraryMediaRef>, source:LibrarySource, epoch:Long) {
-        if (mutable.value.running) return
+    @Synchronized fun start(context: Context, rows: List<LibraryMediaRef>, source:LibrarySource, epoch:Long, scopeKeys:Set<String>?=null):Boolean {
+        if (mutable.value.running || journalMaintenance) return false
         val token = ++nextToken
-        pending = Request(token,rows,source,epoch)
+        pending = Request(token,rows.toList(),source,epoch,DuplicateFolderScope.label(scopeKeys))
         val now=android.os.SystemClock.elapsedRealtime()
         mutable.value = Status(running = true,total = rows.size,token = token,startedAt=now,phaseStartedAt=now,coverage=VisualScanCoverage(source,rows.size))
-        prefs(context).edit().putString("journalStatus","running").putLong("journalEpoch",epoch).apply()
+        prefs(context).edit().putString("journalStatus","running").putLong("journalEpoch",epoch)
+            .putString("scopeSource",source.name)
+            .putBoolean("scopeAll",scopeKeys==null)
+            .putStringSet("scopeKeys",scopeKeys?.toSet() ?: emptySet()).apply()
         mark(context,true)
-        try { ContextCompat.startForegroundService(context,Intent(context,VisualDuplicateScanService::class.java)) }
-        catch (e: Exception) { pending = null; mark(context,false); mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token) }
+        return try { ContextCompat.startForegroundService(context,Intent(context,VisualDuplicateScanService::class.java));true }
+        catch (e: Exception) { pending = null; mark(context,false); mutable.value = Status(error = "Не удалось запустить фоновый поиск",token = token);false }
     }
     @Synchronized fun invalidateForPrivacy(){pending=null;mutable.value=Status(error="Поиск сброшен после переноса в Личное",token=++nextToken)}
     @Synchronized fun claim(): Request? = pending.also { pending = null }
@@ -67,6 +88,7 @@ internal object VisualDuplicateBackgroundScan {
     }
     @Synchronized fun finish(context: Context, token: Long, session: VisualDuplicateSession?,error: String? = null, cancelled: Boolean = false, paused: Boolean = false) {
         if (mutable.value.token != token || !mutable.value.running) return
+        if(pending?.token==token)pending=null
         if (session != null) mark(context,false)
         else if (cancelled || paused) mark(context,true) // Stop preserves resumable fingerprints and the partial journal.
         prefs(context).edit().putString("journalStatus",when{session!=null->"completed";cancelled->"stopped";paused->"paused";else->"failed"}).apply()
@@ -76,9 +98,24 @@ internal object VisualDuplicateBackgroundScan {
             stopped = cancelled || paused,token = token,partial=if(session==null)previous.partial else null,
             coverage=coverage,done=coverage?.checked?:previous.done,total=coverage?.total?:previous.total)
     }
-    fun pause(context:Context){
-        if(!state.value.running||state.value.committing)return
-        runCatching{context.startService(Intent(context,VisualDuplicateScanService::class.java).setAction(VisualDuplicateScanService.PAUSE))}
+    /** Called only after a confirmed journal-only deletion under the privacy lock. */
+    @Synchronized fun forgetPartial(context:Context,expectedToken:Long):Boolean {
+        val s=mutable.value
+        if(s.running||s.committing||s.token!=expectedToken)return false
+        if(pending?.token==expectedToken)pending=null
+        prefs(context).edit().remove("journalStatus").remove("scopeSource").remove("scopeKeys")
+            .remove("scopeAll").putBoolean("incomplete",false).apply()
+        mutable.value=s.copy(stopped=false,partial=null,coverage=null,done=0,total=0,error=null)
+        return true
+    }
+    @Synchronized fun forgetCompleted(at:Long?=null){
+        val s=mutable.value
+        if(!s.running&&!s.committing&&(at==null||s.session?.scannedAt==at))
+            mutable.value=s.copy(session=null)
+    }
+    fun pause(context:Context):Boolean{
+        if(!state.value.running||state.value.committing)return false
+        return runCatching{context.startService(Intent(context,VisualDuplicateScanService::class.java).setAction(VisualDuplicateScanService.PAUSE))!=null}.getOrDefault(false)
     }
     fun cancel(context: Context) {
         if (!state.value.running || state.value.committing) return
@@ -125,9 +162,15 @@ class VisualDuplicateScanService : Service() {
         }
         job = scope.launch {
             try {
-                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,request.source,request.epoch,onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
-                        VisualDuplicateBackgroundScan.partial(scanToken,partial)
-                        VisualDuplicateSessionStore.savePartial(this@VisualDuplicateScanService,VisualDuplicateSession(partial,emptySet(),0,0,scanAt))
+                val result = VisualDuplicateScanner.scan(this@VisualDuplicateScanService,request.rows,request.source,request.epoch,isScoped=request.scopeLabel!="Все файлы",onPhase={VisualDuplicateBackgroundScan.phase(scanToken,it)},onPartial={partial->
+                        val scoped=partial.copy(scopeLabel=request.scopeLabel)
+                        val saved=VisualDuplicateSessionStore.savePartial(this@VisualDuplicateScanService,
+                            VisualDuplicateSession(scoped,emptySet(),0,0,scanAt),expectedToken=scanToken)
+                        if(saved)VisualDuplicateBackgroundScan.partial(scanToken,scoped)
+                        else {
+                            val current=VisualDuplicateBackgroundScan.state.value
+                            if(current.running&&current.token==scanToken)error("Не удалось сохранить предварительный отчёт")
+                        }
                     }) { coverage ->
                     val done=coverage.checked;val total=coverage.total
                     val now = android.os.SystemClock.elapsedRealtime()
@@ -139,13 +182,14 @@ class VisualDuplicateScanService : Service() {
                 }
                 ensureActive()
                 if (!VisualDuplicateBackgroundScan.beginCommit(scanToken)) return@launch
-                val session = VisualDuplicateSession(result,emptySet(),0,0,scanAt)
-                check(VisualDuplicateSessionStore.save(this@VisualDuplicateScanService,session)) { "Не удалось сохранить поиск" }
+                val session = VisualDuplicateSession(result.copy(scopeLabel=request.scopeLabel),emptySet(),0,0,scanAt)
+                check(VisualDuplicateSessionStore.save(this@VisualDuplicateScanService,session,expectedToken=scanToken)) { "Не удалось сохранить поиск" }
                 synchronized(DuplicatePrivacyGuard.lock){DuplicateReportJournal.clearPartial(this@VisualDuplicateScanService,"gallery")}
                 terminal = true
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                notifyAllowed(DONE_ID,notificationBase().setContentTitle("Поиск фото и видео завершён")
-                    .setContentText("Групп: ${result.groups.size} · файлов: ${result.groups.sumOf { it.files.size }}")
+                notifyAllowed(DONE_ID,com.domenota.medialoader.data.tasks.TaskNotifications.decorate(notificationBase(),
+                    com.domenota.medialoader.data.tasks.TaskKind.VISUAL_DUPLICATES,"Поиск фото и видео завершён",
+                    "Групп: ${result.groups.size} · файлов: ${result.groups.sumOf { it.files.size }}")
                     .setAutoCancel(true).build())
                 VisualDuplicateBackgroundScan.finish(this@VisualDuplicateScanService,scanToken,session)
             } catch (e: CancellationException) { throw e }
@@ -178,14 +222,15 @@ class VisualDuplicateScanService : Service() {
     private fun notificationBase(): NotificationCompat.Builder {
         val launch = Intent(this,MainActivity::class.java).setAction(VisualDuplicateBackgroundScan.OPEN_ACTION)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        return NotificationCompat.Builder(this,CHANNEL).setSmallIcon(android.R.drawable.ic_media_play)
+        return NotificationCompat.Builder(this,CHANNEL).setSmallIcon(com.domenota.medialoader.data.tasks.TaskNotifications.icon(com.domenota.medialoader.data.tasks.TaskKind.VISUAL_DUPLICATES))
             .setContentIntent(PendingIntent.getActivity(this,ID,launch,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             .setOnlyAlertOnce(true)
     }
     private fun notice(done: Int,total: Int): Notification {
         val phase=VisualDuplicateBackgroundScan.state.value.phase
         val cancel = PendingIntent.getService(this,ID,Intent(this,VisualDuplicateScanService::class.java).setAction(CANCEL),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        return notificationBase().setContentTitle("Поиск дубликатов фото и видео").setContentText("${phase.caption} · $done из $total")
+        return com.domenota.medialoader.data.tasks.TaskNotifications.decorate(notificationBase(),
+            com.domenota.medialoader.data.tasks.TaskKind.VISUAL_DUPLICATES,"Поиск дубликатов фото и видео","${phase.caption} · $done из $total")
             .setProgress(total,done,total == 0).setOngoing(true).addAction(0,"Отменить",cancel).build()
     }
     companion object {

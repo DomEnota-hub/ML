@@ -10,7 +10,7 @@ internal class ComparisonFrame(val spectrum: FloatArray, val rms: Float) {
 
 internal data class ComparisonColumn(val first: Int?, val second: Int?, val different: Boolean)
 internal data class ComparisonZone(val start: Int, val endExclusive: Int)
-internal enum class ComparisonZoneKind { SILENT_PADDING, EXTRA_IN_VERSION, MISSING_IN_VERSION, CHANGED_CONTENT }
+internal enum class ComparisonZoneKind { SILENT_PADDING, QUIET_EDGE_UNCERTAIN, EXTRA_IN_VERSION, MISSING_IN_VERSION, CHANGED_CONTENT, SHORT_CHANGE_UNCERTAIN }
 internal data class AlignedAudioComparison(
     val stepMs: Long,
     val first: List<ComparisonFrame>,
@@ -18,10 +18,31 @@ internal data class AlignedAudioComparison(
     val columns: List<ComparisonColumn>,
     val zones: List<ComparisonZone>,
     val evaluatedCells: Long = 0,
+    /** One coarse spectral frame that needs a second, narrower confirmation. */
+    val shortCandidates: List<ComparisonZone> = emptyList(),
+    val confirmedShortZones: Set<ComparisonZone> = emptySet(),
 ) {
-    /** A quiet boundary is still reported, but separately from an audible edit.
-     * Never use this read-only description to authorize automatic deletion. */
+    fun withConfirmedShortZones(confirmed: Set<ComparisonZone>): AlignedAudioComparison {
+        val accepted = confirmed.intersect(shortCandidates.toSet())
+        return copy(zones = (zones + accepted).distinct().sortedBy { it.start },
+            shortCandidates = emptyList(), confirmedShortZones = accepted)
+    }
+    /** Full-stream confirmed short zones are independent of coarse candidates.
+     * Keep original insertion/deletion zones, avoid overlapping duplicate markers,
+     * and mark new regions as inspectable, never automatic-delete evidence. */
+    fun withPreciseZones(precise: List<ComparisonZone>): AlignedAudioComparison {
+        val added = precise.asSequence().filter { zone ->
+            zone.start >= 0 && zone.endExclusive <= columns.size && zone.start < zone.endExclusive &&
+                zones.none { old -> zone.start < old.endExclusive && old.start < zone.endExclusive }
+        }.distinct().sortedBy { it.start }.toList()
+        return copy(zones = (zones + added).sortedBy { it.start },
+            shortCandidates = emptyList(), confirmedShortZones = confirmedShortZones + added)
+    }
+    /** Keep uncertain low-level recording edges visible without calling them musical edits.
+     * This is only a conservative UI classification: even a quiet tail can be audible
+     * on some equipment. Neither these labels nor the comparison authorize deletion. */
     fun zoneKind(zone: ComparisonZone): ComparisonZoneKind {
+        if (zone in confirmedShortZones) return ComparisonZoneKind.SHORT_CHANGE_UNCERTAIN
         val section = columns.subList(zone.start, zone.endExclusive)
         val extra = section.all { it.first == null && it.second != null }
         val missing = section.all { it.second == null && it.first != null }
@@ -30,6 +51,20 @@ internal data class AlignedAudioComparison(
                 val frame = column.first?.let(first::get) ?: second[requireNotNull(column.second)]
                 frame.silent && frame.rms <= .003f
             }) return ComparisonZoneKind.SILENT_PADDING
+        // Normalized spectra can turn tiny decoder residuals into apparently different
+        // shapes. Require BOTH files to be consistently very quiet across at least
+        // two edge frames. Keep the zone inspectable and explicitly uncertain.
+        if (boundary && section.size >= 2) {
+            val firstPeak = (first.maxOfOrNull { it.rms } ?: 0f).coerceAtLeast(1e-6f)
+            val secondPeak = (second.maxOfOrNull { it.rms } ?: 0f).coerceAtLeast(1e-6f)
+            fun quiet(frame: ComparisonFrame, peak: Float) =
+                frame.rms.isFinite() && frame.rms <= .00075f && frame.rms <= peak * .006f
+            val lowOnBoth = section.all { column ->
+                (column.first == null || quiet(first[column.first], firstPeak)) &&
+                    (column.second == null || quiet(second[column.second], secondPeak))
+            }
+            if (lowOnBoth) return ComparisonZoneKind.QUIET_EDGE_UNCERTAIN
+        }
         return when {
             extra -> ComparisonZoneKind.EXTRA_IN_VERSION
             missing -> ComparisonZoneKind.MISSING_IN_VERSION
@@ -177,6 +212,7 @@ internal object AudioPairAlignment {
             matches < minOf(n, m) * .25f) return null
         val columns = compensateSmallDrift(reversed.asReversed().toList(),first,second,stepMs)
         val zones = ArrayList<ComparisonZone>()
+        val shortCandidates = ArrayList<ComparisonZone>()
         var start = -1
         for (index in 0..columns.size) {
             if (index < columns.size && columns[index].different) {
@@ -186,10 +222,78 @@ internal object AudioPairAlignment {
                 // One noisy boundary frame alone is inconclusive; actual
                 // missing/extra content is retained even when it is short.
                 if (gap || (index - start) * stepMs >= 512) zones.add(ComparisonZone(start, index))
+                else if (stepMs == BASE_STEP_MS && start > 0 && index < columns.size &&
+                    columns[start].first != null && columns[start].second != null
+                ) shortCandidates.add(ComparisonZone(start, index))
                 start = -1
             }
         }
-        return AlignedAudioComparison(stepMs, first, second, columns, zones, evaluated)
+        // Coarse PCM on device can put a masked syllable just ABOVE .85.
+        // Admit only isolated borderline matches for the guarded 64-ms + PCM
+        // second opinion. They are not zones until independently confirmed.
+        if (stepMs == BASE_STEP_MS) {
+            for (index in 1 until columns.lastIndex) {
+                val current = columns[index]
+                if (current.different || columns[index - 1].different ||
+                    columns[index + 1].different) continue
+                val a = current.first ?: continue
+                val b = current.second ?: continue
+                val score = similarity(first[a], second[b])
+                if (score >= MATCH_THRESHOLD && score < .91f)
+                    shortCandidates.add(ComparisonZone(index, index + 1))
+            }
+        }
+        return AlignedAudioComparison(stepMs, first, second, columns, zones, evaluated,
+            shortCandidates.distinct().sortedBy { it.start })
+    }
+
+
+    /** Read-only second opinion on a one-frame coarse mismatch. The active
+     * 256-ms frame is surrounded by two 64-ms context frames on each side.
+     * A single codec impulse is NOT a confirmed musical edit. Small alignment
+     * shifts are admitted only when the unchanged context supports them.
+     * The result is deliberately labelled uncertain and never authorizes trash.
+     */
+    internal fun confirmsShortDifference(
+        first: List<ComparisonFrame>, second: List<ComparisonFrame>,
+        coreFirst: Int, coreSecond: Int, coreFrames: Int,
+    ): Boolean {
+        if (coreFrames < 2 || first.isEmpty() || second.isEmpty()) return false
+        var bestShift: Int? = null
+        var bestContext = -1.0
+        for (shift in -1..1) {
+            val anchors = buildList {
+                for (i in 0 until coreFirst) add(i)
+                for (i in coreFirst + coreFrames until first.size) add(i)
+            }.filter { i ->
+                val j = i - coreFirst + coreSecond + shift
+                j in second.indices && !first[i].silent && !second[j].silent
+            }
+            if (anchors.size < 2) continue
+            val quality = anchors.map { i ->
+                val j = i - coreFirst + coreSecond + shift
+                similarity(first[i], second[j]).toDouble()
+            }.average()
+            if (quality > bestContext) { bestContext = quality; bestShift = shift }
+        }
+        if (bestContext < .90 || bestShift == null) return false
+        var consecutive = 0
+        var meaningfulMinimum = false
+        for (i in coreFirst until coreFirst + coreFrames) {
+            val j = i - coreFirst + coreSecond + bestShift
+            if (i !in first.indices || j !in second.indices) return false
+            val a = first[i]; val b = second[j]
+            val similarity = similarity(a, b)
+            if (a.silent || b.silent || !a.rms.isFinite() || !b.rms.isFinite() ||
+                maxOf(a.rms, b.rms) < .00075f
+            ) { consecutive = 0; continue }
+            if (similarity < .87f) {
+                if (similarity < .82f) meaningfulMinimum = true
+                consecutive++
+                if (consecutive >= 2 && meaningfulMinimum) return true
+            } else consecutive = 0
+        }
+        return false
     }
 
     private class Trace(val band: Int, val width: Int, val directions: ByteArray,

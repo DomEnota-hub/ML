@@ -111,7 +111,7 @@ internal fun decodeAudioPeaks(context: Context, uri: Uri, count: Int = 256): Flo
             }
         }
     } catch (error: Exception) {
-        AppLog.w("AudioWaveform", "Could not decode peaks · ${error.javaClass.simpleName}: ${error.message}")
+        AppLog.w("AudioWaveform", "Could not decode peaks")
     } finally {
         runCatching { decoder?.stop() }
         runCatching { decoder?.release() }
@@ -159,7 +159,7 @@ private fun decodeCompressedSampleSizes(context: Context, uri: Uri, count: Int):
         val max = peaks.maxOrNull()?.coerceAtLeast(1f) ?: 1f
         for (i in peaks.indices) peaks[i] = peaks[i] / max
     } catch (error: Exception) {
-        AppLog.w("AudioWaveform", "Could not read frames · ${error.javaClass.simpleName}: ${error.message}")
+        AppLog.w("AudioWaveform", "Could not read frames")
     } finally {
         extractor.release()
     }
@@ -172,6 +172,8 @@ internal fun AudioWaveform(
     progress: Float,
     onSeekFraction: (Float) -> Unit,
     accentColor: Color = MaterialTheme.colorScheme.primary,
+    markers: List<Float> = emptyList(),
+    dragSeek: Boolean = true,
 ) {
     val active = accentColor
     val inactive = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f)
@@ -179,12 +181,12 @@ internal fun AudioWaveform(
         .pointerInput(onSeekFraction) {
             detectTapGestures { onSeekFraction((it.x / size.width).coerceIn(0f, 1f)) }
         }
-        .pointerInput(onSeekFraction) {
+        .then(if (dragSeek) Modifier.pointerInput(onSeekFraction) {
             detectDragGestures { change, _ ->
                 onSeekFraction((change.position.x / size.width).coerceIn(0f, 1f))
                 change.consume()
             }
-        }) {
+        } else Modifier)) {
         val columns = peaks.size.coerceAtLeast(1)
         val cellWidth = size.width / columns
         val gap = (cellWidth * 0.28f).coerceAtMost(2.dp.toPx())
@@ -197,6 +199,12 @@ internal fun AudioWaveform(
                 topLeft = androidx.compose.ui.geometry.Offset(x, (size.height - height) / 2f),
                 size = androidx.compose.ui.geometry.Size(barWidth, height),
             )
+        }
+        // Compact position dots; never a full-height cursor or video timeline stripe.
+        markers.filter { it.isFinite() && it in 0f..1f }.forEach { fraction ->
+            val radius = 3.dp.toPx()
+            val x = (size.width * fraction).coerceIn(radius, (size.width - radius).coerceAtLeast(radius))
+            drawCircle(color = active, radius = radius, center = androidx.compose.ui.geometry.Offset(x, radius + 1.dp.toPx()))
         }
     }
 }

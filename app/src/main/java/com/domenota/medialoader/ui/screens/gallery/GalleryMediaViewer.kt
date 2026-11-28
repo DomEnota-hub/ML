@@ -76,6 +76,10 @@ internal fun GalleryMediaViewer(
     onPassport: ((DownloadEntity)->Unit)? = null,
     onAddCollection: ((DownloadEntity)->Unit)? = null,
     allowNeighborOnQueueRemoval: Boolean = true,
+    floatingHandoffToken: String? = null,
+    onFloatingHandoffConsumed: (String) -> Unit = {},
+    notes: com.domenota.medialoader.ui.screens.organization.MediaPassportNotes? = null,
+    noteRef: (DownloadEntity) -> com.domenota.medialoader.data.library.LibraryMediaRef? = { null },
 ) {
     val photoCache = remember { com.domenota.medialoader.ui.screens.PhotoPreviewCache() }
     DisposableEffect(photoCache) { onDispose { photoCache.clear() } }
@@ -127,6 +131,13 @@ internal fun GalleryMediaViewer(
     var playerCommandSeq by remember(current.id) { mutableIntStateOf(0) }
     var songSearch by remember(current.id) { mutableStateOf(false) }
     var info by remember(current.id) { mutableStateOf(false) }
+    var noteOpen by remember(current.id,current.savedUri) { mutableStateOf(false) }
+    val currentNoteRef = if (!privateMode && !current.isPrivate && !current.hidden && notes?.addressKey != null)
+        noteRef(current) else null
+    LaunchedEffect(currentNoteRef, notes?.addressKey) { if (currentNoteRef == null) noteOpen = false }
+    if (noteOpen && currentNoteRef != null && notes != null) {
+        com.domenota.medialoader.ui.screens.organization.MediaPassportNoteDialog(currentNoteRef,notes) { noteOpen = false }
+    }
     var chooseFolder by remember(current.id) { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -297,6 +308,14 @@ internal fun GalleryMediaViewer(
                             if (page == pager.currentPage) chrome = shown
                         },
                         floatingWindowRequest = if (page == pager.currentPage) floatingRequest else 0,
+                        floatingHandoffToken = floatingHandoffToken.takeIf { !privateMode && !row.isPrivate && row.id == item.id && row.savedUri == item.savedUri },
+                        onFloatingHandoffFinished = { token, state ->
+                            if (state != null) {
+                                loopVideo = state.repeatMode == androidx.media3.common.Player.REPEAT_MODE_ONE
+                                videoSpeed = state.speed
+                            }
+                            onFloatingHandoffConsumed(token)
+                        },
                         galleryCommand = if (page == pager.currentPage) playerCommand else null,
                         onAudioTrackCountChanged = { count -> if (row.id == current.id) audioTrackCount = count },
                         onPlaybackGestureOwnershipChanged = { owns ->
@@ -382,6 +401,7 @@ internal fun GalleryMediaViewer(
             speed = videoSpeed,
             allowPrivate = !privateMode && current.providerId != "device",
             audioTrackCount = audioTrackCount,
+            allowNotes = currentNoteRef != null,
             onDismiss = { menu = false },
             onSpeed = { selected -> videoSpeed = selected; menu = false },
             onAction = { action ->
@@ -401,6 +421,7 @@ internal fun GalleryMediaViewer(
                         "album" -> chooseFolder = true
                         "wallpaper" -> wallpaperChoice = true
                         "info" -> info = true
+                        "notes" -> if (currentNoteRef != null) noteOpen = true
                         "ocr", "cutout", "watermark" -> photoTool = action
                         "edit" -> onEdit(current)
                         "cast" -> mutate { galleryCast(context, current) }

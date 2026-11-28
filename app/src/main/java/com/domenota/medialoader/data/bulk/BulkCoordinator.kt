@@ -86,9 +86,9 @@ class BulkCoordinator(
 
     fun start(text: String, rules: BulkRules): String? {
         if (_state.value.phase in setOf(BulkPhase.ANALYZING, BulkPhase.QUEUING, BulkPhase.PAUSED))
-            return "Сначала завершите текущее задание"
-        if (!rules.hasSelectedSources()) return "Выберите хотя бы один источник"
-        if (!rules.hasSelectedTypes()) return "Выберите хотя бы один тип файлов"
+            return "Сначала заверши текущее задание"
+        if (!rules.hasSelectedSources()) return "Выбери хотя бы один источник"
+        if (!rules.hasSelectedTypes()) return "Выбери хотя бы один тип файлов"
         val parsed = runCatching { BulkLinks.parse(text) }.getOrElse { return it.message ?: "Не удалось прочитать ссылки" }
         if (parsed.urls.isEmpty()) return "Поддерживаемые ссылки не найдены"
         worker?.cancel()
@@ -251,7 +251,7 @@ class BulkCoordinator(
                             (error.reason == ProviderException.Reason.ACCESS_REQUIRED && instagramWithSession))) {
                         set(_state.value.copy(phase = BulkPhase.PREVIEW,
                             errors = _state.value.errors +
-                                "$url — Instagram ограничил запросы или требует проверку аккаунта. Анализ остановлен; повторите позже."))
+                                "$url — Instagram ограничил запросы или требует проверку аккаунта. Анализ остановлен; повтори позже."))
                         break
                     }
                     set(_state.value.copy(cursor = current.cursor + 1,

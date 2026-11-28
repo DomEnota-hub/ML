@@ -35,6 +35,23 @@ class VideoSpecialFxMedia3WiringTest {
                 effects.any { it is OverlayEffect })
         }
         assertFalse(editor.previewEffects(VideoEditSpec()).any { it is OverlayEffect })
+        val circular = editor.previewEffects(VideoEditSpec(
+            cropShape = MediaCropShape.CIRCLE, cropLeft = .21875f, cropRight = .21875f))
+        assertTrue("Video circle must be a real shared Media3 effect",
+            circular.any { it is OverlayEffect })
+        assertFalse("Circle must retain the rectangular video frame dimensions",
+            circular.any { it is androidx.media3.effect.Crop })
+        val source = Bitmap.createBitmap(192, 108, Bitmap.Config.ARGB_8888)
+        source.eraseColor(Color.WHITE)
+        val masked = MediaCircleCrop.apply(source,
+            VideoCropMath.centerCrop(192, 108, CropAspectPreset.RATIO_1_1))
+        assertEquals(Color.BLACK, masked.getPixel(0, 0))
+        assertEquals(Color.BLACK, masked.getPixel(191, 107))
+        assertEquals(Color.WHITE, masked.getPixel(96, 54))
+        assertEquals(192, masked.width)
+        assertEquals(108, masked.height)
+        masked.recycle()
+        source.recycle()
     }
 
     @Test fun everyEffectChangesPixelsAndAllThumbnailsDiffer() {

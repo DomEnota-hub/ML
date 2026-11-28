@@ -111,14 +111,14 @@ class InstagramAutoShareWorker(context: Context, params: WorkerParameters) :
             val description = when (error) {
                 is ProviderException -> when (error.reason) {
                     ProviderException.Reason.ACCESS_REQUIRED -> "Instagram требует входа в аккаунт"
-                    ProviderException.Reason.RATE_LIMITED -> "Instagram ограничил запросы; повторите позднее"
+                    ProviderException.Reason.RATE_LIMITED -> "Instagram ограничил запросы; повтори позднее"
                     ProviderException.Reason.UNSUPPORTED -> "Ссылка не поддерживается или публикация недоступна"
                     else -> "Не удалось получить фото или видео"
                 }
                 else -> if (error is java.net.UnknownHostException ||
                     error is java.net.SocketTimeoutException || error is java.net.SocketException)
                     "Не удалось соединиться с Instagram. Отправьте ссылку повторно после восстановления связи"
-                else "Проверьте соединение, ссылку и доступ к папке"
+                else "Проверь соединение, ссылку и доступ к папке"
             }
             notifications.show("Не удалось загрузить", description)
             return Result.failure()

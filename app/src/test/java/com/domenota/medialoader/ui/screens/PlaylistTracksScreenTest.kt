@@ -42,7 +42,7 @@ class PlaylistTracksScreenTest {
         compose.onNodeWithContentDescription("Добавить Phone").performClick()
         compose.onNodeWithText("Phone").performClick()
         assertEquals("phone:audio:42" to listOf("app", "phone:audio:42"), preview)
-        compose.onNodeWithText("Добавить · 2").performClick()
+        compose.onNodeWithText("Добавить: 2").performClick()
         compose.waitForIdle()
         assertEquals(listOf("app", "phone:audio:42"), added)
         assertEquals(1, closed)
@@ -56,7 +56,7 @@ class PlaylistTracksScreenTest {
         } }
         compose.onNodeWithContentDescription("В плейлисте App").assertIsNotEnabled()
         compose.onNodeWithText("Secret").assertDoesNotExist()
-        compose.onNodeWithText("Добавить · 0").assertIsNotEnabled()
+        compose.onNodeWithText("Добавить: 0").assertIsNotEnabled()
     }
 
     @Test fun selectedTracksSurviveSavedStateRestoration() {
@@ -67,7 +67,7 @@ class PlaylistTracksScreenTest {
         } }
         compose.onNodeWithContentDescription("Добавить App").performClick()
         restoration.emulateSavedInstanceStateRestore()
-        compose.onNodeWithText("Добавить · 1").assertIsEnabled()
+        compose.onNodeWithText("Добавить: 1").assertIsEnabled()
     }
 
     private fun track(id: String, title: String) = DownloadEntity(id, "device", title, MediaType.AUDIO,

@@ -167,6 +167,10 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
     val initialSelectionReady = initialAdd.isEmpty() || ready
     val detailScope = detailCatalog.takeIf { useScoped && detailCatalogId == selected }
     val activeUsable = if (useScoped) detailScope != null else usable
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        (if(collection==null)overviewAccessReady else activeUsable)&&!busy&&!ordering&&!selecting&&
+        !choosing&&!picker&&!rename&&!create&&!remove&&!linkDialog&&!detailMenu&&!missingPanel&&
+        missingInfo==null&&missingRemove==null&&!removeMembers)
     // Bound the initial visible wait even if new provider revisions continually
     // supersede an addressed result. Ordinary refreshes retain the current view.
     var detailRetry by remember(selected) { mutableIntStateOf(0) }
@@ -530,7 +534,7 @@ internal fun CollectionsScreen(collections:List<MediaCollection>,refs:List<Libra
                 val row=missingMetadata[infoMember.id]
                 AlertDialog(onDismissRequest={missingInfo=null},title={Text("Информация о файле")},text={Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
                     Text(row?.originalName?:"Недоступный файл")
-                    row?.let{Text("${it.mediaType.caption()} · ${it.providerId}");Text(date(it.createdAtEpochMillis));it.savedUri?.let{uri->Text(uri,style=MaterialTheme.typography.bodySmall)}}
+                    row?.let{Text("${it.mediaType.caption()}, ${it.providerId}");Text(date(it.createdAtEpochMillis));it.savedUri?.let{uri->Text(uri,style=MaterialTheme.typography.bodySmall)}}
                     Text("Файл недоступен. Связь с коллекцией сохранена.")
                 }},confirmButton={TextButton({missingInfo=null}){Text("Закрыть")}})
             }
@@ -606,7 +610,7 @@ internal fun ReviewScreen(entries:List<MediaReviewEntity>,refs:List<LibraryMedia
                     Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                         Column(Modifier.weight(1f)){
                             Text(rows.first().second.item.providerId,style=MaterialTheme.typography.titleMedium)
-                            Text("${date(rows.first().first.completedAt)} · ${rows.size} файлов",style=MaterialTheme.typography.bodySmall)
+                            Text("${date(rows.first().first.completedAt)}, ${rows.size} файлов",style=MaterialTheme.typography.bodySmall)
                         }
                         if(rows.size>1)TextButton({mutate{repository.setReviewed(rows.map{it.first.downloadId})}},enabled=!busy){Text("Готово")}
                     }
@@ -648,7 +652,8 @@ internal fun ReviewScreen(entries:List<MediaReviewEntity>,refs:List<LibraryMedia
 @Composable
 internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>,collections:List<MediaCollection>,
     operations:List<MediaOperationEntity>,folderNames:List<String>,playlistNames:List<String>,onBack:()->Unit,
-    onOpen:(String,List<String>)->Unit,onLink:(String)->Unit,onCollection:(String)->Unit) {
+    onOpen:(String,List<String>)->Unit,onLink:(String)->Unit,onCollection:(String)->Unit,
+    notes:MediaPassportNotes?=null) {
     Column(Modifier.fillMaxSize().testTag("media-passport")){
         Header("Паспорт медиафайла",onBack)
         if(ref==null){Text("Файл недоступен",Modifier.padding(16.dp));return@Column}
@@ -665,7 +670,7 @@ internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>
             item{
                 DownloadThumbnail(row.savedUri,row.previewUrl,row.mediaType.kind(),Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(16.dp)))
                 Text(row.originalName,style=MaterialTheme.typography.titleLarge)
-                Text("${row.mediaType.caption()} · ${row.sizeBytes?.let{android.text.format.Formatter.formatFileSize(androidx.compose.ui.platform.LocalContext.current,it)}?:"Размер неизвестен"}")
+                Text("${row.mediaType.caption()}, ${row.sizeBytes?.let{android.text.format.Formatter.formatFileSize(androidx.compose.ui.platform.LocalContext.current,it)}?:"Размер неизвестен"}")
                 row.durationMs?.let{Text("Длительность: ${it/1000} с")}
                 Text("Дата записи: ${date(row.createdAtEpochMillis)}")
                 Text(if(ref.appDownloadId!=null&&row.providerId!="device")"Источник: ${row.providerId}" else "Файл телефона; источник не подтверждён")
@@ -673,8 +678,10 @@ internal fun MediaPassportScreen(ref:LibraryMediaRef?,refs:List<LibraryMediaRef>
                 HorizontalDivider()
                 Text("История обработки",style=MaterialTheme.typography.titleMedium)
                 if(operations.isEmpty())Text(if(passport.parentKnown)"Создан производный файл; точная операция не записана" else "Нет подтверждённых операций")
-                operations.forEach{Text("${date(it.occurredAt)} · ${it.operation}")}
+                operations.forEach{Text("${date(it.occurredAt)}, ${it.operation}")}
             }
+            // Audio has no gallery action menu. Preserve access to its existing notes.
+            if(notes!=null && row.mediaType==MediaType.AUDIO)item(key="passport-note"){MediaPassportNoteEditor(ref,notes)}
             if(passport.parentKnown)item{
                 Text("Оригинал",style=MaterialTheme.typography.titleMedium)
                 passport.parent?.let{parent->MediaLine(parent.item,{onOpen(parent.key,listOf(parent.key))})}

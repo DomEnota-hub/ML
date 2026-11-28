@@ -27,6 +27,28 @@ import org.robolectric.annotation.LooperMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class GalleryVideoChromeTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    @Test fun gallerySurfaceNeverInflatesNativeControlsAcrossRepeatedCreation() {
+        compose.setContent { MaterialTheme {} }
+        compose.runOnIdle {
+            repeat(3) {
+                val view = com.domenota.medialoader.ui.screens.createLocalVideoPlayerView(compose.activity, true)
+                assertFalse(view.useController)
+                org.junit.Assert.assertNull(view.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_controller))
+                org.junit.Assert.assertNull(view.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_controller_placeholder))
+                org.junit.Assert.assertNull(view.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_progress))
+                org.junit.Assert.assertNotNull(view.videoSurfaceView)
+                org.junit.Assert.assertNotNull(view.overlayFrameLayout)
+                org.junit.Assert.assertNotNull(view.subtitleView)
+                view.hideController()
+                assertFalse(view.isControllerFullyVisible)
+            }
+            val standalone = com.domenota.medialoader.ui.screens.createLocalVideoPlayerView(compose.activity, false)
+            org.junit.Assert.assertNotNull(standalone.findViewById<android.view.View>(androidx.media3.ui.R.id.exo_controller))
+            assertTrue(standalone.useController)
+        }
+    }
+
     @Test fun missingDurationNeverPretendsResumedVideoIsAtEnd() {
         var duration by mutableStateOf(0L)
         var soughtTo:Long? = null

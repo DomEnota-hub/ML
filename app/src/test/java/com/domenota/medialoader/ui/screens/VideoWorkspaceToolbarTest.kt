@@ -86,4 +86,14 @@ class VideoWorkspaceToolbarTest {
             assertEquals(false, isManual.value)
         }
     }
+    @Test fun timelineClipTapPreservesEverySelectedEditingTool() {
+        for (tool in VideoWorkspaceTool.entries) {
+            val focused = preserveVideoClipFocus("clip-2", tool)
+            assertEquals("clip-2", focused.clipId)
+            assertEquals("Timeline focus must not activate Trim over $tool",
+                tool, focused.tool)
+        }
+        assertEquals(null, preserveVideoClipFocus("clip-3", null).tool)
+    }
+
 }

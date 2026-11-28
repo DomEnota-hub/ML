@@ -87,4 +87,54 @@ class SimpleArchiveStoreTest {
             assertFalse(index.exists())
         } finally { media.delete() }
     }
+
+    @Test fun virtualFolderSixOf866AcrossDirectoriesPreservesAllBytesAndGroupAfterRestart() = runBlocking<Unit> {
+        val root = File(context.cacheDir, "archive-qa226-866").apply { mkdirs() }
+        try {
+            val files = (1..866).map { n ->
+                val parent = File(root, if (n % 2 == 0) "even" else "odd").apply { mkdirs() }
+                File(parent, "photo-$n.jpg").apply { writeText("original-$n") }
+            }
+            val document = File(root, "notes.md").apply { writeText("not a media file") }
+            val original = (files + document).associateWith { it.readBytes() }
+            val group = SimpleArchiveGroup(SimpleArchiveGroupKind.VIRTUAL_FOLDER, "folder-test", "Тест")
+            val chosen = files.take(6).mapIndexed { n, file -> row("media-$n", file, MediaType.PHOTO) }
+            SimpleArchiveStore(context).archive(chosen, ArchiveEntrySource.DOWNLOADER, group)
+            val reopened = SimpleArchiveStore(context)
+            val records = reopened.refresh()
+            assertEquals(6, records.size)
+            assertTrue(records.all { it.group == group })
+            reopened.restore(setOf("media-0"))
+            val partial = SimpleArchiveStore(context).refresh()
+            assertEquals(5, partial.size)
+            assertTrue(partial.all { it.group == group })
+            SimpleArchiveStore(context).restore(partial.map { it.catalogId }.toSet())
+            assertTrue(SimpleArchiveStore(context).refresh().isEmpty())
+            assertFalse(root.walkTopDown().any { it.name == ".nomedia" })
+            for ((file, bytes) in original) assertArrayEquals(bytes, file.readBytes())
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test fun previousV1WithoutGroupLoadsAndConflictingBatchLeavesPersistedIndexUntouched() = runBlocking<Unit> {
+        val first = File(context.cacheDir, "archive-legacy-qa226.jpg").apply { writeText("original") }
+        val second = File(context.cacheDir, "archive-other-qa226.jpg").apply { writeText("other") }
+        try {
+            val old = row("old", first, MediaType.PHOTO)
+            SimpleArchiveStore(context).archive(listOf(old), ArchiveEntrySource.GALLERY)
+            val legacy = org.json.JSONObject(index.readText())
+            legacy.getJSONArray("files").getJSONObject(0).remove("group")
+            index.writeText(legacy.toString())
+            val store = SimpleArchiveStore(context)
+            assertNull(store.refresh().single().group)
+            val before = index.readBytes()
+            assertThrows(IllegalStateException::class.java) {
+                runBlocking { store.archive(listOf(row("new", second, MediaType.PHOTO),
+                    old.copy(id = "alias", sizeBytes = first.length() + 10)), ArchiveEntrySource.GALLERY) }
+            }
+            assertArrayEquals(before, index.readBytes())
+            assertEquals(listOf("old"), SimpleArchiveStore(context).refresh().map { it.catalogId })
+            assertEquals("original", first.readText())
+            assertEquals("other", second.readText())
+        } finally { first.delete(); second.delete() }
+    }
 }

@@ -124,9 +124,11 @@ internal class LibraryAudioPreview(context: Context,
             sync(active)
         }
     }
-    suspend fun playSelection(refs: List<LibraryMediaRef>, shuffle: Boolean, requestedId:String?=null) {
+    suspend fun playSelection(refs: List<LibraryMediaRef>, shuffle: Boolean, requestedId:String?=null, requireExactOrder:Boolean=false) {
         val permit = authorize(refs, requestedId ?: refs.firstOrNull()?.key)
         val items = withContext(Dispatchers.IO) { queueItems(refs) }
+        if(requireExactOrder)check(!shuffle&&items.map{it.mediaId}==refs.map{it.item.id}&&
+            items.map{it.mediaId}.distinct().size==refs.size){"Состав очереди изменился"}
         withContext(Dispatchers.Main.immediate) {
             val active = controller()
             check(AudioQueuePlayback.startSelection(active,items,shuffle,requestedId,permit)) { "Нет доступных треков" }

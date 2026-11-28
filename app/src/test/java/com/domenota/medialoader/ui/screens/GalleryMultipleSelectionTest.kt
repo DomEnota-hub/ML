@@ -39,14 +39,16 @@ class GalleryMultipleSelectionTest {
                 searchVisible = false, onDeleteSelected = { deletions += it })
         } } }
         compose.onNodeWithContentDescription("a.jpg").performTouchInput { longClick() }
-        compose.onNodeWithText("Выбрано: 1").assertExists()
+        compose.onNodeWithContentDescription("Выбрано: 1").assertExists()
         compose.onNodeWithContentDescription("b.jpg").performClick()
-        compose.onNodeWithText("Выбрано: 2").assertExists()
+        compose.onNodeWithContentDescription("Выбрано: 2").assertExists()
         compose.onNodeWithContentDescription("Удалить выбранное").performClick()
         assertEquals(listOf(listOf("a", "b")), deletions)
         assertEquals(0, opens)
-        compose.onNodeWithContentDescription("Выбрать все").performClick()
-        compose.onNodeWithText("Выбрано: 3").assertExists()
+        compose.onNodeWithContentDescription("Действия с выбранными").performClick()
+        compose.onNodeWithTag("gallery-selection-all").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("gallery-selection-all").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Выбрано: 3").assertExists()
         compose.onNodeWithContentDescription("Отменить выбор").performClick()
         compose.onNodeWithContentDescription("Удалить выбранное").assertDoesNotExist()
     }

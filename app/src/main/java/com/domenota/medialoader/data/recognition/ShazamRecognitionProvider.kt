@@ -1,6 +1,5 @@
 package com.domenota.medialoader.data.recognition
 
-import com.domenota.medialoader.core.recognition.MusicRecognitionProvider
 import com.domenota.medialoader.core.recognition.MusicRecognitionResult
 import com.domenota.medialoader.core.recognition.RecognitionAudioSpec
 import com.domenota.medialoader.core.recognition.RecognitionSource
@@ -18,7 +17,7 @@ internal class ShazamRecognitionProvider(
     private val api: ShazamApi = ShazamClient(),
     private val signatureFactory: (ShortArray) -> ShazamSignatureGenerator.Signature =
         ShazamSignatureGenerator::generate,
-) : MusicRecognitionProvider {
+) : SubmissionAwareMusicRecognitionProvider {
 
     override suspend fun recognize(pcm16Mono16k: ShortArray): MusicRecognitionResult? {
         if (!RecognitionAudio.eligible(pcm16Mono16k)) return null

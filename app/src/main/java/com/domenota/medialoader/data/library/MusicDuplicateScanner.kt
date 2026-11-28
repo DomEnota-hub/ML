@@ -19,7 +19,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 
-internal data class DuplicateScanResult(val groups: List<DuplicateGroup>, val skipped: Int, val acousticUnavailable:Int=0, val expanded:Boolean=false, val privacyEpoch:Long=0)
+internal data class DuplicateScanResult(val groups: List<DuplicateGroup>, val skipped: Int, val acousticUnavailable:Int=0, val expanded:Boolean=false, val privacyEpoch:Long=0, val scopeLabel:String="Все файлы")
 internal object MusicDuplicateScanner {
     private data class Stamp(val size: Long, val modified: Long?, val folder: String?)
     private data class Cached(val stamp: Stamp, val track: DuplicateTrack)
@@ -116,13 +116,22 @@ internal object MusicDuplicateScanner {
             catch (e: Exception) { file.failWrite(stream); throw e }
         }
     } }
-    private suspend fun read(context: Context, row: DownloadEntity, linked: Boolean, current: Boolean, epoch: Long, metrics:DuplicateScanMetrics,expanded:Boolean): DuplicateTrack {
+    private suspend fun read(context: Context, row: DownloadEntity, linked: Boolean, current: Boolean, epoch: Long, metrics:DuplicateScanMetrics,expanded:Boolean, freshEncoded:FreshEncodedDigestCache): DuplicateTrack {
         check(DuplicatePrivacyGuard.accepts(context,epoch,row.id)) { "Поиск устарел после изменения приватности" }
         val value = requireNotNull(row.savedUri); val uri = Uri.parse(value); val before = metrics.measure("metadata_stamp"){stamp(context,uri)}
         val cacheKey=value+if(expanded)"#full" else "#sampled"
         val old = metrics.measure("checkpoint_read"){
             synchronized(cache) { cache[cacheKey] } ?: loadCheckpoint(context,value,before,expanded)
-                ?: if(expanded)loadCheckpoint(context,value,before,false)?.let{Cached(it.stamp,it.track.copy(acoustic=null))} else null
+                ?: if(before.modified != null) {
+                    val alternateKey = value + if(expanded) "#sampled" else "#full"
+                    val alternate = synchronized(cache) { cache[alternateKey] }
+                    val metadata = alternate?.track?.let {
+                        MusicMetadataCheckpointPolicy.forOtherMode(it,value,before.size,before.modified,before.folder,epoch,row.originalName)
+                    } ?: loadCheckpoint(context,value,before,!expanded)?.track?.let {
+                        MusicMetadataCheckpointPolicy.forOtherMode(it,value,before.size,before.modified,before.folder,epoch,row.originalName)
+                    }
+                    metadata?.let { metrics.hit("metadata_other_mode_cache"); Cached(before,it) }
+                } else null
         }
         if (before.modified != null && old != null && old.stamp == before && old.track.privacyEpoch == epoch && old.track.filename == row.originalName) { metrics.hit("metadata_cache"); return old.track.copy(id = row.id, linked = linked, current = current,
             title = row.recognizedTitle ?: row.sourceAudioTitle ?: old.track.title, artist = row.recognizedArtist ?: row.sourceAudioArtist ?: old.track.artist) }
@@ -137,9 +146,15 @@ internal object MusicDuplicateScanner {
             duration = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: duration
             bitrate = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)?.toLongOrNull()
         } catch (e: CancellationException) { throw e } catch (_: Exception) { /* filename fallback */ } finally { r.release() } }
-        val sha = metrics.measure("sha256"){hash(context,uri)}; val encoded = metrics.measure("encoded_payload"){payload(context,uri)}
-        // The first pass deliberately does not decode audio; exact groups become available first.
+        val sha = metrics.measure("sha256"){hash(context,uri)}
+        val encoded = freshEncoded.find(sha,before.size,before.modified,epoch)
+            ?.also { metrics.hit("encoded_payload_exact_cache") }
+            ?: metrics.measure("encoded_payload"){payload(context,uri)}
+        // Both files have a current complete byte digest; cache only after identity
+        // revalidation, not from persisted checkpoint hashes.
         check(stamp(context,uri) == before) { "Файл изменился во время проверки" }
+        check(DuplicatePrivacyGuard.accepts(context,epoch,row.id)) { "Поиск устарел после изменения приватности" }
+        freshEncoded.remember(sha,before.size,before.modified,epoch,encoded)
         val track = DuplicateTrack(row.id,title?.takeIf(String::isNotBlank) ?: row.originalName.substringBeforeLast('.'),artist,row.originalName,value,before.size,before.modified,sha,encoded,duration,bitrate,before.folder,linked,current,null,epoch)
         if (before.modified != null) metrics.measure("checkpoint_write") {
             synchronized(DuplicatePrivacyGuard.lock) {
@@ -168,15 +183,22 @@ internal object MusicDuplicateScanner {
         return next
     }
     suspend fun scan(context: Context, rows: List<DownloadEntity>, linkedIds: Set<String>, currentId: String?,expanded:Boolean=false,
-        onPhase:(DuplicateScanPhase)->Unit={},onPartial:(DuplicateScanResult)->Unit={}, progress: (Int,Int) -> Unit): DuplicateScanResult = withContext(Dispatchers.IO) {
+        isScoped:Boolean=false, onPhase:(DuplicateScanPhase)->Unit={},onPartial:(DuplicateScanResult)->Unit={}, progress: (Int,Int) -> Unit): DuplicateScanResult = withContext(Dispatchers.IO) {
         val epoch = DuplicatePrivacyGuard.generation(context)
         val usable = rows.filter { !it.hidden && !it.isPrivate && it.state == DownloadState.COMPLETED && it.mediaType == MediaType.AUDIO && !it.savedUri.isNullOrBlank() }.distinctBy { it.id }
         val publicUris = usable.mapNotNull { it.savedUri }.toSet()
-        synchronized(cache) { cache.keys.retainAll(publicUris.flatMap{listOf(it+"#full",it+"#sampled")}.toSet()) }
+        // A selective folder scan is NOT the whole public library. Never evict
+        // other folders' valid fingerprints simply because they were not selected.
+        // Epoch/stamp identity remains checked on each reuse and privacy revocation
+        // still clears all caches.
+        if(!isScoped) {
+            synchronized(cache) { cache.keys.retainAll(publicUris.flatMap{listOf(it+"#full",it+"#sampled")}.toSet()) }
+            val permittedKeys = publicUris.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } + ".json" }.toSet()
+            cacheDirectory(context,expanded).listFiles().orEmpty().filter { it.name !in permittedKeys }.forEach { it.delete() }
+        }
         File(context.noBackupFilesDir,"duplicate-scan-cache-v1").deleteRecursively()
-        val permittedKeys = publicUris.map { MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { b -> "%02x".format(b) } + ".json" }.toSet()
-        cacheDirectory(context,expanded).listFiles().orEmpty().filter { it.name !in permittedKeys }.forEach { it.delete() }
         val metrics=DuplicateScanMetrics("music")
+        val freshEncoded=FreshEncodedDigestCache()
         val seen = mutableSetOf<String>(); val tracks = mutableListOf<DuplicateTrack>(); var skipped = 0
         // Keep a bounded disk cache; it is never trusted for deletion.
         val files = cacheDirectory(context,expanded).listFiles().orEmpty()
@@ -195,7 +217,7 @@ internal object MusicDuplicateScanner {
                 val keys = metrics.measure("identity"){PublicMediaIdentity.capture(context, requireNotNull(row.savedUri))}
                 check(DuplicatePrivacyGuard.accepts(context,epoch,row.id,keys)) { "Файл перенесён в Личное" }
                 if (keys.any { it in seen }) return@forEachIndexed
-                val t = read(context,row,row.id in linkedIds,row.id == currentId,epoch,metrics,expanded)
+                val t = read(context,row,row.id in linkedIds,row.id == currentId,epoch,metrics,expanded,freshEncoded)
                 seen += keys; tracks += t
             } catch (e: CancellationException) { throw e } catch (_: Exception) { skipped++ }
             progress(index+1,usable.size)

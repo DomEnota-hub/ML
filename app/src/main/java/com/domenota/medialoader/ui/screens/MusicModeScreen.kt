@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import com.domenota.medialoader.ui.components.NeutralTextButton as TextButton
@@ -38,6 +39,9 @@ import com.domenota.medialoader.data.playback.SmartTrackCandidate
 import com.domenota.medialoader.data.playback.SmartStatsPeriod
 import com.domenota.medialoader.data.playback.SmartMusicPolicy
 import com.domenota.medialoader.data.playback.ResumeQueueStore
+import com.domenota.medialoader.data.playback.ResumeQueuePolicy
+import com.domenota.medialoader.core.logging.MusicRefreshBlock
+import com.domenota.medialoader.core.logging.MusicRefreshTrace
 import com.domenota.medialoader.data.playback.ResolvedResumeQueue
 import com.domenota.medialoader.ui.components.*
 import com.domenota.medialoader.ui.model.toUi
@@ -88,8 +92,12 @@ internal fun MusicModeScreen(
     analyticsItems: List<DownloadEntity> = allAudio,
     analyticsAccess: Any? = Unit,
     analyticsReady: Boolean = !loading,
+    resumeCatalogReady: Boolean = analyticsReady,
     onAnalyticsPreview: (String,List<String>)->Unit = onPreview ?: onOpen,
     onAnalyticsOpen: (String,List<String>)->Unit = onOpen,
+    onSaveFolderPlaylist: (suspend (String?,String,List<String>)->Unit)? = null,
+    onFolderPlayExact: (suspend (List<String>)->Boolean)? = null,
+    onCloseSearch: (() -> Unit)? = null,
 ) {
     var localTab by rememberSaveable { mutableIntStateOf(0) }
     var favoritesOnly by rememberSaveable { mutableStateOf(false) }
@@ -142,6 +150,14 @@ internal fun MusicModeScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val folderPrefs = remember(context) { context.getSharedPreferences("music_folder_visibility", 0) }
     var foldersGrid by remember { mutableStateOf(folderPrefs.getBoolean("folders_grid", false)) }
+    var folderSort by remember(folderPrefs) {
+        mutableStateOf(MusicFolderSort.fromPreference(folderPrefs.getString("folder_sort", null)))
+    }
+    var folderSortMenu by remember { mutableStateOf(false) }
+    fun setFolderSort(value: MusicFolderSort) {
+        folderSort = value
+        folderPrefs.edit().putString("folder_sort", value.name).apply()
+    }
     fun setFoldersGrid(grid: Boolean) {
         foldersGrid = grid
         folderPrefs.edit().putBoolean("folders_grid", grid).apply()
@@ -153,6 +169,8 @@ internal fun MusicModeScreen(
         folderPrefs.edit().putStringSet("hidden_tracks", hiddenTrackKeys).apply()
     }
     var folderOpen by rememberSaveable { mutableStateOf<String?>(null) }
+    // Session-local ordering only; changing the library access guard discards old identities.
+    val folderShuffleOrders=remember(browseAccess){mutableStateMapOf<String,List<String>>()}
     var showExcluded by rememberSaveable { mutableStateOf(false) }
     val largeBrowse = items.size > 128 || allAudio.size > 128
     val browse = preparedBrowse ?: if(largeBrowse) addressedLibraryProjection(MusicBrowseCatalog.EMPTY,browseAccess,items,allAudio,deviceMusicFolders,serial=true) {
@@ -182,6 +200,7 @@ internal fun MusicModeScreen(
     val frequentKeys = eligibleProjection.value.keys
     val smartCandidates = eligibleProjection.value.candidates
     val analyticsUsable = analyticsReady && eligibleProjection.usable
+    val resumeReady = resumeCatalogReady && analyticsUsable && eligibleProjection.ready
     val historyGeneration by listeningStore.visibilityRevision.collectAsState()
     val displayEpoch = eligibleProjection.value.displayEpoch
     val rankDigest = eligibleProjection.value.rankDigest
@@ -262,36 +281,42 @@ internal fun MusicModeScreen(
     val smartRevision by listeningStore.smartRevision.collectAsState()
     val resumeStore=remember(context){ResumeQueueStore.get(context)}
     val resumeSessions by resumeStore.sessions.collectAsState()
-    val resumeMembership = remember(resumeSessions) { resumeSessions.map { Triple(it.id,it.entries,it.occurrenceIds) } }
+    val resumeMembership = remember(resumeSessions) { ResumeQueuePolicy.membership(resumeSessions) }
     val resumeFailed by resumeStore.failed.collectAsState()
-    var resolvedMappings by remember(analyticsGuard,historyGeneration,resumeMembership,displayEpoch){mutableStateOf<List<ResolvedResumeQueue>>(emptyList())}
-    var resumeHasData by remember(analyticsGuard,historyGeneration,resumeMembership,displayEpoch){mutableStateOf(false)}
+    // Reordering or editing one saved queue must not empty all other queues.
+    // Identity changes (including new alias ambiguity), exclusion and privacy
+    // still invalidate every mapping immediately. Favorites are not identity.
+    var resolvedMappings by remember(analyticsGuard,historyGeneration,rankDigest,displayEpoch){mutableStateOf<List<ResolvedResumeQueue>>(emptyList())}
+    var resumeResolved by remember(analyticsGuard,historyGeneration,rankDigest,displayEpoch){mutableStateOf(false)}
     var resumeLoading by remember{mutableStateOf(false)}
-    var resumeError by remember(analyticsGuard,historyGeneration,resumeMembership,displayEpoch){mutableStateOf(false)}
-    // Position changes do not alter the identity mapping. Bind the cached ids to
-    // the latest scalar session state without rerunning SQLite or rebuilding keys.
+    var resumeRecheckNonce by remember{mutableIntStateOf(0)}
+    var completedResumeRecheck by remember{mutableIntStateOf(0)}
+    var resumeError by remember(analyticsGuard,historyGeneration,resumeMembership,rankDigest,displayEpoch){mutableStateOf(false)}
     val resolvedSessions=remember(resolvedMappings,resumeSessions){
-        val mappings=resolvedMappings.associateBy{it.session.id}
-        resumeSessions.mapNotNull{session->mappings[session.id]?.takeIf{it.session.entries==session.entries&&it.session.occurrenceIds==session.occurrenceIds}
-            ?.let{ResolvedResumeQueue(session,it.ids)}}
+        ResumeQueuePolicy.rebindResolved(resolvedMappings,resumeSessions)
     }
-    LaunchedEffect(resumeOpen,resumeMembership,candidateDigest,analyticsGuard,analyticsUsable,historyGeneration) {
-        if(!resumeOpen||onResumeSelection==null||!analyticsUsable)return@LaunchedEffect
-        resumeLoading=!resumeHasData;resumeError=false
+    val resumeHasData=resumeResolved&&resolvedSessions.size==resumeSessions.size
+    LaunchedEffect(resumeOpen,resumeMembership,rankDigest,displayEpoch,analyticsGuard,resumeReady,historyGeneration,resumeRecheckNonce) {
+        if(!resumeOpen||onResumeSelection==null||!resumeReady)return@LaunchedEffect
+        val requestedRecheck=resumeRecheckNonce
+        val forceResolve=requestedRecheck!=completedResumeRecheck
+        resumeLoading=!resumeHasData||forceResolve;resumeError=false
+        val trace=MusicRefreshTrace.begin(MusicRefreshBlock.RESUME,resumeHasData,historyGeneration,resumeSessions.size)
         try {
             val sessions=resumeSessions
-            val key=withContext(Dispatchers.Default){ListeningProjectionCodec.resumeKey(sessions,candidateDigest)}
+            val key=withContext(Dispatchers.Default){ListeningProjectionCodec.resumeKey(sessions,rankDigest)}
             val cached=listeningStore.readProjection(key,ListeningProjectionDomain.RESUME){ListeningProjectionCodec.resume(it,sessions)}
             val revision=cached?.currentRevision ?: listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RESUME)
-            val reusable=cached!=null&&cached.revision==revision
+            val reusable=!forceResolve&&cached!=null&&cached.revision==revision
             val result=if(reusable)requireNotNull(cached).value else listeningStore.resolveResume(sessions,smartCandidates)
             if(listeningStore.visibilityRevision.value!=historyGeneration || listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RESUME)!=revision)return@LaunchedEffect
-            resolvedMappings=result;resumeHasData=true;resumeLoading=false
+            resolvedMappings=result;resumeResolved=true;completedResumeRecheck=requestedRecheck;resumeLoading=false
+            trace?.outcome=if(reusable)MusicRefreshTrace.Outcome.CACHE else MusicRefreshTrace.Outcome.PUBLISHED
             if(!reusable)try{listeningStore.writeProjection(key,ListeningProjectionDomain.RESUME,revision,System.currentTimeMillis(),withContext(Dispatchers.Default){ListeningProjectionCodec.encodeResume(result)})}
             catch(e:CancellationException){throw e}catch(_:Exception){/* derived cache */}
-        } catch(e:CancellationException){throw e}
-        catch(_:Exception){if(!resumeHasData)resumeError=true}
-        finally{resumeLoading=false}
+        } catch(e:CancellationException){trace?.outcome=MusicRefreshTrace.Outcome.CANCELLED;throw e}
+        catch(_:Exception){trace?.outcome=MusicRefreshTrace.Outcome.ERROR;if(!resumeHasData||forceResolve)resumeError=true}
+        finally{resumeLoading=false;trace?.close()}
     }
     var smartSnapshot by remember(analyticsGuard,historyGeneration,displayEpoch,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone) { mutableStateOf(SmartMusicSnapshot()) }
     var smartHasData by remember(analyticsGuard,historyGeneration,displayEpoch,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone) { mutableStateOf(false) }
@@ -303,6 +328,7 @@ internal fun MusicModeScreen(
     LaunchedEffect(smartPage,candidateDigest,smartRefresh,smartStatsPeriod,statsIntervals,mixDiversity,forgottenDays,mixNonce,smartDay,smartZone,analyticsGuard,analyticsUsable,historyGeneration) {
         if(smartPage==null||!listeningEnabled||!analyticsUsable) return@LaunchedEffect
         smartLoading=!smartHasData;smartError=null
+        val trace=MusicRefreshTrace.begin(MusicRefreshBlock.SMART,smartHasData,historyGeneration,smartCandidates.size)
         try {
             val now=System.currentTimeMillis()
             val seed=smartDay+mixNonce
@@ -328,12 +354,13 @@ internal fun MusicModeScreen(
             }
             if(listeningStore.visibilityRevision.value!=historyGeneration || (listeningStore.persistedProjectionRevision(ListeningProjectionDomain.STATS)!=revision && smartPage==SmartMusicPage.STATS))return@LaunchedEffect
             smartSnapshot=result;smartHasData=true;smartLoading=false
+            trace?.outcome=if(reusable)MusicRefreshTrace.Outcome.CACHE else MusicRefreshTrace.Outcome.PUBLISHED
             if(!reusable && candidates==smartCandidates) try {
                 listeningStore.writeProjection(cacheKey,ListeningProjectionDomain.STATS,revision,now,withContext(Dispatchers.Default){ListeningProjectionCodec.encode(result)})
             } catch(e:CancellationException){throw e} catch(_:Exception){/* derived cache can be rebuilt */}
-        } catch(e:CancellationException){throw e}
-        catch(_:Exception){if(!smartHasData)smartError="Не удалось загрузить подборку"}
-        finally{smartLoading=false}
+        } catch(e:CancellationException){trace?.outcome=MusicRefreshTrace.Outcome.CANCELLED;throw e}
+        catch(_:Exception){trace?.outcome=MusicRefreshTrace.Outcome.ERROR;if(!smartHasData)smartError="Не удалось загрузить подборку"}
+        finally{smartLoading=false;trace?.close()}
     }
     // Store already has a persistent SQLite rank cache; seed the first Compose
     // frame from the last *validated* in-process result before background IO.
@@ -344,6 +371,7 @@ internal fun MusicModeScreen(
     LaunchedEffect(listeningEnabled,listeningRevision,listeningPeriod,rankDigest,analyticsGuard,analyticsUsable,historyGeneration,rankTimeRevision,smartZone) {
         if (!listeningEnabled || !analyticsUsable) return@LaunchedEffect
         listeningLoading = !listeningHasData; listeningError = null
+        val trace=MusicRefreshTrace.begin(MusicRefreshBlock.RANK,listeningHasData,historyGeneration,frequentKeys.size)
         try {
             var eligible = frequentKeys
             val now = System.currentTimeMillis()
@@ -363,14 +391,28 @@ internal fun MusicModeScreen(
             }
             if(listeningStore.visibilityRevision.value!=historyGeneration || listeningStore.persistedProjectionRevision(ListeningProjectionDomain.RANK)!=revision)return@LaunchedEffect
             listeningSelection = result;rankingBoundary=result.validUntil;listeningHasData=true;listeningLoading=false
+            trace?.outcome=if(reusable)MusicRefreshTrace.Outcome.CACHE else MusicRefreshTrace.Outcome.PUBLISHED
             warmRankKey?.let { key -> listeningStore.warmRanks.put(key,result,now) }
             if(!reusable && eligible==frequentKeys) try {
                 listeningStore.writeProjection(cacheKey,ListeningProjectionDomain.RANK,revision,now,withContext(Dispatchers.Default){ListeningProjectionCodec.encode(result)})
             } catch(e:CancellationException){throw e} catch(_:Exception){/* derived cache can be rebuilt */}
-        } catch (e: CancellationException) { throw e }
-        catch (_: Exception) { if(!listeningHasData)listeningError = "Не удалось загрузить статистику" }
-        finally { listeningLoading = false }
+        } catch (e: CancellationException) { trace?.outcome=MusicRefreshTrace.Outcome.CANCELLED;throw e }
+        catch (_: Exception) { trace?.outcome=MusicRefreshTrace.Outcome.ERROR;if(!listeningHasData)listeningError = "Не удалось загрузить статистику" }
+        finally { listeningLoading = false;trace?.close() }
     }
+    if(resumeOpen) MusicReadModelTrace(MusicRefreshBlock.RESUME,resumeResolved&&resolvedSessions.size==resumeSessions.size,
+        resumeHasData,!resumeReady||!resumeHasData&&(resumeLoading||!resumeError),resumeFailed||resumeError,
+        resolvedSessions.size,analyticsGuard!=null,privacyEpoch=historyGeneration,
+        reasonMask=(if(!resumeReady)1 else 0) or (if(!resumeResolved)2 else 0) or
+            (if(resolvedSessions.size!=resumeSessions.size)4 else 0))
+    if(smartPage!=null) MusicReadModelTrace(MusicRefreshBlock.SMART,smartHasData,smartHasData&&analyticsGuard!=null,
+        !smartHasData&&(smartLoading||!analyticsUsable||smartError==null),smartError!=null,
+        smartSnapshot.playedTracks.size+smartSnapshot.forgotten.size+smartSnapshot.mix.size,
+        analyticsGuard!=null,privacyEpoch=historyGeneration,reasonMask=if(!analyticsUsable)1 else 0)
+    if(listeningEnabled) MusicReadModelTrace(MusicRefreshBlock.RANK,listeningHasData,listeningHasData&&analyticsGuard!=null,
+        !listeningHasData&&(listeningLoading||!analyticsUsable||listeningError==null),listeningError!=null,
+        listeningSelection.ranked.size,analyticsGuard!=null,privacyEpoch=historyGeneration,
+        reasonMask=if(!analyticsUsable)1 else 0)
     // Card and detail consume exactly the same currently eligible rows.
     val visibleSelection=remember(listeningSelection,frequentRows){listeningSelection.copy(ranked=listeningSelection.ranked.filter{it.rowId in frequentRows})}
     val tracks = browse.value.tracks
@@ -405,11 +447,28 @@ internal fun MusicModeScreen(
             }
         } }, confirmButton = { TextButton(onClick = onDismissHiddenTracks) { Text("Готово") } })
     val folders = browse.value.folders
+    val folderCounts = remember(folders) { folders.entries.mapNotNull { (key, rows) -> key?.let { it to rows.size } }.toMap() }
+    val sortedFolderKeys = remember(folderCounts, folderSort) {
+        MusicFolderRules.sortedKeys(folderCounts.keys, folderCounts, folderSort)
+    }
     val playlist = playlists.firstOrNull { it.id == selectedId }.takeIf { tab == 1 }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        playlist==null && addingPlaylist==null && !frequentOpen && smartPage==null &&
+            !resumeOpen && folderOpen==null && !recentOpen && selectedTrackIds.isEmpty() &&
+            !duplicatesOpen && !creating && renameTarget==null && deleteTarget==null &&
+            addTrack==null && !busy && !sortMenu && !folderSortMenu && !hiddenTracksOpen)
     LaunchedEffect(searchVisible) { if (searchVisible == false) search = "" }
     LaunchedEffect(playlist?.id, addingPlaylist, frequentOpen,smartPage,resumeOpen,folderOpen,recentOpen) { onDetailChange(playlist != null || addingPlaylist != null || frequentOpen || smartPage != null || resumeOpen || folderOpen != null || recentOpen) }
     DisposableEffect(Unit) { onDispose { onDetailChange(false) } }
     BackHandler(folderOpen != null || resumeOpen || smartPage != null || frequentOpen || playlist != null || recentOpen || tab == 1) { if(recentOpen)recentOpen=false else if(folderOpen!=null)folderOpen=null else if(resumeOpen)resumeOpen=false else if(smartPage==SmartMusicPage.STATS&&statsIntervals.isNotEmpty()) statsIntervals=statsIntervals.dropLast(1) else if(smartPage!=null) smartPage=null else if (frequentOpen) frequentOpen = false else if (playlist != null) selectedId = null else selectTab(0) }
+    val searchFocus = androidx.compose.ui.platform.LocalFocusManager.current
+    BackHandler(searchVisible == true && onCloseSearch != null && playlist == null && addingPlaylist == null &&
+        folderOpen == null && !resumeOpen && smartPage == null && !frequentOpen && !recentOpen &&
+        !duplicatesOpen && selectedTrackIds.isEmpty() && !hiddenTracksOpen) {
+        search = ""
+        searchFocus.clearFocus()
+        onCloseSearch?.invoke()
+    }
     val toAdd = playlists.firstOrNull { it.id == addingPlaylist }
     if (toAdd != null) {
         PlaylistTracksScreen(toAdd, fallbackSource, { fallbackSource = it }, tracks, browse.value.allRows, emptyMap(),
@@ -437,6 +496,12 @@ internal fun MusicModeScreen(
         }
     }
     val displayedIds=browseRows.value.displayedIds
+    // A restored scroll address must never be measured against the temporary
+    // controls-only list while the guarded projection rebuilds after navigation.
+    // Keep the real saved state idle; pending/revoked content gets its own state.
+    val pendingTrackRows = needsRows && (!browse.usable || !browseRows.usable ||
+        loading && displayedIds.isEmpty())
+    val contentListState = if (pendingTrackRows) rememberLazyListState() else listState
     val selectableIds=remember(browseRows.value,tab) {
         if(tab==0) displayed.mapTo(mutableSetOf()) { it.id }
         else displayedIds.filterTo(mutableSetOf()) { it in available }
@@ -481,19 +546,74 @@ internal fun MusicModeScreen(
         val folderView=if(largeBrowse) addressedLibraryProjection(emptyList<DownloadEntity>(),folderGuard,browse.value,serial=true) {
             withContext(Dispatchers.Default){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,currentHidden)},sort)}
         } else BackgroundLibraryValue(remember(folders,folder,hiddenTrackKeys,sort){sortMusicRows(folders[folder].orEmpty().filterNot{MusicTrackVisibility.hidden(it,hiddenTrackKeys)},sort)},true)
-        val folderTracks=folderView.value
+        val originalFolderTracks=folderView.value
+        val shuffledFolderOrder=folderShuffleOrders[folder]
+        val folderTracks=remember(originalFolderTracks,shuffledFolderOrder){
+            val byId=originalFolderTracks.associateBy{it.id}
+            MusicFolderRules.visibleOrder(originalFolderTracks.map{it.id},shuffledFolderOrder).mapNotNull(byId::get)
+        }
         val folderIds=remember(folderTracks){folderTracks.map{it.id}}
+        val folderPlayScope=rememberCoroutineScope()
+        var folderPlayBusy by remember(folder){mutableStateOf(false)}
+        fun playFolder(shuffle:Boolean){
+            if(folderPlayBusy || folderIds.isEmpty())return
+            val order=if(shuffle)MusicFolderRules.shuffledOrder(folderIds) else folderIds.toList()
+            val exact=onFolderPlayExact
+            if(exact==null){
+                if(onFolderPlay!=null)onFolderPlay(order,false) else (onPreview?:onOpen)(order.first(),order)
+                if(shuffle)folderShuffleOrders[folder]=order
+            }else{
+                folderPlayBusy=true
+                folderPlayScope.launch {
+                    try {
+                        if(exact(order)&&shuffle)folderShuffleOrders[folder]=order
+                    }finally{folderPlayBusy=false}
+                }
+            }
+        }
+        var folderPlaylistIds by remember(folder){mutableStateOf<List<String>?>(null)}
+        var newFolderPlaylist by remember(folder){mutableStateOf(false)}
+        var folderPlaylistError by remember(folder){mutableStateOf<String?>(null)}
+        var folderPlaylistBusy by remember(folder){mutableStateOf(false)}
+        val liveFolderIds by rememberUpdatedState(folderIds)
+        suspend fun saveFolderPlaylist(target:String?,name:String,ids:List<String>) {
+            check(ids.isNotEmpty() && ids.toSet()==liveFolderIds.toSet()) { "Состав папки изменился. Повтори действие" }
+            requireNotNull(onSaveFolderPlaylist)(target,name,ids)
+            folderPlaylistIds=null;newFolderPlaylist=false;folderPlaylistError=null
+        }
         MusicFolderScreen(MusicFolderRules.title(folder),folderTracks,folder in excludedFolders,currentPlayingId,playing,{folderOpen=null},
             onToggleVisibility={val exclude=folder !in excludedFolders;excludedFolders=if(exclude)excludedFolders+folder else excludedFolders-folder;folderPrefs.edit().putStringSet("excluded",excludedFolders).apply()},
-            onPlay={shuffle->if(folderIds.isNotEmpty()){if(onFolderPlay!=null)onFolderPlay(folderIds,shuffle) else {val order=if(shuffle)folderIds.shuffled() else folderIds;(onPreview?:onOpen)(order.first(),order)}}},
+            onPlay=::playFolder,
+            onRestoreOrder=if(shuffledFolderOrder!=null){{folderShuffleOrders.remove(folder);Unit}}else null,
+            playBusy=folderPlayBusy,
             onPreview={id->(onPreview?:onOpen)(id,folderIds)},
             onAddCollection=onAddCollection,
             onSimpleArchive=onSimpleArchive,
+            onAddAllToPlaylist=onSaveFolderPlaylist?.let{{ids:List<String>->folderPlaylistError=null;folderPlaylistIds=ids}},
             actions={track->val id=track.id;MusicTrackActions(track,onEnqueue?.let{action->{next:Boolean->action(id,next)}},{onOpen(id,folderIds)},{addTrack=id},{onShare(id)},{onDeleteFile(id)},null,null,null,MusicTrackVisibility.hidden(track,hiddenTrackKeys),{toggleHidden(track)},
                 favorite=id in favoriteIds,onFavorite=onFavorite?.let{action->{mutate{action(id,id !in favoriteIds)}}},onCollection=onAddCollection?.let{action->{action(listOf(id))}},onPassport=onPassport?.let{action->{action(id)}},onRecognize=onRecognize?.let{action->{action(id)}})})
+        folderPlaylistIds?.let { ids ->
+            if(newFolderPlaylist) LibraryNameDialog("Новый плейлист", MusicFolderRules.title(folder),
+                {newFolderPlaylist=false}) { name -> saveFolderPlaylist(null,name,ids) }
+            else AlertDialog(onDismissRequest={if(!folderPlaylistBusy)folderPlaylistIds=null},
+                title={Text("Добавить в плейлист")},
+                text={Column(Modifier.heightIn(max=320.dp).verticalScroll(rememberScrollState())) {
+                    playlists.forEach { entry -> TextButton(enabled=!folderPlaylistBusy,onClick={
+                        if(!folderPlaylistBusy){folderPlaylistBusy=true;folderPlaylistError=null;scope.launch {
+                            try {saveFolderPlaylist(entry.id,"",ids)}
+                            catch(e:CancellationException){throw e}
+                            catch(e:Exception){folderPlaylistError=e.message?:"Не удалось сохранить плейлист"}
+                            finally {folderPlaylistBusy=false}
+                        }}
+                    }) {Text(entry.name)} }
+                    TextButton(enabled=!folderPlaylistBusy,onClick={newFolderPlaylist=true}) {Icon(Icons.Rounded.Add,null);Text("Новый плейлист")}
+                    folderPlaylistError?.let{Text(it,color=MaterialTheme.colorScheme.error)}
+                }},confirmButton={TextButton({folderPlaylistIds=null},enabled=!folderPlaylistBusy){Text("Отмена")}})
+        }
     } else if(resumeOpen&&onResumeSelection!=null) {
-        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},(!resumeHasData && (resumeLoading||!analyticsUsable||!resumeError)),
-            resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore)
+        ResumeMusicScreen(resolvedSessions,frequentRows,playlists.associate{it.id to it.name},(!resumeReady||resumeLoading||!resumeHasData && !resumeError),
+            resumeFailed||resumeError,{resumeOpen=false},onResumeSelection,store=resumeStore,
+            onRecheck=if(resumeReady){{resumeLoading=true;resumeRecheckNonce++}}else null)
     } else if(smartPage!=null && onPlayFrequent!=null && onSaveFrequent!=null) {
         SmartMusicScreen(smartPage!!,smartSnapshot,frequentRows,smartStatsPeriod,{smartStatsPeriod=it;statsIntervals=emptyList()},
             mixDiversity,{mixDiversity=it;smartPrefs.edit().putInt("diversity",it).apply()},
@@ -514,7 +634,7 @@ internal fun MusicModeScreen(
     } else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         val fastLabels=browseRows.value.fastLabels
-        LazyColumn(Modifier.fillMaxSize().padding(end = if (tab == 0 && displayed.size > 5 || playlist != null && displayedIds.size > 5) musicFastScrollLaneWidth else 0.dp).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(end = if (tab == 0 && displayed.size > 5 || playlist != null && displayedIds.size > 5) musicFastScrollLaneWidth else 0.dp).testTag("music-library"), state = contentListState, contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "music-controls") {
                 Column {
                     if (playlist == null) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -524,8 +644,9 @@ internal fun MusicModeScreen(
                     }
                     if (searchVisible != false && playlist == null) OutlinedTextField(search, { search = it },
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp), singleLine = true,
-                        label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp))
-                    if (searchVisible == true && playlist == null && onOpenDuplicates != null && onTrashDuplicates != null)
+                        label = { Text("Поиск музыки") }, leadingIcon = { Icon(Icons.Rounded.Search, null) }, shape = RoundedCornerShape(12.dp),
+                        trailingIcon = if (search.isNotEmpty()) ({ IconButton({ search = "" }) { Icon(Icons.Rounded.Close, "Очистить поиск") } }) else null)
+                    if (tab == 0 && searchVisible == true && playlist == null && onOpenDuplicates != null && onTrashDuplicates != null)
                         DuplicateSearchShortcut(::openDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     if (tab == 0) BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 17.dp)) {
                         val wide = !listeningEnabled || maxWidth >= 480.dp
@@ -579,7 +700,7 @@ internal fun MusicModeScreen(
                     item(key="frequent-playlist") { FrequentListeningCard(visibleSelection.ranked.size.takeIf{listeningHasData},listeningPeriod) { frequentOpen=true } }
                     listOf(SmartMusicPage.FORGOTTEN,SmartMusicPage.MIX).forEach { page -> item(key="smart-${page.name}") { SmartMusicCard(page){smartPage=page} } }
                     if(onOpenCollections!=null)item(key="music-collections"){
-                        MusicOverviewCard("Коллекции","Музыка из коллекций",Icons.Rounded.CollectionsBookmark,"music-collections",onOpenCollections)
+                        MusicOverviewCard("Коллекции","",Icons.Rounded.CollectionsBookmark,"music-collections",onOpenCollections)
                     }
                     item(key="smart-${SmartMusicPage.STATS.name}"){SmartMusicCard(SmartMusicPage.STATS){smartPage=SmartMusicPage.STATS}}
                 }
@@ -614,17 +735,25 @@ internal fun MusicModeScreen(
                     Row(Modifier.fillMaxWidth().padding(start = 17.dp, end = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text("Папки с музыкой", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                        IconButton(onClick = { setFoldersGrid(false) }) {
-                            Icon(Icons.Rounded.List, "Список папок", tint = if (!foldersGrid)
-                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box {
+                            IconButton(onClick = { folderSortMenu = true }) {
+                                Icon(Icons.Rounded.Sort, "Сортировка папок",
+                                    tint = com.domenota.medialoader.ui.theme.musicPlaybackAccent)
+                            }
+                            DropdownMenu(expanded = folderSortMenu, onDismissRequest = { folderSortMenu = false }) {
+                                MusicFolderSort.entries.forEach { option ->
+                                    DropdownMenuItem(
+                                        text = { Text(option.label) },
+                                        leadingIcon = { if (folderSort == option) Icon(Icons.Rounded.Check, null,
+                                            tint = com.domenota.medialoader.ui.theme.musicPlaybackAccent) },
+                                        onClick = { setFolderSort(option); folderSortMenu = false })
+                                }
+                            }
                         }
-                        IconButton(onClick = { setFoldersGrid(true) }) {
-                            Icon(Icons.Rounded.GridView, "Сетка папок", tint = if (foldersGrid)
-                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        MusicFolderViewToggle(foldersGrid, ::setFoldersGrid)
                     }
                 }
-                val visibleFolders = folders.keys.filterNotNull().filter { it !in excludedFolders }.sorted()
+                val visibleFolders = sortedFolderKeys.filter { it !in excludedFolders }
                 if (foldersGrid) {
                     items(visibleFolders.chunked(2), key = { "folder-grid:${it.first()}" }) { pair ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 5.dp),
@@ -647,17 +776,13 @@ internal fun MusicModeScreen(
                         }
                     }
                 } else items(visibleFolders, key = { "folder:$it" }) { folder ->
-                    TextButton(onClick = { folderOpen = folder }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.Folder, null)
-                        Text("${MusicFolderRules.title(folder)} · ${RussianCounts.tracks(folders[folder].orEmpty().size)}",
-                            Modifier.weight(1f).padding(start = 12.dp), maxLines = 2, color = MaterialTheme.colorScheme.onSurface)
-                    }
+                    MusicFolderListRow(MusicFolderRules.title(folder), RussianCounts.tracks(folders[folder].orEmpty().size)) { folderOpen = folder }
                 }
                 if (folders.keys.any { it in excludedFolders }) {
                     item(key = "excluded-folders") {
                         TextButton(onClick = { showExcluded = !showExcluded }) { Text("Исключённые папки") }
                     }
-                    if (showExcluded) items(folders.keys.filterNotNull().filter { it in excludedFolders }.sorted(),
+                    if (showExcluded) items(sortedFolderKeys.filter { it in excludedFolders },
                         key = { "excluded:$it" }) { folder ->
                         TextButton(onClick = { folderOpen = folder }) { Text(MusicFolderRules.title(folder), color = MaterialTheme.colorScheme.onSurface) }
                     }
@@ -670,7 +795,7 @@ internal fun MusicModeScreen(
                         PlaylistCover(playlist, available, Modifier.size(100.dp))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             val minutes = browseRows.value.playlistMinutes
-                            Text(RussianCounts.tracks(playlist.trackIds.size) + if (minutes > 0) " · $minutes минут" else "", fontSize = 13.sp)
+                            Text(RussianCounts.tracks(playlist.trackIds.size) + if (minutes > 0) ", $minutes минут" else "", fontSize = 13.sp)
                             Text("Музыка для тебя", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Button(enabled = displayed.isNotEmpty(), onClick = { displayed.firstOrNull()?.let { preview(it.id) } }, shape = RoundedCornerShape(18.dp)) {
                                 Icon(Icons.Rounded.PlayArrow, null); Text("Слушать", fontSize = 13.sp)
@@ -726,7 +851,7 @@ internal fun MusicModeScreen(
                 }
             }
         }
-        if (tab == 0 || playlist != null) MusicFastScroll(listState, fastLabels, Modifier.align(Alignment.CenterEnd))
+        if (tab == 0 || playlist != null) MusicFastScroll(contentListState, fastLabels, Modifier.align(Alignment.CenterEnd))
         }
         if (selectedPublicIds.isNotEmpty()) {
             Surface(Modifier.fillMaxWidth().testTag("music-selection-bottom"),
@@ -775,7 +900,7 @@ internal fun MusicModeScreen(
         dismissButton = { TextButton({ deleteTarget = null }, enabled = !busy) { Text("Отмена") } }) }
     addTrack?.let { id -> AlertDialog(onDismissRequest = { addTrack = null }, title = { Text("Добавить в плейлист") },
         text = { Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-            if (playlists.isEmpty()) Text("Сначала создайте плейлист")
+            if (playlists.isEmpty()) Text("Сначала создай плейлист")
             playlists.forEach { entry -> TextButton(enabled = !busy && id !in entry.trackIds, onClick = { mutate { onAddTracks(entry.id, listOf(id)); addTrack = null } }) { Text(entry.name) } }
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         } }, confirmButton = { TextButton({ addTrack = null }) { Text("Закрыть") } }) }
@@ -874,6 +999,7 @@ private fun UnavailablePlaylistTrackRow(position: Int, onRemove: () -> Unit) {
 @Composable
 private fun PlaylistActions(playlist: MediaPlaylist, onRename: () -> Unit, onDelete: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия с плейлистом ${playlist.name}") }
         DropdownMenu(menu, { menu = false }) {
@@ -891,6 +1017,7 @@ internal fun MusicTrackActions(track: DownloadEntity, onEnqueue: ((Boolean) -> U
                               onCollection: (() -> Unit)? = null,onPassport: (() -> Unit)? = null,onRecognize:(()->Unit)?=null) {
     var menu by remember { mutableStateOf(false) }
     var properties by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu||properties)
     if (properties) MusicFilePropertiesDialog(track) { properties = false }
     Box {
         IconButton({ menu = true }) { Icon(Icons.Rounded.MoreVert, "Действия: ${track.originalName}") }
@@ -933,4 +1060,28 @@ private class MusicAnalyticsRows(val rows: Map<String,DownloadEntity>, val keys:
     val candidateDigest: String=ListeningProjectionCodec.candidateDigest(candidates)) {
     fun withEpoch(epoch:Any)=MusicAnalyticsRows(rows,keys,candidates,epoch,rankDigest,candidateDigest)
     companion object { val EMPTY = MusicAnalyticsRows(emptyMap(),emptyMap(),emptyList()) }
+}
+
+@Composable
+internal fun MusicFolderViewToggle(grid:Boolean, onChange:(Boolean)->Unit) {
+    IconButton(onClick={onChange(!grid)}) {
+        Icon(if(grid) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
+            if(grid) "Показать списком" else "Показать сеткой", tint=MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+internal fun MusicFolderListRow(title:String,count:String,onOpen:()->Unit) {
+    Surface(Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=4.dp).clickable(onClick=onOpen),
+        color=MaterialTheme.colorScheme.surfaceVariant,shape=RoundedCornerShape(14.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min=56.dp).padding(horizontal=12.dp,vertical=8.dp),
+            verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Rounded.Folder,null,Modifier.size(28.dp),tint=MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                Text(title,fontWeight=FontWeight.SemiBold,color=MaterialTheme.colorScheme.primary,maxLines=2,overflow=TextOverflow.Ellipsis)
+                Text(count,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Icon(Icons.Rounded.ChevronRight,null,tint=MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }

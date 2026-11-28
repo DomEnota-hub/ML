@@ -1,5 +1,6 @@
 package com.domenota.medialoader.data.playback
 
+import com.domenota.medialoader.data.tasks.*
 import android.Manifest
 import android.content.ContentUris
 import android.content.Context
@@ -9,7 +10,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
-import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
@@ -21,13 +21,18 @@ import androidx.work.workDataOf
 import com.domenota.medialoader.core.model.DownloadState
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.data.MediaRepository
-import com.domenota.medialoader.ui.components.hasCachedAudioWaveform
-import com.domenota.medialoader.ui.components.loadAudioWaveform
+import com.domenota.medialoader.ui.components.preparePersistedAudioWaveform
+import com.domenota.medialoader.ui.components.WaveformSourceVersion
+import com.domenota.medialoader.ui.components.readWaveformSourceVersion
+import com.domenota.medialoader.ui.components.waveformCacheFileFor
+import com.domenota.medialoader.ui.components.waveformDurations
+import java.io.File
 import java.util.concurrent.TimeUnit
 import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Silent, persistent WorkManager analysis. A batch has no foreground notification and
@@ -38,6 +43,7 @@ class AudioWaveformPrecomputeWorker(
     context: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(context, params) {
+    private companion object { val sweepMutex = Mutex() }
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val app = applicationContext
         val requested = inputData.getString("requestedUri")
@@ -45,80 +51,229 @@ class AudioWaveformPrecomputeWorker(
             // Priority single-track request, independent of the backlog of public music.
             // No list, notification, or UI state is exposed.
             return@withContext runCatching {
+                val repo=MediaRepository.get(app)
+                val admission=WaveformAdmission.read(app,repo)
+                if(!admission.allows(app,requested,null)||!admission.current(app,repo))return@runCatching Result.failure()
                 val uri = Uri.parse(requested)
-                val duration = readDurationMs(app, uri).takeIf { it > 0L }
-                    ?: inputData.getLong("durationMs", 0L)
-                if (duration > 0L) loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
-                Result.success()
+                val duration = inputData.getLong("durationMs", 0L).takeIf{it>0L} ?: readDurationMs(app,uri) ?: return@runCatching Result.retry()
+                if(duration<=0L)return@runCatching Result.failure()
+                val outcome=preparePersistedAudioWaveform(app,uri,duration){isStopped||!admission.currentFast(app,repo,requested)}
+                if(!admission.current(app,repo)||outcome.outcome==WaveformOutcome.FAILED)Result.failure() else Result.success()
             }.getOrElse {
-                if (it is java.util.concurrent.CancellationException) throw it
-                Result.failure()
+                if (it is java.util.concurrent.CancellationException && isStopped) throw it
+                Result.retry()
             }
         }
+        if(inputData.getBoolean("periodicSweep",false)) {
+            AudioWaveformPrecompute.request(app,periodic=true)
+            return@withContext Result.success()
+        }
+        sweepMutex.withLock { processSweep(app) }
+    }
+
+    private data class Track(val source:String,val duration:Long,val version:WaveformSourceVersion,val files:List<File>,
+        val key:String,val missingDeclaredDuration:Boolean) {
+        val durationKey get()=WaveformDurationReceipt.key(key)
+        val skipKey get()="skip:$key"
+        fun alreadyPrepared(receipts:Map<String,String>)=version.proven &&
+            (files.any{file->WaveformCacheReceipt.stamp(file)?.let{receipts[file.name]==it}==true} ||
+                (duration<=0L && skipKey in receipts))
+    }
+
+    private suspend fun processSweep(app:Context):Result {
         val tracks = linkedMapOf<String, Long>()
+        val versions=hashMapOf<String,WaveformSourceVersion>()
+        val repo=MediaRepository.get(app)
+        if(!TaskHistoryStore.awaitReady())return Result.retry()
+        val admission=try { WaveformAdmission.read(app,repo) } catch(e:java.util.concurrent.CancellationException){throw e} catch(_:Exception){return Result.retry()}
         // Never index the application's hidden or private audio history.
-        runCatching {
-            MediaRepository.get(app).downloads.first().forEach { row ->
+        try {
+            admission.rows.forEach { row ->
                 if (row.state == DownloadState.COMPLETED && row.mediaType == MediaType.AUDIO &&
                     !row.hidden && !row.isPrivate && !row.savedUri.isNullOrBlank()
-                ) tracks[row.savedUri!!] = row.durationMs ?: 0L
+                ) if(admission.allows(app,row.savedUri!!,row.id))tracks[row.savedUri!!] = row.durationMs ?: 0L
             }
-        }
+        } catch(e:java.util.concurrent.CancellationException){throw e} catch(_:Exception){return Result.retry()}
         val permission = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
             else Manifest.permission.READ_EXTERNAL_STORAGE
         if (ContextCompat.checkSelfPermission(app, permission) == PackageManager.PERMISSION_GRANTED) {
-            runCatching {
+            try {
                 app.contentResolver.query(
                     MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                    arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DURATION),
+                    arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DURATION, MediaStore.MediaColumns.DATA,
+                        MediaStore.MediaColumns.SIZE, MediaStore.MediaColumns.DATE_MODIFIED),
                     null, null, MediaStore.Audio.Media.DATE_ADDED + " DESC"
                 )?.use { cursor ->
                     val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
                     val durationCol = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
+                    val pathCol=cursor.getColumnIndex(MediaStore.MediaColumns.DATA)
+                    val sizeCol=cursor.getColumnIndex(MediaStore.MediaColumns.SIZE)
+                    val modifiedCol=cursor.getColumnIndex(MediaStore.MediaColumns.DATE_MODIFIED)
+                    fun value(col:Int)=if(col>=0&&!cursor.isNull(col))cursor.getLong(col) else -1L
                     while (cursor.moveToNext()) {
                         val id = cursor.getLong(idCol)
                         val uri = ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id)
                         val duration = if (durationCol >= 0 && !cursor.isNull(durationCol))
                             cursor.getLong(durationCol) else 0L
-                        tracks.putIfAbsent(uri.toString(), duration)
+                        if(isStopped)throw java.util.concurrent.CancellationException("Stopped")
+                        val physical=if(admission.requiresPhysicalProof && pathCol>=0&&!cursor.isNull(pathCol))PublicMediaIdentity.pathKeys(cursor.getString(pathCol)) else emptySet()
+                        if(admission.allows(app,uri.toString(),"phone:audio:$id",physical)){
+                            if(duration>0L)tracks[uri.toString()]=duration else tracks.putIfAbsent(uri.toString(),0L)
+                            versions[uri.toString()]=WaveformSourceVersion(value(sizeCol),value(modifiedCol),duration)
+                        }
                     }
+                } ?: return Result.retry()
+            } catch(e:java.util.concurrent.CancellationException){throw e} catch(_:Exception){return Result.retry()}
+        }
+        if(!admission.current(app,repo))return Result.retry()
+        val prefs = app.getSharedPreferences("waveform_precompute_v1", Context.MODE_PRIVATE)
+        val store=WaveformSweepStore(prefs)
+        val originalReceipts=store.receipts()
+        val prior=originalReceipts.associateBy{it.substringBefore('|')}
+        fun filesFor(source:String,duration:Long,version:WaveformSourceVersion):List<File> =
+            if(version.proven&&duration>0L)waveformDurations(duration,version.providerDuration,true)
+                .map{waveformCacheFileFor(app,source,it,version)} else emptyList()
+        val allEntries=tracks.entries.sortedBy{it.key}.map { (source,knownDuration) ->
+            if(isStopped)throw java.util.concurrent.CancellationException("Stopped")
+            val version=versions[source]?:readWaveformSourceVersion(app,Uri.parse(source))
+            val declared=knownDuration.takeIf{it>0L}?:version.providerDuration
+            val key=WaveformSweep.fingerprint(listOf(source,declared.toString(),version.size.toString(),
+                version.modified.toString(),version.providerDuration.toString()))
+            val hint=if(version.proven&&declared<=0L) WaveformDurationReceipt.read(key,prior) else null
+            val hintedFiles=hint?.let{filesFor(source,it,version)}.orEmpty()
+            val confirmed=hint!=null&&hintedFiles.any{file->WaveformCacheReceipt.stamp(file)?.let{prior[file.name]==it}==true}
+            val duration=if(confirmed)requireNotNull(hint) else declared
+            Track(source,duration,version,filesFor(source,duration,version),key,declared<=0L)
+        }
+        if(!admission.current(app,repo))return Result.retry()
+        // A full versioned inventory and a frozen pending plan make the cursor
+        // safe across process death and media changes. No original URI is persisted.
+        val inventory=WaveformSweep.fingerprint(allEntries.map{it.key})
+        val restored=store.read()
+        val continuation=inputData.getString("continuationToken")
+        if(continuation!=null && continuation!=restored?.token?.value)return Result.success()
+        val oldPlan=store.plan()
+        val restoredEntries=oldPlan?.let{plan->allEntries.filter{it.key in plan}}
+        val canResume=restored!=null && restored.inventory==inventory && oldPlan!=null &&
+            restoredEntries?.size==restored.total && oldPlan.size==restored.total
+        if(restored!=null && !canResume) {
+            val abandoned=TaskReporter.create(TaskOwner.WAVEFORM,TaskKind.WAVEFORM,restored.token.value)
+            abandoned.report(TaskStatus.CANCELLED,files=countProgress(restored.cursor,restored.total),errors=restored.outcomes.failed,details=restored.details())
+        }
+        val allowedFiles=allEntries.flatMap{it.files}.mapTo(hashSetOf()){it.name}
+        val allowedSkips=allEntries.filter{it.version.proven&&it.duration<=0L}.mapTo(hashSetOf()){it.skipKey}
+        val allowedHints=allEntries.filter{it.missingDeclaredDuration&&it.duration>0L&&it.version.proven}.mapTo(hashSetOf()){it.durationKey}
+        val receipts=originalReceipts.filter{
+            it in allowedSkips || it.substringBefore('|') in allowedFiles || it.substringBefore('|') in allowedHints
+        }.associateByTo(hashMapOf()){it.substringBefore('|')}
+        val periodic=inputData.getBoolean("periodicOrigin",false) || (!canResume&&restored?.trigger==TaskTrigger.PERIODIC)
+        val entries=if(canResume)requireNotNull(restoredEntries) else
+            if(periodic)allEntries else allEntries.filterNot{it.alreadyPrepared(receipts)}
+        val plan=entries.mapTo(linkedSetOf()){it.key}
+        if(restored==null && entries.isEmpty()){
+            if(originalReceipts!=receipts.values.toSet()&&!store.saveReceipts(receipts.values.toSet()))return Result.retry()
+            return Result.success()
+        }
+        var sweep=if(canResume)requireNotNull(restored)
+            else WaveformSweep(TaskCorrelation.create(),inventory,entries.size,System.currentTimeMillis(),
+                if(periodic) TaskTrigger.PERIODIC else TaskTrigger.BACKGROUND)
+        val resumed=canResume
+        fun save()=store.save(sweep,plan,receipts.values.toSet())
+        val report=TaskReporter.create(TaskOwner.WAVEFORM,TaskKind.WAVEFORM,sweep.token.value)
+        fun publish(status:TaskStatus=TaskStatus.RUNNING,wait:TaskWait?=null,stage:TaskStage=TaskStage.SCANNING) {
+            report.report(status,files=countProgress(sweep.cursor,sweep.total),errors=sweep.outcomes.failed,
+                wait=wait,stage=stage,details=sweep.details(recovered=resumed))
+        }
+        if(!save()) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
+        if(sweep.finished) {
+            publish(if(sweep.outcomes.failed>0||sweep.outcomes.skipped>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE)
+            if(!TaskHistoryStore.persistCurrent(TaskCenter.registry))return Result.retry()
+            return if(store.clear())Result.success() else Result.retry()
+        }
+        publish()
+        val stop=(sweep.cursor+200).coerceAtMost(entries.size)
+        val batchStart=android.os.SystemClock.elapsedRealtime()
+        try {
+            for(index in sweep.cursor until stop) {
+                if(isStopped) throw java.util.concurrent.CancellationException("Stopped")
+                val wait=TaskHistoryStore.waitReason(app)
+                if(wait!=null) {
+                    if(!save()) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
+                    publish(TaskStatus.WAITING,wait);return Result.retry()
+                }
+                if(!admission.current(app,repo)){save();publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
+                val track=entries[index]
+                val source=track.source
+                val knownDuration=track.duration
+                var resolvedDuration=knownDuration
+                val result=try {
+                    val uri=Uri.parse(source)
+                    val duration=knownDuration.takeIf{it>0L} ?: readDurationMs(app,uri)
+                    if(duration==null) {
+                        com.domenota.medialoader.core.logging.AppLog.d("AudioWaveform","WAVEFORM_DURATION_READ_FAILED")
+                        WaveformPreparation(emptyList(),WaveformOutcome.FAILED,TaskFailure.IO)
+                    } else if(duration<=0L) {
+                        com.domenota.medialoader.core.logging.AppLog.d("AudioWaveform","WAVEFORM_DURATION_MISSING versionProven=${track.version.proven}")
+                        WaveformPreparation(emptyList(),WaveformOutcome.SKIPPED)
+                    } else {
+                        resolvedDuration=duration
+                        val waiting=BackgroundMediaWork.isBusy()
+                        if(waiting)publish(TaskStatus.WAITING,TaskWait.RESOURCE)
+                        BackgroundMediaWork.awaitIdle()
+                        if(waiting)publish()
+                        if(!admission.current(app,repo))throw java.util.concurrent.CancellationException("Visibility changed")
+                        preparePersistedAudioWaveform(app,uri,duration){isStopped||!admission.currentFast(app,repo,source)}
+                    }
+                } catch(e:java.util.concurrent.CancellationException) { throw e }
+                  catch(_:Exception) { WaveformPreparation(emptyList(),WaveformOutcome.FAILED,TaskFailure.IO) }
+                if(!admission.current(app,repo)){save();publish(TaskStatus.WAITING,TaskWait.RESOURCE);return Result.retry()}
+                // Only a validated persistent write/read can become an incremental hit.
+                // Failed outcomes are retried; unsupported durations are rechecked on the
+                // periodic pass or immediately when their known source version changes.
+                val actualFiles=filesFor(source,resolvedDuration,track.version)
+                (track.files+actualFiles).forEach{file->receipts.remove(file.name)}
+                receipts.remove(track.skipKey)
+                receipts.remove(track.durationKey)
+                result.cacheReceipt?.takeIf{receipt->actualFiles.any{WaveformCacheReceipt.stamp(it)==receipt}}
+                    ?.let{
+                        receipts[it.substringBefore('|')]=it
+                        if(track.missingDeclaredDuration&&track.version.proven&&resolvedDuration>0L)
+                            receipts[track.durationKey]=WaveformDurationReceipt.encode(track.key,resolvedDuration)
+                    }
+                if(result.outcome==WaveformOutcome.SKIPPED&&track.version.proven&&resolvedDuration<=0L)
+                    receipts[track.skipKey]=track.skipKey
+                sweep=sweep.advance(result.outcome,result.failure)
+                publish()
+                if(sweep.cursor%20==0){
+                    sweep=sweep.finishCheckpoint(System.currentTimeMillis())
+                    if(!save()){publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry()}
+                    if(android.os.SystemClock.elapsedRealtime()-batchStart>=90_000L)break
                 }
             }
+            if(sweep.finished)sweep=sweep.finishCheckpoint(System.currentTimeMillis())
+            if(!save()) { publish(TaskStatus.WAITING,TaskWait.STORAGE);return Result.retry() }
+            if(!sweep.finished) {
+                publish(TaskStatus.QUEUED,stage=TaskStage.ENQUEUE)
+                AudioWaveformPrecompute.continueRemaining(app,sweep.token.value)
+            } else {
+                publish(if(sweep.outcomes.failed>0||sweep.outcomes.skipped>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE)
+                if(!TaskHistoryStore.persistCurrent(TaskCenter.registry)||!store.clear())return Result.retry()
+            }
+            return Result.success()
+        } catch(e:java.util.concurrent.CancellationException) {
+            save()
+            // A privacy generation change is a retry, not a cancelled WorkManager chain.
+            publish(TaskStatus.WAITING,TaskWait.RESOURCE)
+            if(isStopped)throw e
+            return Result.retry()
+        } catch(_:Exception) {
+            save()
+            publish(TaskStatus.WAITING,TaskWait.RESOURCE)
+            return Result.retry()
         }
-        val entries = tracks.entries.toList()
-        val prefs = app.getSharedPreferences("waveform_precompute_v1", Context.MODE_PRIVATE)
-        val inventory = entries.fold(1) { hash, entry ->
-            31 * hash + entry.key.hashCode()
-        }
-        val start = if (prefs.getInt("inventory", 0) == inventory)
-            prefs.getInt("cursor", 0).coerceIn(0, entries.size) else 0
-        // WorkManager runs are time-limited: make progress even for large music libraries.
-        val stop = (start + 20).coerceAtMost(entries.size)
-        for (index in start until stop) {
-            if (isStopped) return@withContext Result.retry()
-            val (source, knownDuration) = entries[index]
-            runCatching {
-                val uri = Uri.parse(source)
-                // Use the same metadata retriever as the editor: MediaStore durations can differ by rounding.
-                val duration = readDurationMs(app, uri).takeIf { it > 0L } ?: knownDuration
-                if (duration > 0L && !hasCachedAudioWaveform(app, uri, duration)) {
-                    // Give priority to playback and visible editing before PCM decoding.
-                    BackgroundMediaWork.awaitIdle()
-                    if (isStopped) throw java.util.concurrent.CancellationException("Stopped before waveform")
-                    loadAudioWaveform(app, uri, duration, isCancelled = { isStopped })
-                }
-            }.onFailure { if (it is java.util.concurrent.CancellationException) throw it }
-        }
-        prefs.edit().putInt("inventory", inventory).putInt("cursor", if (stop < entries.size) stop else 0).apply()
-        if (stop < entries.size) {
-            // APPEND a dependent batch rather than retrying with exponential back-off.
-            // Every completed batch persists its cursor; WorkManager survives process death.
-            AudioWaveformPrecompute.continueRemaining(app)
-        }
-        Result.success()
     }
 
-    private fun readDurationMs(context: Context, uri: Uri): Long = runCatching {
+    private fun readDurationMs(context: Context, uri: Uri): Long? = runCatching {
         val retriever = MediaMetadataRetriever()
         try {
             retriever.setDataSource(context, uri)
@@ -127,7 +282,7 @@ class AudioWaveformPrecomputeWorker(
         } finally {
             retriever.release()
         }
-    }.getOrDefault(0L)
+    }.getOrNull()
 }
 
 object AudioWaveformPrecompute {
@@ -147,18 +302,20 @@ object AudioWaveformPrecompute {
         }
         val constraints = WaveformWorkPolicy.bulkConstraints()
         manager.enqueueUniquePeriodicWork(
-            PERIODIC, ExistingPeriodicWorkPolicy.KEEP,
+            PERIODIC, ExistingPeriodicWorkPolicy.UPDATE,
             PeriodicWorkRequestBuilder<AudioWaveformPrecomputeWorker>(6, TimeUnit.HOURS)
+                .setInputData(workDataOf("periodicSweep" to true))
                 .setConstraints(constraints).build()
         )
         request(context)
     }
 
-    /** Queue the next 20 tracks after a successful checkpoint, with no retry back-off. */
-    internal fun continueRemaining(context: Context) {
+    /** Queue the next bounded slice after a successful checkpoint, with no retry back-off. */
+    internal fun continueRemaining(context: Context,token:String) {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-            ONCE, ExistingWorkPolicy.APPEND,
+            ONCE, ExistingWorkPolicy.APPEND_OR_REPLACE,
             OneTimeWorkRequestBuilder<AudioWaveformPrecomputeWorker>()
+                .setInputData(workDataOf("continuationToken" to token))
                 .setConstraints(WaveformWorkPolicy.bulkConstraints())
                 .build()
         )
@@ -178,10 +335,12 @@ object AudioWaveformPrecompute {
     }
 
     /** A new local track or MediaStore audio update triggers a silent incremental pass. */
-    fun request(context: Context) {
+    fun request(context: Context) = request(context,periodic=false)
+    internal fun request(context:Context,periodic:Boolean) {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             ONCE, ExistingWorkPolicy.KEEP,
             OneTimeWorkRequestBuilder<AudioWaveformPrecomputeWorker>()
+                .setInputData(workDataOf("periodicOrigin" to periodic))
                 .setConstraints(WaveformWorkPolicy.bulkConstraints())
                 .build()
         )

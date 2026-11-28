@@ -1,13 +1,43 @@
 package com.domenota.medialoader.ui.screens.music
 
-/** A focus window always covers the entire selected change, bounded by existing columns. */
-internal fun comparisonFocusRange(count:Int,start:Int,endExclusive:Int,close:Boolean):IntRange {
-    if(count<=0)return IntRange.EMPTY
-    val a=start.coerceIn(0,count-1)
-    val b=endExclusive.coerceIn(a+1,count)
-    val pad=if(close)2 else maxOf(8,(b-a)/2)
-    return maxOf(0,a-pad) until minOf(count,b+pad)
+/** Corresponding start times of one selected difference in two physically distinct recordings.
+ * Each side may be absent (insertion/deletion); never invent a timestamp.
+ */
+internal fun comparisonZonePositions(
+    columns: List<com.domenota.medialoader.data.library.ComparisonColumn>,
+    start: Int,
+    endExclusive: Int,
+    stepMs: Long,
+): Pair<Long?, Long?> {
+    if (start < 0 || endExclusive > columns.size || start >= endExclusive || stepMs <= 0L)
+        return null to null
+    val range = columns.subList(start, endExclusive)
+    return range.firstNotNullOfOrNull { it.first }?.toLong()?.times(stepMs) to
+        range.firstNotNullOfOrNull { it.second }?.toLong()?.times(stepMs)
 }
+
+/** Playback context is independent of the exact highlighted zone. Missing sides
+ * remain absent; use their own actual timing and duration, not the other track's. */
+internal data class ComparisonListeningWindow(val startMs:Long,val endExclusiveMs:Long)
+
+internal fun comparisonListeningWindow(
+    columns:List<com.domenota.medialoader.data.library.ComparisonColumn>,
+    start:Int,endExclusive:Int,stepMs:Long,firstTrack:Boolean,durationMs:Long?,
+):ComparisonListeningWindow? {
+    if(start<0||endExclusive>columns.size||start>=endExclusive||stepMs<=0)return null
+    val frames=columns.subList(start,endExclusive)
+    fun frame(c:com.domenota.medialoader.data.library.ComparisonColumn)=if(firstTrack)c.first else c.second
+    val first=frames.firstNotNullOfOrNull(::frame)?.toLong()?.times(stepMs)?:return null
+    val last=frames.asReversed().firstNotNullOfOrNull(::frame)?.toLong()?.plus(1)?.times(stepMs)?:return null
+    val limit=durationMs?.takeIf{it>0} ?: columns.asReversed().firstNotNullOfOrNull(::frame)
+        ?.toLong()?.plus(1)?.times(stepMs)?:return null
+    if(first>=limit||last<=first||first<0)return null
+    return ComparisonListeningWindow((first-300L).coerceAtLeast(0L),(last+200L).coerceAtMost(limit))
+}
+
+/** A focus window always covers the entire selected change, bounded by existing columns. */
+internal fun comparisonFocusRange(count:Int,start:Int,endExclusive:Int,close:Boolean):IntRange =
+    comparisonFocusRange(count,start,endExclusive,if(close)3 else 1)
 
 /** Every frame exactly once; preserves narrow transients in compressed waveforms. */
 internal fun comparisonBucket(start:Int,count:Int,bins:Int,index:Int):IntRange {
@@ -15,3 +45,80 @@ internal fun comparisonBucket(start:Int,count:Int,bins:Int,index:Int):IntRange {
     return (start+(index.toLong()*count/bins).toInt()) until
         (start+((index+1L)*count/bins).toInt())
 }
+
+/** Build playback frame-to-column cursors once per aligned pair instead of at every tick. */
+internal fun comparisonCursorColumns(columns:List<com.domenota.medialoader.data.library.ComparisonColumn>,
+    firstCount:Int,secondCount:Int):Pair<IntArray,IntArray>{
+    val first=IntArray(firstCount){-1};val second=IntArray(secondCount){-1}
+    columns.forEachIndexed{index,column->
+        column.first?.takeIf{it in first.indices}?.let{if(first[it]<0)first[it]=index}
+        column.second?.takeIf{it in second.indices}?.let{if(second[it]<0)second[it]=index}
+    }
+    return first to second
+}
+
+/** Seek the active recording, snapping gaps to its closest genuine audio frame. */
+internal fun comparisonSeekFrame(columns:List<com.domenota.medialoader.data.library.ComparisonColumn>,
+    column:Int,firstTrack:Boolean):Int?{
+    if(column !in columns.indices)return null
+    fun frame(index:Int)=if(firstTrack)columns[index].first else columns[index].second
+    frame(column)?.let{return it}
+    for(distance in 1 until columns.size){
+        val left=column-distance
+        if(left>=0)frame(left)?.let{return it}
+        val right=column+distance
+        if(right<columns.size)frame(right)?.let{return it}
+    }
+    return null
+}
+
+/** Peak-preserving bins cached across redraws, invalidated on range/width changes. */
+internal class ComparisonPeakCache(private val values:List<Pair<Float,Float>>,private val range:IntRange){
+    private var lastBins=-1
+    private var last:Pair<FloatArray,FloatArray>?=null
+    fun peaks(bins:Int):Pair<FloatArray,FloatArray>{
+        require(!range.isEmpty()&&range.first>=0&&range.last<values.size&&bins in 1..range.count())
+        last?.takeIf{lastBins==bins}?.let{return it}
+        val first=FloatArray(bins);val second=FloatArray(bins)
+        for(bin in 0 until bins){
+            for(column in comparisonBucket(range.first,range.count(),bins,bin)){
+                first[bin]=maxOf(first[bin],values[column].first)
+                second[bin]=maxOf(second[bin],values[column].second)
+            }
+        }
+        return (first to second).also{last=it;lastBins=bins}
+    }
+}
+
+/** Four bounded focus levels always containing the full changed region. */
+internal fun comparisonFocusRange(count:Int,start:Int,endExclusive:Int,zoomLevel:Int):IntRange{
+    if(count<=0)return IntRange.EMPTY
+    val a=start.coerceIn(0,count-1)
+    val b=endExclusive.coerceIn(a+1,count)
+    val pad=when(zoomLevel.coerceIn(1,4)){
+        1->maxOf(8,(b-a)/2)
+        2->maxOf(4,(b-a)/4)
+        3->2
+        else->0
+    }
+    return maxOf(0,a-pad) until minOf(count,b+pad)
+}
+
+/** Selecting a new comparison reference never changes the keeper or trash selection.
+ * If the old target becomes the reference, swap the old reference into the target slot.
+ * Otherwise preserve the target so a 3+ track comparison remains stable.
+ */
+internal fun comparisonPairWithReference(
+    trackIds: List<String>, referenceId: String, targetId: String, requestedId: String,
+): Pair<String, String>? {
+    if (trackIds.size < 2 || trackIds.distinct().size != trackIds.size ||
+        referenceId !in trackIds || targetId !in trackIds || referenceId == targetId ||
+        requestedId !in trackIds) return null
+    if (referenceId == requestedId) return referenceId to targetId
+    val nextTarget = if (targetId == requestedId) referenceId else targetId
+    return requestedId to nextTarget
+}
+
+/** The reference is never offered as its own comparison target, including in big groups. */
+internal fun comparisonTargetIds(trackIds: List<String>, referenceId: String): List<String> =
+    trackIds.distinct().filter { it != referenceId }

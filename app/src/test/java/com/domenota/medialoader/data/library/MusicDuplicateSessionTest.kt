@@ -11,6 +11,11 @@ class MusicDuplicateSessionTest {
         val snapshot = DuplicateSession(DuplicateScanResult(listOf(group),2,acousticUnavailable=1,expanded=true,privacyEpoch=7),setOf("b"),mapOf(group.key to "a"),3,45,123456)
         assertEquals(snapshot, MusicDuplicateSessionStore.decode(MusicDuplicateSessionStore.encode(snapshot)))
     }
+    @Test fun selectedFolderScopeSurvivesSerialization() {
+        val scoped = DuplicateSession(DuplicateScanResult(emptyList(), 0, scopeLabel="Выборочно: 2 папок"),
+            emptySet(), emptyMap(), 0, 0, 54321)
+        assertEquals(scoped, MusicDuplicateSessionStore.decode(MusicDuplicateSessionStore.encode(scoped)))
+    }
     @Test fun invalidSchemaRejected() {
         try { MusicDuplicateSessionStore.decode("{\"schema\":2}"); fail("schema") } catch (_: IllegalArgumentException) {}
     }

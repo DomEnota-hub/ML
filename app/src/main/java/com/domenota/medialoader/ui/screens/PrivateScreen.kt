@@ -2,8 +2,13 @@ package com.domenota.medialoader.ui.screens
 
 import com.domenota.medialoader.ui.components.AppNotice
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Restore
@@ -12,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.automirrored.rounded.ViewList
@@ -37,6 +41,10 @@ import com.domenota.medialoader.ui.components.PrivateAccessGate
 import com.domenota.medialoader.ui.components.PrivateProtectionSettings
 import com.domenota.medialoader.ui.model.toUi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.domenota.medialoader.data.privatevault.VaultOperations
 
 @Composable
 fun PrivateScreen(
@@ -55,25 +63,71 @@ fun PrivateScreen(
     onSetFavorite: suspend (String, Boolean) -> Unit = { _, _ -> },
     onCreateFolder: suspend (String) -> String = { "" },
     onOpenGrid: ((String, List<String>) -> Unit)? = null,
-    onOpenVault: () -> Unit = {},
+    onOpenVault: (() -> Unit)? = null,
+    legacyRecoveryProbe: (suspend () -> Boolean)? = null,
 ) {
     val state by access.state.collectAsState()
     var settings by remember { mutableStateOf(false) }
+    var manualLock by rememberSaveable { mutableStateOf(false) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     var busy by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<List<String>?>(null) }
     var folderTarget by remember { mutableStateOf<List<String>?>(null) }
     var restoreTarget by remember { mutableStateOf<List<String>?>(null) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var selecting by remember { mutableStateOf(false) }
-    var autoAuthenticate by rememberSaveable { mutableStateOf(true) }
     var expandedGroups by rememberSaveable { mutableStateOf(setOf<String>()) }
     var groupLimits by rememberSaveable { mutableStateOf(mapOf<String, Int>()) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("ui", 0) }
+    // No permanent legacy entry on ordinary installations. Probe only after authorization,
+    // off the main thread, and retain recovery access on an unreadable or failed index.
+    var legacyRecoveryAvailable by remember(state.unlocked) { mutableStateOf(false) }
+    LaunchedEffect(state.unlocked, onOpenVault != null, legacyRecoveryProbe) {
+        if (!state.unlocked || onOpenVault == null) return@LaunchedEffect
+        val required = try {
+            withContext(Dispatchers.IO) {
+                access.requireUnlocked()
+                legacyRecoveryProbe?.invoke() ?: VaultOperations(context).snapshot().let {
+                    it.items.isNotEmpty() || it.unreadableRecords > 0
+                }
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { true }
+        if (access.state.value.unlocked) legacyRecoveryAvailable = required
+    }
     var gridMode by rememberSaveable { mutableStateOf(prefs.getBoolean("private_grid", false)) }
-    val uiItems = remember(items) { items.map { it.toUi() } }
-    val groups = remember(uiItems) { uiItems.groupBy { VkDownloadGroup.key(it) } }
+    var mediaType by rememberSaveable { mutableStateOf<com.domenota.medialoader.core.model.MediaType?>(null) }
+    var sort by remember { mutableStateOf(PrivateArchiveSort.read(prefs, "private")) }
+    val admittedItems = remember(items, mediaType, state.unlocked) {
+        if (!state.unlocked) emptyList() else
+            com.domenota.medialoader.ui.navigation.filterLibraryMedia(items, mediaType) { it.mediaType }
+    }
+    val rowsById = remember(admittedItems) { admittedItems.associateBy { it.id } }
+    val dates = rememberPrivateArchiveDates(context, rowsById,
+        state.unlocked && sort.field == PrivateArchiveSortField.FILE_DATE, privateSection = true,
+        stillAllowed = { access.state.value.unlocked })
+    val keysById = remember(admittedItems, dates) { admittedItems.associate { row ->
+        row.id to PrivateArchiveSortKey(row.id, row.originalName, dates[row.id],
+            row.createdAtEpochMillis.takeIf { it > 0 }, row.sizeBytes?.takeIf { it >= 0 })
+    } }
+    val visibleItems = remember(admittedItems, sort, keysById) {
+        sortPrivateArchive(admittedItems, sort) { requireNotNull(keysById[it.id]) }
+    }
+    val visibleIds=remember(visibleItems){visibleItems.mapTo(mutableSetOf()){it.id}}
+    val mappedItems = remember(visibleItems) { visibleItems.map { it.toUi() } }
+    val groups = remember(mappedItems, sort, keysById) {
+        sortPrivateArchive(mappedItems.groupBy { VkDownloadGroup.key(it) }.entries.toList(), sort) { (id, members) ->
+            val label = if (members.size == 1) members.first().title
+                else if (members.any { VkDownloadGroup.isCommunity(it) }) "VK" else "Публикация"
+            groupPrivateArchiveKey(id, label, members.map { requireNotNull(keysById[it.id]) })
+        }.associate { it.key to it.value }
+    }
+    val uiItems = remember(mappedItems, groups, sort, gridMode) {
+        if (!gridMode || sort.field == PrivateArchiveSortField.COUNT) groups.values.flatten() else mappedItems
+    }
     val assignments = remember(catalogAssignments) { catalogAssignments.associateBy { it.downloadId } }
     fun action(block: suspend () -> Unit) {
         if (busy || externalBusy) return
@@ -89,21 +143,28 @@ fun PrivateScreen(
         val result = runFileBatch(ids, block)
         AppNotice.postBatch(context, "Результат операции", result, "Обработано")
     }
-    LaunchedEffect(state.unlocked) {
+    LaunchedEffect(state.unlocked,visibleIds) {
         if (!state.unlocked) {
             deleteTarget = null; folderTarget = null; restoreTarget = null
             selectedIds = emptySet(); selecting = false
         } else {
-            selectedIds = selectedIds.intersect(items.map { it.id }.toSet())
+            selectedIds = selectedIds.intersect(visibleIds)
         }
     }
-    LaunchedEffect(state.mode, state.unlocked) {
-        if (state.mode == PrivateAccessMode.NONE && !state.unlocked) access.unlockWithoutProtection()
+    LaunchedEffect(state.mode, state.unlocked, lifecycleState) {
+        if (state.unlocked) manualLock = false
+        if (state.mode == PrivateAccessMode.NONE && !state.unlocked &&
+            lifecycleState == Lifecycle.State.RESUMED &&
+            lifecycleOwner.lifecycle.currentState == Lifecycle.State.RESUMED) access.unlockWithoutProtection()
     }
-    BackHandler(busy || externalBusy || settings || selecting) {
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        state.unlocked&&!settings&&!busy&&!externalBusy&&!selecting&&
+            deleteTarget==null&&folderTarget==null&&restoreTarget==null)
+    BackHandler(enabled = lifecycleState == Lifecycle.State.RESUMED) {
         if (!busy && !externalBusy) {
             if (selecting) { selecting = false; selectedIds = emptySet() }
-            else settings = false
+            else if (settings) settings = false
+            else onBack()
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -114,9 +175,9 @@ fun PrivateScreen(
             Text(if (settings) "Защита личного" else if (selecting) "Выбрано: ${selectedIds.size}" else "Личное",
                 style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
             if (selecting && state.unlocked) {
-                TextButton(onClick = { selectedIds = if (selectedIds.size == items.size) emptySet()
-                    else items.map { it.id }.toSet() },enabled = !busy && !externalBusy) {
-                    Text(if (selectedIds.size == items.size) "Снять всё" else "Выбрать все")
+                TextButton(onClick = { selectedIds = if (selectedIds==visibleIds) emptySet()
+                    else visibleIds },enabled = !busy && !externalBusy) {
+                    Text(if (selectedIds==visibleIds) "Снять всё" else "Выбрать все")
                 }
                 IconButton(onClick = { selecting = false; selectedIds = emptySet() },
                     enabled = !busy && !externalBusy) {
@@ -124,7 +185,13 @@ fun PrivateScreen(
                 }
             }
             if (state.unlocked && !settings && !selecting) {
-                TextButton(onClick=onOpenVault,enabled=!busy && !externalBusy) { Text("Ранее защищённые файлы") }
+                if (legacyRecoveryAvailable && onOpenVault != null) {
+                    TextButton(onClick = { if (access.state.value.unlocked) onOpenVault() },
+                        enabled = !busy && !externalBusy) { Text("Ранее защищённые файлы") }
+                }
+                PrivateArchiveSortMenu(sort, { next ->
+                    sort = next; next.save(prefs, "private")
+                }, enabled = !busy && !externalBusy, privateSection = true)
                 IconButton(onClick = {
                     gridMode = !gridMode
                     prefs.edit().putBoolean("private_grid", gridMode).apply()
@@ -132,11 +199,8 @@ fun PrivateScreen(
                     Icon(if (gridMode) Icons.AutoMirrored.Rounded.ViewList else Icons.Rounded.GridView,
                         if (gridMode) "Показать списком" else "Показать сеткой")
                 }
-                IconButton(onClick = { settings = true; autoAuthenticate = true; access.lock() }, enabled = !busy && !externalBusy) {
+                IconButton(onClick = { settings = true; access.lock() }, enabled = !busy && !externalBusy) {
                     Icon(Icons.Rounded.Settings, "Настройки личного")
-                }
-                if (state.mode != PrivateAccessMode.NONE) IconButton(onClick = { autoAuthenticate = false; access.lock() }, enabled = !busy && !externalBusy) {
-                    Icon(Icons.Rounded.Lock, "Заблокировать личное")
                 }
             }
         }
@@ -147,28 +211,41 @@ fun PrivateScreen(
                 CircularProgressIndicator()
                 Text("Перемещаем файлы…", Modifier.padding(16.dp))
             }
-            !state.unlocked -> PrivateAccessGate(access, Modifier.weight(1f), autoAuthenticate = autoAuthenticate)
-            settings -> PrivateProtectionSettings(access, onDone = { settings = false })
+            !state.unlocked -> PrivateAccessGate(access, Modifier.weight(1f),
+                autoAuthenticate = !manualLock, allowRememberedSession = !settings && !manualLock)
+            settings -> PrivateProtectionSettings(access, onDone = { settings = false },
+                onManualLock = { manualLock = true; settings = false; access.lock() })
             else -> Box(Modifier.weight(1f).fillMaxWidth()) {
                 @Composable fun fileRow(row: DownloadUiItem, modifier: Modifier = Modifier) {
                     val favorite = assignments[row.id]?.isFavorite == true
-                    var swipeDistance by remember(row.id) { mutableFloatStateOf(0f) }
                     val swipeGesture = Modifier.pointerInput(row.id, state.unlocked, busy, externalBusy, selecting) {
                         if (!state.unlocked || busy || externalBusy || selecting) return@pointerInput
-                        detectHorizontalDragGestures(
-                            onDragStart = { swipeDistance = 0f },
-                            onHorizontalDrag = { change, amount ->
+                        awaitEachGesture {
+                            val down=awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Main)
+                            var dragging=false
+                            while(true){
+                                val event=awaitPointerEvent(PointerEventPass.Main)
+                                val change=event.changes.firstOrNull{it.id==down.id}?:break
+                                if(event.changes.count{it.pressed}>1)break
+                                val dx=change.position.x-down.position.x
+                                val dy=change.position.y-down.position.y
+                                if(!change.pressed){
+                                    if(dragging){
+                                        change.consume()
+                                        if(dx < -72f-viewConfiguration.touchSlop && access.state.value.unlocked)
+                                            restoreTarget=listOf(row.id)
+                                    }
+                                    break
+                                }
+                                if(!dragging){
+                                    if(change.isConsumed||dx>viewConfiguration.touchSlop||
+                                        (kotlin.math.abs(dy)>viewConfiguration.touchSlop&&kotlin.math.abs(dy)>=kotlin.math.abs(dx)))break
+                                    if(dx>=-viewConfiguration.touchSlop||kotlin.math.abs(dx)<=kotlin.math.abs(dy))continue
+                                    dragging=true
+                                }
                                 change.consume()
-                                swipeDistance += amount
-                            },
-                            onDragEnd = {
-                                // Reveal confirmation; never publish a private file on a gesture alone.
-                                if (swipeDistance < -72f && !busy && !externalBusy && state.unlocked)
-                                    restoreTarget = listOf(row.id)
-                                swipeDistance = 0f
-                            },
-                            onDragCancel = { swipeDistance = 0f }
-                        )
+                            }
+                        }
                     }
                     Box(modifier.then(swipeGesture)) {
                         DownloadRow(row, modifier = Modifier.fillMaxWidth(), compact = gridMode,
@@ -193,6 +270,9 @@ fun PrivateScreen(
                     }
                 }
                 Column {
+                com.domenota.medialoader.ui.components.LibraryMediaTypeFilters(mediaType,{next->
+                    mediaType=next;selectedIds=emptySet();selecting=false
+                },enabled=!busy&&!externalBusy&&!selecting)
                 if (selecting) {
                     Surface(color=MaterialTheme.colorScheme.surfaceVariant,shape=MaterialTheme.shapes.medium,
                         modifier=Modifier.fillMaxWidth().padding(horizontal=12.dp)) {
@@ -201,7 +281,7 @@ fun PrivateScreen(
                             horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                             Icon(Icons.Rounded.CheckCircle,null,tint=MaterialTheme.colorScheme.primary)
                             Text("${selectedIds.size} файлов",Modifier.weight(1f))
-                            Button(onClick={restoreTarget=selectedIds.toList()},
+                            Button(onClick={restoreTarget=selectedIds.intersect(visibleIds).toList()},
                                 enabled=selectedIds.isNotEmpty() && !busy && !externalBusy) {
                                 Icon(Icons.Rounded.Restore,null)
                                 Spacer(Modifier.width(6.dp))
@@ -214,7 +294,7 @@ fun PrivateScreen(
                         style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (items.isEmpty()) item { Text("Здесь пока нет файлов. Переместите их через меню в загрузках.") }
+                    if (visibleItems.isEmpty()) item { Text(if(items.isEmpty()) "Здесь пока нет файлов. Перемести их через меню в загрузках." else "Нет файлов этого типа") }
                     items(items.filter { it.privateSourceUri != null }, key = { "pending:${it.id}" }) { row ->
                         Column {
                             Text("Публичная копия ещё не удалена и может быть видна в галерее.", color = MaterialTheme.colorScheme.error)
@@ -272,7 +352,7 @@ fun PrivateScreen(
         }
     }
     if (state.unlocked && !settings && folderTarget != null) DownloadFolderSheet(
-        folders = catalogFolders, assignments = assignments, items = uiItems,
+        folders = catalogFolders, assignments = assignments, items = items.map{it.toUi()},
         selectedKey = CATALOG_ALL, targetDownloadId = folderTarget!!.first(),
         onDismiss = { folderTarget = null }, onSelect = {}, onCreate = onCreateFolder,
         onRename = { _, _ -> }, onDelete = {},

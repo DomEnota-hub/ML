@@ -97,6 +97,12 @@ internal fun GalleryModeScreen(
     onArchiveRestore:((String)->Unit)?=null,
     onSimpleArchive: ((List<String>) -> Unit)? = null,
     onOpenSimpleArchive: (() -> Unit)? = null,
+    unifiedDrawerRoutes:Boolean=false,
+    onArchiveFolder: ((String) -> Unit)? = null,
+    notes: com.domenota.medialoader.ui.screens.organization.MediaPassportNotes? = null,
+    ocr: GalleryOcrController? = null,
+    onCloseSearch: (() -> Unit)? = null,
+    onOpenOcrTask: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val albumStore = remember(context) { GalleryAlbumSettingsStore(context) }
@@ -160,15 +166,27 @@ internal fun GalleryModeScreen(
     val selecting = selectedIds.isNotEmpty()
     fun toggle(id: String) { selectedIds = ArrayList(if (id in selectedIds) selectedIds - id else selectedIds + id) }
     BackHandler(selecting) { selectedIds = arrayListOf() }
+    val searchFocus = androidx.compose.ui.platform.LocalFocusManager.current
+    BackHandler(searchVisible == true && onCloseSearch != null && !selecting && !archiveOpen) {
+        search = ""
+        searchFocus.clearFocus()
+        onCloseSearch?.invoke()
+    }
     val scope = rememberCoroutineScope()
     fun mutate(action: suspend () -> Unit) { scope.launch {
         try { action(); error = null } catch (e: CancellationException) { throw e }
         catch (e: Exception) { error = e.message ?: "Не удалось выполнить действие" }
     } }
+    fun logicalArchive(key: String) = key.startsWith("folder:") && onArchiveFolder != null &&
+        key.removePrefix("folder:") !in hiddenFolderIds
     fun ordinaryVisibility(key: String) = key.startsWith("folder:") && onFolderVisibility != null
     fun albumMediaExcluded(key: String): Boolean = if (ordinaryVisibility(key)) key.removePrefix("folder:") in hiddenFolderIds
         else key in albumSettings.excludedFromMedia
     fun toggleAlbumMedia(key: String) {
+        if (logicalArchive(key)) {
+            onArchiveFolder?.invoke(key.removePrefix("folder:"))
+            return
+        }
         val callback = onFolderVisibility
         if (ordinaryVisibility(key) && callback != null) {
             val id = key.removePrefix("folder:")
@@ -198,20 +216,62 @@ internal fun GalleryModeScreen(
         } else if (!checkingAlbum) { AppNotice.post(context, "Альбом недоступен"); onAlbumRequestHandled() }
     }
     val orderedAlbums = remember(albums, albumSettings.order) { orderedGalleryAlbums(albums, albumSettings) }
-    val visibleAlbums = orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
+    val visibleAlbums = remember(orderedAlbums,albumSettings.hiddenAlbums) {
+        orderedAlbums.filter { it.key !in albumSettings.hiddenAlbums }
+    }
     val standardQuickKeys = remember(visibleAlbums) {
         galleryStandardAlbums(visibleAlbums).map { it.key }.toSet()
     }
     // The five fixed shortcuts come first; device Camera/Screenshots never duplicate pinned cards.
-    val quickAlbums = visibleAlbums.filter {
-        it.key in albumSettings.quickAlbums && it.key !in standardQuickKeys
+    val quickAlbums = remember(visibleAlbums,albumSettings.quickAlbums,standardQuickKeys) {
+        visibleAlbums.filter { it.key in albumSettings.quickAlbums && it.key !in standardQuickKeys }
     }
-    val regularAlbums = visibleAlbums.filter {
-        it.key !in albumSettings.quickAlbums && it.key !in standardQuickKeys
+    val regularAlbums = remember(visibleAlbums,albumSettings.quickAlbums,standardQuickKeys) {
+        visibleAlbums.filter { it.key !in albumSettings.quickAlbums && it.key !in standardQuickKeys }
     }
-    val otherAlbums = orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
+    val otherAlbums = remember(orderedAlbums,albumSettings.hiddenAlbums) {
+        orderedAlbums.filter { it.key in albumSettings.hiddenAlbums }
+    }
+    val noteQuery = search.trim()
+    var noteMatches by remember(noteQuery, notes?.searchKey) { mutableStateOf(emptySet<String>()) }
+    var noteStatus by remember(noteQuery,notes?.searchKey){mutableStateOf(if(notes?.searchKey==null)"NOT_READY" else "PENDING")}
+    var noteSearchNotice by remember(noteQuery, notes?.searchKey) {
+        mutableStateOf(if (noteQuery.isEmpty()) null else if (notes?.searchKey == null)
+            "Поиск заметок недоступен" else "Поиск по заметкам…")
+    }
+    LaunchedEffect(noteQuery, notes?.searchKey) {
+        if (noteQuery.isNotEmpty() && notes?.searchKey != null) {
+            delay(160)
+            try {
+                val result = notes.search(noteQuery)
+                noteMatches = result.ids
+                noteSearchNotice = if (result.incomplete) "Поиск заметок частично недоступен" else null
+                noteStatus=if(result.incomplete)"PARTIAL" else if(result.ids.isEmpty())"EMPTY" else "COMPLETE"
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                noteMatches = emptySet()
+                noteSearchNotice = "Поиск заметок недоступен"
+                noteStatus="ERROR"
+            }
+        }
+    }
+    var ocrMatches by remember(noteQuery,ocr?.address) { mutableStateOf(emptySet<String>()) }
+    var ocrStatus by remember(noteQuery,ocr?.searchKey){mutableStateOf(if(ocr?.searchKey==null)"NOT_READY" else "PENDING")}
+    LaunchedEffect(noteQuery,ocr?.searchKey) {
+        if (noteQuery.isNotEmpty() && ocr?.searchKey != null) {
+            delay(160)
+            try {
+                val result=ocr.search(noteQuery)
+                ocrMatches=result.ids
+                ocrStatus=if(result.status==OcrSearchStatus.COMPLETE&&result.ids.isEmpty())"EMPTY" else result.status.name
+            }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { ocrMatches = emptySet();ocrStatus="ERROR" }
+        }
+    }
+    val matches = remember(noteMatches,ocrMatches) { noteMatches + ocrMatches }
     val gridKey=GalleryGridKey(selection,search,detailOpen,tab,albumFileSort,albumSettings.excludedFromMedia,
-        LocalDate.now(),ZoneId.systemDefault())
+        LocalDate.now(),ZoneId.systemDefault(),matches)
     val canPrepare=preparedBrowse?.usable!=false
     val grid=if(preparedBrowse==null)remember(browse,gridKey){browse.prepareGrid(gridKey)} else {
         // A routine data refresh retains the previous safe grid until its new
@@ -221,11 +281,11 @@ internal fun GalleryModeScreen(
         LaunchedEffect(browse,gridKey,canPrepare,preparedBrowseAccess){
             if(canPrepare)retained=cached?:withContext(Dispatchers.Default){browse.prepareGrid(gridKey)}
         }
-        val allowedRows=remember(browse){browse.items.associate { it.id to it.savedUri }}
-        val safeRetained=remember(retained,browse,gridKey){retained?.retainAllowed(gridKey){row ->
-            allowedRows.containsKey(row.id) && allowedRows[row.id]==row.savedUri
-        }}
-        if(canPrepare)cached?:safeRetained else null
+        // A current prepared grid needs no whole-catalog retention scan.
+        // Keep the synchronous removal guard for an older grid.
+        if(!canPrepare)null else cached?:remember(retained,browse,gridKey){
+            retained?.retainAllowed(gridKey,browse::containsAddress)
+        }
     }
     val gridReady=grid!=null
     val shortcutAllMedia=grid?.allVisible ?: browse.media.takeIf{albumSettings.excludedFromMedia.isEmpty()}.orEmpty()
@@ -235,6 +295,24 @@ internal fun GalleryModeScreen(
         galleryDefaultQuickItems(visibleAlbums, shortcutAllMedia, shortcutVideos, shortcutFavorites)
     }
     val visibleDisplayed=grid?.visible.orEmpty()
+    var lastSearchLog by remember(noteQuery,selection,source){mutableStateOf<String?>(null)}
+    var lastSearchLogAt by remember(noteQuery,selection,source){mutableStateOf(0L)}
+    LaunchedEffect(noteQuery,gridReady,visibleDisplayed,noteStatus,ocrStatus,selection,tab,detailOpen){
+        val log=com.domenota.medialoader.core.logging.AppLog
+        // Only the public all-media scope. Never count explicitly opened hidden albums.
+        if(log.isExtended()&&noteQuery.isNotEmpty()&&gridReady&&selection=="all"&&tab==0&&!detailOpen&&noteStatus!="PENDING"&&ocrStatus!="PENDING"){
+            delay(200)
+            val counts=withContext(Dispatchers.Default){
+                val public=visibleDisplayed.filter{!it.isPrivate&&!it.hidden}
+                listOf(public.count{it.originalName.contains(noteQuery,true)},public.count{it.id in noteMatches},public.count{it.id in ocrMatches},public.size)
+            }
+            val message="SEARCH result=${if(counts[3]==0)"EMPTY_VISIBLE" else "MATCHES"} filename=${counts[0]} notes=${counts[1]} ocr=${counts[2]} noteStatus=$noteStatus ocrStatus=$ocrStatus total=${counts[3]}"
+            val now=android.os.SystemClock.elapsedRealtime()
+            if(message!=lastSearchLog&&(lastSearchLog==null||now-lastSearchLogAt>=15_000L||ocrStatus in setOf("COMPLETE","EMPTY","ERROR","BLOCKED"))){
+                log.d("GallerySearch",message);lastSearchLog=message;lastSearchLogAt=now
+            }
+        }
+    }
     val orderedDisplayed=grid?.ordered.orEmpty()
     val queue=grid?.queue.orEmpty()
     val queueSet=grid?.queueSet.orEmpty()
@@ -264,12 +342,13 @@ internal fun GalleryModeScreen(
     // LazyVerticalGrid offsets. No catalog-wide date parsing on the UI thread.
     val selectableDateRange=grid?.dateRange
     val dateSections=grid?.sections.orEmpty()
+    val daySelectionCounts=remember(grid,selectedSet){grid?.selectionCounts(selectedSet).orEmpty()}
     val galleryScrollLabels=grid?.labels.orEmpty()
     LaunchedEffect(jumpToMedia, orderedDisplayed, detailOpen, tab, albumFileSort) {
         val id = jumpToMedia ?: return@LaunchedEffect
         if (!detailOpen || tab != 0) return@LaunchedEffect
         val grouped = GalleryAlbumFileOrder.groupedByDate(albumFileSort)
-        val groups = if (grouped) dateSections.values.map { rows -> rows.map { it.id } } else listOf(orderedDisplayed.map { it.id })
+        val groups = if (grouped) grid?.dayIds?.values?.toList().orEmpty() else listOf(queue)
         val index = GalleryLibraryState.gridIndex(groups,id,grouped) ?: return@LaunchedEffect
         mediaGridState.scrollToItem(index)
         jumpToMedia = null; highlightedMedia = id
@@ -281,6 +360,12 @@ internal fun GalleryModeScreen(
     var dragSelectionPointer by remember { mutableStateOf(Offset.Zero) }
     var dragSelectionBase by remember { mutableStateOf(emptySet<String>()) }
     var dragSelectionEnd by remember { mutableStateOf<String?>(null) }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        !detailOpen && !archiveOpen && !selecting && folderTarget==null && renameTarget==null &&
+            !creating && !(showDatePicker&&selectableDateRange!=null) &&
+            deletingAlbum==null && !albumSortMenuExpanded &&
+            moveSnapshot==null && removingDeviceAlbum==null && draggingAlbumKey==null &&
+            dragSelectionAnchor==null)
     fun galleryItemAt(point: Offset): String? {
         val visible = mediaGridState.layoutInfo.visibleItemsInfo.filter { it.key.toString() in queueSet }
         val hit = visible.firstOrNull { cell ->
@@ -328,7 +413,7 @@ internal fun GalleryModeScreen(
     LaunchedEffect(selectedJumpDate, dateSections, tab, albumFileSort, detailOpen) {
         if (tab == 0 && (!detailOpen || GalleryAlbumFileOrder.groupedByDate(albumFileSort))) {
             selectedJumpDate?.let { chosen ->
-                galleryDateSectionIndex(dateSections.mapValues { it.value.size }, chosen)?.let {
+                galleryDateSectionIndex(grid?.daySizes.orEmpty(), chosen)?.let {
                     mediaGridState.animateScrollToItem(it)
                 }
             }
@@ -351,21 +436,36 @@ internal fun GalleryModeScreen(
         onRestore=onArchiveRestore,
     ) else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (selecting) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+        var selectionMenu by remember { mutableStateOf(false) }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
             IconButton({ selectedIds = arrayListOf() }) { Icon(Icons.Rounded.Close, "Отменить выбор") }
-            Text("Выбрано: ${selectedIds.size}", Modifier.weight(1f), fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            IconButton({ selectedIds = if (selectedIds.size == queue.size) arrayListOf() else ArrayList(queue) }) {
-                Icon(Icons.Rounded.SelectAll, "Выбрать все")
-            }
-            if(onAddCollection!=null) IconButton({ onAddCollection(queue.filter { it in selectedSet }) }) {
-                Icon(Icons.Rounded.CollectionsBookmark, "Добавить в коллекцию")
-            }
-            IconButton({ moveSnapshot = orderedDisplayed.filter { it.id in selectedSet } }) {
-                Icon(Icons.Rounded.DriveFileMove, "Переместить выбранные в альбом")
+            Text("${selectedIds.size}", Modifier.weight(1f).semantics {
+                contentDescription = "Выбрано: ${selectedIds.size}"
+            }, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (onSimpleArchive != null) IconButton(
+                onClick = { onSimpleArchive(queue.filter { it in selectedSet }) },
+                enabled = gridReady && queue.any { it in selectedSet },
+                modifier = Modifier.testTag("gallery-selected-archive")) {
+                com.domenota.medialoader.ui.components.ArchiveActionIcon("В архив", tint = MaterialTheme.colorScheme.primary)
             }
             IconButton({ onDeleteSelected?.invoke(queue.filter { it in selectedSet }) }, enabled = onDeleteSelected != null) {
                 Icon(Icons.Rounded.Delete, "Удалить выбранное", tint = MaterialTheme.colorScheme.error)
+            }
+            Box {
+                IconButton({ selectionMenu = true }) { Icon(Icons.Rounded.MoreVert, "Действия с выбранными") }
+                DropdownMenu(expanded = selectionMenu, onDismissRequest = { selectionMenu = false }) {
+                    DropdownMenuItem(text = { Text(if (selectedIds.size == queue.size) "Снять выбор" else "Выбрать все") },
+                        modifier = Modifier.testTag("gallery-selection-all"),
+                        onClick = { selectionMenu = false; selectedIds = if (selectedIds.size == queue.size) arrayListOf() else ArrayList(queue) },
+                        leadingIcon = { Icon(Icons.Rounded.SelectAll, null) })
+                    if (onAddCollection != null) DropdownMenuItem(text = { Text("Добавить в коллекцию") },
+                        onClick = { selectionMenu = false; onAddCollection(queue.filter { it in selectedSet }) },
+                        leadingIcon = { Icon(Icons.Rounded.CollectionsBookmark, null) })
+                    DropdownMenuItem(text = { Text("Переместить выбранные в альбом") },
+                        onClick = { selectionMenu = false; moveSnapshot = orderedDisplayed.filter { it.id in selectedSet } },
+                        leadingIcon = { Icon(Icons.Rounded.DriveFileMove, null) })
+                }
             }
         }
         val batchPhotos=orderedDisplayed.filter { it.id in selectedSet && it.mediaType==MediaType.PHOTO && !it.isPrivate && !it.hidden && it.savedUri!=null }
@@ -511,7 +611,18 @@ internal fun GalleryModeScreen(
                     if (searchVisible != false) OutlinedTextField(search, { search = it },
                         Modifier.fillMaxWidth().padding(horizontal = 17.dp).padding(bottom = 12.dp),
                         singleLine = true, label = { Text("Поиск фото и видео") }, shape = RoundedCornerShape(12.dp),
-                        leadingIcon = { Icon(Icons.Rounded.Search, null) })
+                        leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                        trailingIcon = {
+                            Row(verticalAlignment=Alignment.CenterVertically) {
+                                if(search.isNotEmpty())IconButton({search=""}){Icon(Icons.Rounded.Close,"Очистить поиск")}
+                                if(!detailOpen && ocr!=null && onOpenOcrTask!=null)GalleryOcrIndicator(ocr,onOpenOcrTask)
+                            }
+                        })
+                    if (searchVisible == true && !detailOpen && noteQuery.isNotEmpty())
+                        noteSearchNotice?.let { Text(it,Modifier.padding(horizontal=17.dp,vertical=4.dp),
+                            style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (searchVisible == true && !detailOpen && ocr != null)
+                        GalleryOcrNotice(ocr,Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=2.dp))
                     if (searchVisible == true && !detailOpen && onOpenDuplicates != null)
                         DuplicateSearchShortcut(onOpenDuplicates, Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 4.dp))
                     Box(Modifier.padding(horizontal = 17.dp)) { LibraryStatus(loading || (tab==0 && !gridReady), message, settingsError ?: error,
@@ -519,7 +630,7 @@ internal fun GalleryModeScreen(
                 }
             }
             if (tab == 1) {
-                if (source==LibrarySource.APP) item(key="archive-entry",span={GridItemSpan(maxLineSpan)}) {
+                if (source==LibrarySource.APP && !unifiedDrawerRoutes) item(key="archive-entry",span={GridItemSpan(maxLineSpan)}) {
                     Surface(onClick={ if (onOpenSimpleArchive != null) onOpenSimpleArchive() else archiveOpen=true },
                         modifier=Modifier.fillMaxWidth().padding(horizontal=17.dp,vertical=8.dp)
                             .testTag("gallery-archive-entry"),
@@ -558,6 +669,7 @@ internal fun GalleryModeScreen(
                         dragged = draggingAlbumKey == album.key,
                         mediaExcluded = albumMediaExcluded(album.key),
                         systemVisibility = ordinaryVisibility(album.key),
+                        logicalArchive = logicalArchive(album.key),
                         visibilityPending = ordinaryVisibility(album.key) && pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         visibilityEnabled = !ordinaryVisibility(album.key) || pendingVisibilityFolderId == null || pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         onOpen = { openAlbum(album.key, album.name) },
@@ -579,6 +691,7 @@ internal fun GalleryModeScreen(
                         album = album, index = index, hidden = false,
                         mediaExcluded = albumMediaExcluded(album.key),
                         systemVisibility = ordinaryVisibility(album.key),
+                        logicalArchive = logicalArchive(album.key),
                         visibilityPending = ordinaryVisibility(album.key) && pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         visibilityEnabled = !ordinaryVisibility(album.key) || pendingVisibilityFolderId == null || pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                         dragged = draggingAlbumKey == album.key,
@@ -622,6 +735,7 @@ internal fun GalleryModeScreen(
                                 album = album, index = index, hidden = true,
                                 mediaExcluded = albumMediaExcluded(album.key),
                                 systemVisibility = ordinaryVisibility(album.key),
+                        logicalArchive = logicalArchive(album.key),
                                 visibilityPending = ordinaryVisibility(album.key) && pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                                 visibilityEnabled = !ordinaryVisibility(album.key) || pendingVisibilityFolderId == null || pendingVisibilityFolderId == album.key.removePrefix("folder:"),
                                 dragged = draggingAlbumKey == album.key,
@@ -651,8 +765,8 @@ internal fun GalleryModeScreen(
                     }
                 } else dateSections.forEach { (date, rows) ->
                         item(key = "date:$date", span = { GridItemSpan(maxLineSpan) }) {
-                            val dayIds = remember(rows) { rows.map { it.id } }
-                            val selectedInDay = dayIds.count { it in selectedSet }
+                            val dayIds = grid?.dayIds?.get(date).orEmpty()
+                            val selectedInDay = daySelectionCounts[date] ?: 0
                             Row(
                                 Modifier.fillMaxWidth().padding(start = 17.dp, end = 9.dp, top = 4.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -729,17 +843,6 @@ internal fun GalleryModeScreen(
         }
         Column(Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
             .onSizeChanged { galleryOverlayHeightPx = it.height }.zIndex(6f)) {
-            if (selecting && onSimpleArchive != null) Surface(color = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 5.dp, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { onSimpleArchive(queue.filter { it in selectedSet }) },
-                        modifier = Modifier.testTag("gallery-selected-archive")) {
-                        com.domenota.medialoader.ui.components.ArchiveActionIcon(null)
-                        Spacer(Modifier.width(6.dp)); Text("В архив")
-                    }
-                }
-            }
             if (!detailOpen && !selecting) LibraryBottomSwitcher(AppMode.GALLERY, tab, ::selectTab)
         }
         }
@@ -778,7 +881,7 @@ internal fun GalleryModeScreen(
                     Text(if (includeContents)
                         "В альбоме «${album.name}» ${albumRows.size} файлов. Они будут перемещены в корзину и смогут быть восстановлены."
                     else if (appFolder) "Альбом «${album.name}» будет удалён из MediaLoader. Файлы сохранятся в «Медиа»."
-                    else "Чтобы убрать альбом «${album.name}», переместите его ${albumRows.size} файлов в другую папку телефона. Вы выберете её следующим шагом.")
+                    else "Чтобы убрать альбом «${album.name}», перемести его ${albumRows.size} файлов в другую папку телефона. Папку можно выбрать следующим шагом.")
                     if (albumRows.isNotEmpty() && (if (appFolder) onTrashFolderContents != null else onTrashDeviceAlbum != null)) {
                         val mark = if (includeContents) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(includeContents, role = Role.Checkbox, onValueChange = { includeContents = it }),
@@ -855,8 +958,10 @@ private fun GalleryAlbumCell(
     dragged: Boolean, onOpen: () -> Unit, onHide: () -> Unit,
     onToggleMedia: () -> Unit, onDelete: () -> Unit, columns: Int = 2, pinned: Boolean = false,
     systemVisibility: Boolean = false, visibilityPending: Boolean = false, visibilityEnabled: Boolean = true,
+    logicalArchive: Boolean = false,
 ) {
     var menu by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
     Column(
         Modifier
             .alpha(if (dragged) 0.30f else 1f)
@@ -899,11 +1004,11 @@ private fun GalleryAlbumCell(
                         { menu = false; onHide() },
                         leadingIcon = { Icon(Icons.Rounded.VisibilityOff, null) })
                     DropdownMenuItem({
-                        Text(if (visibilityPending) "Продолжить перенос"
+                        Text(if (logicalArchive) "В архив" else if (visibilityPending) "Продолжить перенос"
                         else if (systemVisibility) { if (mediaExcluded) "Показывать в медиатеке" else "Скрыть из медиатеки" }
                         else if (mediaExcluded) "Показывать файлы в «Медиа»" else "Скрыть файлы из «Медиа»")
                     }, { menu = false; onToggleMedia() }, enabled = visibilityEnabled,
-                        leadingIcon = { Icon(Icons.Rounded.RemoveRedEye, null) })
+                        leadingIcon = { if (logicalArchive) com.domenota.medialoader.ui.components.ArchiveActionIcon(null) else Icon(Icons.Rounded.RemoveRedEye, null) })
                     DropdownMenuItem({ Text("Удалить альбом", color = MaterialTheme.colorScheme.error) },
                         { menu = false; onDelete() },
                         leadingIcon = { Icon(Icons.Rounded.Delete, null, tint = MaterialTheme.colorScheme.error) })
@@ -930,6 +1035,7 @@ private fun GalleryMediaCell(item: DownloadEntity, favorite: Boolean, onOpen: ()
                              onLongSelect: () -> Unit, highlighted: Boolean = false) {
     val shownName = displayFileName(item)
     var menu by remember { mutableStateOf(false) }
+    com.domenota.medialoader.ui.components.ReportDrawerOverlay(menu)
     Box(Modifier.aspectRatio(1f).background(MaterialTheme.colorScheme.surfaceContainer)
         .semantics { contentDescription = shownName }
         .combinedClickable(onClick = onOpen, onLongClick = onLongSelect, onLongClickLabel = "Выбрать файл")) {

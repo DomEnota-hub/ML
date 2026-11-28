@@ -26,6 +26,9 @@ internal object AcousticFingerprints {
     private const val LIMIT = 6000
     // Identical FFT coefficients, calculated once rather than for every frame.
     private val window = DoubleArray(N) { 0.5-0.5*cos(2*PI*it/(N-1)) }
+    private val shortWindow = DoubleArray(N) { index ->
+        if (index < N / 2) 0.5 - 0.5 * cos(2 * PI * index / (N / 2 - 1)) else 0.0
+    }
     private val twiddleCos = Array(11) { stage -> val length=2 shl stage; DoubleArray(length/2) { cos(-2*PI/length*it) } }
     private val twiddleSin = Array(11) { stage -> val length=2 shl stage; DoubleArray(length/2) { sin(-2*PI/length*it) } }
     private val bands = arrayOf(8..24,25..56,57..112,113..224,225..480)
@@ -69,8 +72,9 @@ internal object AcousticFingerprints {
         }
         fun finish() = AcousticFingerprint(packedAcousticLandmarks(reservoir.map { it.second }.sortedBy { it.frame }))
     }
-    private fun spectrum(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray) {
-        for(i in 0 until N) re[i]=samples[i]*window[i]
+    private fun spectrum(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray,
+        fftWindow: DoubleArray = window) {
+        for(i in 0 until N) re[i]=samples[i]*fftWindow[i]
         im.fill(0.0)
         var j = 0
         for (i in 1 until N) { var bit = N shr 1; while (j and bit != 0) { j = j xor bit; bit = bit shr 1 }; j = j xor bit
@@ -129,6 +133,43 @@ internal object AcousticFingerprints {
             return frames.toList()
         }
     }
+
+    /** A small, bounded second-pass spectral decoder for isolated 256-ms edits.
+     * It works in 64-ms windows at 8 kHz, using zero-padded 512-sample Hann FFT.
+     * Nothing is persisted; this never changes whole-track landmarks or caches.
+     */
+    class ShortComparisonBuilder(private val checkActive: () -> Unit) {
+        private val samples = FloatArray(N)
+        private val re = DoubleArray(N)
+        private val im = DoubleArray(N)
+        private val power = DoubleArray(N / 2)
+        private val bands = DoubleArray(64)
+        private val frames = ArrayList<ComparisonFrame>()
+        private var filled = 0
+        private var energy = 0.0
+
+        fun accept(value: Float) {
+            samples[filled++] = value
+            energy += value.toDouble() * value
+            if (filled == N / 2) emit()
+        }
+        private fun emit() {
+            checkActive()
+            for (i in filled until N) samples[i] = 0f
+            spectrum(samples, re, im, power, shortWindow)
+            bands.fill(0.0)
+            for (i in 1 until power.size) bands[i / 8] += power[i]
+            frames.add(ComparisonFrame(AudioPairAlignment.normalizedSpectrum(bands),
+                sqrt(energy / filled).toFloat()))
+            filled = 0
+            energy = 0.0
+        }
+        fun finish(): List<ComparisonFrame> {
+            if (filled >= N / 4) emit()
+            return frames.toList()
+        }
+    }
+
     private fun peaks(samples: FloatArray,re:DoubleArray,im:DoubleArray,power:DoubleArray): IntArray {
         spectrum(samples,re,im,power)
         if (power.maxOrNull()!! < 1e-9) return intArrayOf()
@@ -215,6 +256,32 @@ internal object AcousticFingerprints {
         val result=HashSet<Pair<String,String>>()
         if(ids.size<2)return result
         val size=ids.size
+        // A 417-track search needs only ~87 KiB for all unordered pair votes.
+        // Processing every posting ONCE avoids repeating every acoustic hash
+        // for each tiled row. Triangular byte storage preserves the existing
+        // threshold and capped-count semantics exactly; for >4096 tracks fall
+        // back to the previous bounded-tile path to control heap usage.
+        if(size<=4096){
+            val votes=ByteArray((size.toLong()*(size-1)/2).toInt())
+            fun at(first:Int,second:Int):Int =
+                (first.toLong()*(2L*size-first-1)/2+(second-first-1)).toInt()
+            for(posting in index.values){
+                checkActive()
+                if(posting.size !in 2..40)continue
+                for(i in 0 until posting.size)for(j in i+1 until posting.size){
+                    val at=at(posting[i],posting[j])
+                    val count=votes[at].toInt()
+                    if(count<90)votes[at]=(count+1).toByte()
+                }
+            }
+            for(first in 0 until size){
+                checkActive()
+                for(second in first+1 until size)
+                    if(votes[at(first,second)].toInt()>=90)
+                        result.add(ids[first] to ids[second])
+            }
+            return result
+        }
         val tileRows=(2_000_000/size).coerceIn(1,256)
         for(start in 0 until size step tileRows){
             checkActive()

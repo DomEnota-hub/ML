@@ -101,7 +101,7 @@ class LoginActivity : ComponentActivity() {
                 if (!request.isForMainFrame) return
                 AppLog.w("InstagramLogin", "Login page network error · code=${error.errorCode}")
                 if (lastHttpError) return
-                showPageError("Не удалось открыть Instagram (ошибка сети ${error.errorCode}). Проверьте соединение и попробуйте ещё раз.")
+                showPageError("Не удалось открыть Instagram (ошибка сети ${error.errorCode}). Проверь соединение и попробуй ещё раз.")
             }
         }
         root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
@@ -130,7 +130,7 @@ class LoginActivity : ComponentActivity() {
             setOnClickListener { finish() }
         })
         panel.addView(TextView(this).apply {
-            text = "Если вход остаётся недоступен, в настройках есть раздел «Резервная авторизация». Не отправляйте никому свой sessionid."
+            text = "Если вход остаётся недоступен, в настройках есть раздел «Резервная авторизация». Никому не передавать sessionid."
             setTextColor(if (isDarkTheme()) Color.LTGRAY else Color.DKGRAY)
         })
         errorPanel = panel

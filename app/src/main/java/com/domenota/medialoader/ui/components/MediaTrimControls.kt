@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
@@ -32,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -58,12 +61,27 @@ fun MediaTrimControls(
     scrubPreview: (@Composable (Long) -> Unit)? = null,
     showSolidTrimBar: Boolean = true,
     independentSeek: Boolean = false,
+    audioTimelineVisual: (@Composable (Modifier, Long, Long, Int) -> Unit)? = null,
 ) {
     var positionMs by remember(player) { mutableLongStateOf(0L) }
     var isPlaying by remember(player) { mutableStateOf(player.isPlaying) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var activeHandleLabel by remember { mutableStateOf<TrimHandle?>(null) }
     var activePositionMs by remember { mutableLongStateOf(0L) }
+    val audioZoomEnabled = audioTimelineVisual != null
+    var zoom by remember(player, durationMs) { mutableStateOf(1) }
+    var viewportStart by remember(player, durationMs) { mutableLongStateOf(0L) }
+    val viewportSpan = AudioEditorViewport.span(durationMs, zoom)
+    val visibleStart = AudioEditorViewport.clampStart(viewportStart, durationMs, viewportSpan)
+    val visibleEnd = (visibleStart + viewportSpan).coerceAtMost(durationMs.coerceAtLeast(0L))
+    val latestViewportStart by rememberUpdatedState(visibleStart)
+    val maxZoom = if (audioZoomEnabled) AudioEditorViewport.maxZoom(durationMs) else 1
+    fun changeZoom(next: Int) {
+        val nextZoom = next.coerceIn(1, maxZoom)
+        viewportStart = AudioEditorViewport.centeredStart(player.currentPosition, durationMs,
+            AudioEditorViewport.span(durationMs, nextZoom))
+        zoom = nextZoom
+    }
     val latestStart by rememberUpdatedState(trimStartMs)
     val latestEnd by rememberUpdatedState(trimEndMs)
     val latestOnTrimChange by rememberUpdatedState(onTrimChange)
@@ -114,6 +132,18 @@ fun MediaTrimControls(
     val handleColor = MaterialTheme.colorScheme.primary
 
     Column(modifier) {
+        if (audioZoomEnabled) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Обрезка", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                IconButton(onClick = { changeZoom(zoom / 2) }, enabled = zoom > 1) {
+                    Icon(Icons.Rounded.Remove, contentDescription = "Уменьшить масштаб")
+                }
+                Text("×$zoom", style = MaterialTheme.typography.labelLarge)
+                IconButton(onClick = { changeZoom(zoom * 2) }, enabled = zoom < maxZoom) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Увеличить масштаб")
+                }
+            }
+        }
         if (activeHandleLabel != null) {
             val prefix = if (activeHandleLabel == TrimHandle.START) "Начало" else "Конец"
             Text(
@@ -136,18 +166,22 @@ fun MediaTrimControls(
                 .fillMaxWidth()
                 .height(76.dp)
                 .onSizeChanged { canvasSize = it }
-                .pointerInput(durationMs, canvasSize, handleHitPx, snapIntervalMs) {
+                .then(if (audioZoomEnabled) Modifier.clipToBounds() else Modifier)
+                .pointerInput(durationMs, canvasSize, handleHitPx, snapIntervalMs, zoom, audioZoomEnabled) {
                     if (durationMs <= 0L || canvasSize.width <= 0) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val width = canvasSize.width.toFloat().coerceAtLeast(1f)
-                        fun xFor(ms: Long): Float =
-                            (ms.coerceIn(0L, durationMs).toFloat() / durationMs) * width
+                        val gestureStart = latestViewportStart
+                        val gestureSpan = AudioEditorViewport.span(durationMs, zoom)
+                        fun xFor(ms: Long): Float = if (audioZoomEnabled)
+                            AudioEditorViewport.xFor(ms.coerceIn(0L, durationMs), width, gestureStart, gestureSpan)
+                            else (ms.coerceIn(0L, durationMs).toFloat() / durationMs) * width
                         fun timeFor(x: Float): Long {
-                            var value = ((x.coerceIn(0f, width) / width) * durationMs)
-                                .toLong()
-                                .coerceIn(0L, durationMs)
-                            value = when {
+                            var value = if (audioZoomEnabled && zoom > 1)
+                                AudioEditorViewport.timeAt(x, width, gestureStart, gestureSpan, durationMs)
+                            else ((x.coerceIn(0f, width) / width) * durationMs).toLong().coerceIn(0L, durationMs)
+                            if (!audioZoomEnabled || zoom == 1) value = when {
                                 value <= SNAP_EDGE_MS -> 0L
                                 durationMs - value <= SNAP_EDGE_MS -> durationMs
                                 else -> value
@@ -163,10 +197,10 @@ fun MediaTrimControls(
                         val startX = xFor(latestStart)
                         val endX = xFor(latestEnd)
                         val activeHandle = when {
-                            abs(down.position.x - startX) <= handleHitPx &&
-                                abs(down.position.x - startX) <= abs(down.position.x - endX) ->
+                            startX in 0f..width && abs(down.position.x - startX) <= handleHitPx &&
+                                (endX !in 0f..width || abs(down.position.x - startX) <= abs(down.position.x - endX)) ->
                                 TrimHandle.START
-                            abs(down.position.x - endX) <= handleHitPx -> TrimHandle.END
+                            endX in 0f..width && abs(down.position.x - endX) <= handleHitPx -> TrimHandle.END
                             else -> null
                         }
 
@@ -223,14 +257,21 @@ fun MediaTrimControls(
                                     }
                                     break
                                 }
-                                if ((change.position - origin).getDistance() > viewConfiguration.touchSlop) {
+                                val delta = change.position - origin
+                                if (audioZoomEnabled && zoom > 1) {
+                                    if (!moved && abs(delta.y) > viewConfiguration.touchSlop && abs(delta.y) > abs(delta.x)) break
+                                    if (abs(delta.x) > viewConfiguration.touchSlop) moved = true
+                                } else if (delta.getDistance() > viewConfiguration.touchSlop) {
                                     moved = true
                                 }
                                 if (moved) {
-                                    val target = timeFor(change.position.x)
-                                        .coerceIn(latestStart, latestEnd)
-                                    player.seekTo(target)
-                                    positionMs = target
+                                    if (audioZoomEnabled && zoom > 1) {
+                                        viewportStart = AudioEditorViewport.pan(gestureStart, delta.x, width, gestureSpan, durationMs)
+                                    } else {
+                                        val target = timeFor(change.position.x).coerceIn(latestStart, latestEnd)
+                                        player.seekTo(target)
+                                        positionMs = target
+                                    }
                                     change.consume()
                                 }
                             }
@@ -238,34 +279,35 @@ fun MediaTrimControls(
                     }
                 },
         ) {
-            timelineVisual(
-                Modifier
-                    .fillMaxSize()
-                    .padding(vertical = 8.dp),
-            )
+            val visualModifier = Modifier.fillMaxSize().padding(vertical = 8.dp)
+            if (audioTimelineVisual != null) audioTimelineVisual(visualModifier, visibleStart, visibleEnd, zoom)
+            else timelineVisual(visualModifier)
             Canvas(Modifier.fillMaxSize()) {
             if (durationMs <= 0L) return@Canvas
             val width = size.width.coerceAtLeast(1f)
             val centerY = size.height / 2f
-            fun xFor(ms: Long): Float =
-                (ms.coerceIn(0L, durationMs).toFloat() / durationMs) * width
+            fun xFor(ms: Long): Float = if (audioZoomEnabled)
+                AudioEditorViewport.xFor(ms.coerceIn(0L, durationMs), width, visibleStart, viewportSpan)
+                else (ms.coerceIn(0L, durationMs).toFloat() / durationMs) * width
 
             val startX = xFor(trimStartMs)
             val endX = xFor(trimEndMs)
+            val clippedStartX = startX.coerceIn(0f, width)
+            val clippedEndX = endX.coerceIn(0f, width)
             val playX = xFor(positionMs)
 
             val shade = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.48f)
             if (startX > 0f) {
                 drawRect(
                     color = shade,
-                    size = androidx.compose.ui.geometry.Size(startX, size.height),
+                    size = androidx.compose.ui.geometry.Size(clippedStartX, size.height),
                 )
             }
             if (endX < width) {
                 drawRect(
                     color = shade,
-                    topLeft = Offset(endX, 0f),
-                    size = androidx.compose.ui.geometry.Size(width - endX, size.height),
+                    topLeft = Offset(clippedEndX, 0f),
+                    size = androidx.compose.ui.geometry.Size(width - clippedEndX, size.height),
                 )
             }
 
@@ -281,8 +323,8 @@ fun MediaTrimControls(
                 )
                 drawLine(
                     color = selectedColor,
-                    start = Offset(startX, centerY),
-                    end = Offset(endX, centerY),
+                    start = Offset(clippedStartX, centerY),
+                    end = Offset(clippedEndX, centerY),
                     strokeWidth = 10.dp.toPx(),
                     cap = StrokeCap.Round,
                 )
@@ -293,22 +335,22 @@ fun MediaTrimControls(
             val edgeWidth = 9.dp.toPx()
             val edgeTop = centerY - edgeHeight / 2f
             val corner = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
-            if (endX > startX) {
+            if (clippedEndX > clippedStartX) {
                 drawLine(handleColor.copy(alpha = 0.78f),
-                    Offset(startX, edgeTop), Offset(endX, edgeTop),
+                    Offset(clippedStartX, edgeTop), Offset(clippedEndX, edgeTop),
                     strokeWidth = 2.dp.toPx())
                 drawLine(handleColor.copy(alpha = 0.78f),
-                    Offset(startX, edgeTop + edgeHeight),
-                    Offset(endX, edgeTop + edgeHeight),
+                    Offset(clippedStartX, edgeTop + edgeHeight),
+                    Offset(clippedEndX, edgeTop + edgeHeight),
                     strokeWidth = 2.dp.toPx())
             }
-            listOf(startX, endX).forEach { x ->
+            listOf(startX, endX).filter { it in 0f..width }.forEach { x ->
                 drawRoundRect(handleColor,
                     topLeft = Offset(x - edgeWidth / 2f, edgeTop),
                     size = androidx.compose.ui.geometry.Size(edgeWidth, edgeHeight),
                     cornerRadius = corner)
             }
-            drawLine(
+            if (playX in 0f..width) drawLine(
                 color = playheadColor,
                 start = Offset(playX, centerY - 19.dp.toPx()),
                 end = Offset(playX, centerY + 19.dp.toPx()),
@@ -318,6 +360,14 @@ fun MediaTrimControls(
             }
         }
 
+        if (audioZoomEnabled && zoom > 1) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                listOf(visibleStart, visibleStart + (visibleEnd - visibleStart) / 2, visibleEnd).forEach {
+                    Text(formatPreciseMediaTime(it), style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
         if (independentSeek) {
             // A distinct playhead region: trim handles cannot intercept its endpoints.
             SeekSlider(
@@ -327,6 +377,8 @@ fun MediaTrimControls(
                     player.pause()
                     player.seekTo(target)
                     positionMs = target
+                    if (audioZoomEnabled && zoom > 1)
+                        viewportStart = AudioEditorViewport.centeredStart(target, durationMs, viewportSpan)
                 },
                 valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
                 enabled = durationMs > 0L,

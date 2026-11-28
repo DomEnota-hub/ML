@@ -63,4 +63,22 @@ class GalleryLibraryStateTest {
         assertEquals(5, GalleryLibraryState.gridIndex(listOf(listOf("a","b"), listOf("c","d")), "c", true))
         assertNull(GalleryLibraryState.gridIndex(listOf(listOf("a")), "absent", true))
     }
+    @Test fun noteSearchUnionsNameMatchesWithoutBypassingMediaOrFolderScope() {
+        val items=listOf(file("Train"),file("photo"),file("video",MediaType.VIDEO),
+            file("private").copy(isPrivate=true),file("hidden").copy(hidden=true),file("folderHidden"),
+            file("audio",MediaType.AUDIO),file("pending").copy(state=DownloadState.RUNNING))
+        val assignments=listOf(CatalogAssignmentEntity("folderHidden","hiddenFolder",false),
+            CatalogAssignmentEntity("photo","publicFolder",true))
+        val matches=items.map{it.id}.toSet()-"Train"
+        val excluded=setOf("hiddenFolder")
+        assertEquals(listOf("Train","photo","video"),GalleryLibraryState.filter(
+            items,assignments,"all","train",emptyMap(),excluded,matches).map{it.id})
+        assertEquals(listOf("video"),GalleryLibraryState.filter(
+            items,assignments,"videos","train",emptyMap(),excluded,matches).map{it.id})
+        assertEquals(listOf("photo"),GalleryLibraryState.filter(
+            items,assignments,"folder:publicFolder","train",emptyMap(),excluded,matches).map{it.id})
+        assertTrue(GalleryLibraryState.filter(items,assignments,"folder:hiddenFolder","train",
+            emptyMap(),excluded,matches).isEmpty())
+    }
+
 }

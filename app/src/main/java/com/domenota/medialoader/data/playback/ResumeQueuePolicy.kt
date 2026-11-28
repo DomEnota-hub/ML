@@ -14,7 +14,12 @@ internal data class ResumeQueueSession(val id:String,val playlistId:String?,val 
             repeat in 0..2 && speed.isFinite() && speed in .25f..4f)
     }
 }
-internal data class ResolvedResumeQueue(val session:ResumeQueueSession,val ids:List<String?>) {
+internal enum class ResumeAvailability { VERIFIED, UNMATCHED, AMBIGUOUS, CONFLICTING }
+internal data class ResolvedResumeQueue(val session:ResumeQueueSession,val ids:List<String?>,
+    val availability:List<ResumeAvailability> = ids.map{if(it==null)ResumeAvailability.UNMATCHED else ResumeAvailability.VERIFIED}) {
+    init {
+        require(ids.size==availability.size && ids.indices.all{(ids[it]!=null)==(availability[it]==ResumeAvailability.VERIFIED)})
+    }
     val currentId: String? get() = ids.getOrNull(session.index)
     val missing: Int get() = ids.count {it==null}
     val availableIds: List<String> get() = ids.filterNotNull()
@@ -40,6 +45,22 @@ internal object ResumeQueuePolicy {
     fun keep(sessions:List<ResumeQueueSession>,snapshot:ResumeQueueSession):List<ResumeQueueSession> =
         (listOf(snapshot)+sessions.filterNot{it.id==snapshot.id}).take(MAX_SESSIONS)
 
+    /** Session order, current track and position are presentation state, not a
+     * membership change. Each occurrence still participates in the identity. */
+    fun membership(sessions:List<ResumeQueueSession>) =
+        sessions.associate { it.id to (it.entries to it.occurrenceIds) }
+
+    /** Keep only previously resolved queues whose complete membership is unchanged.
+     * Caller must separately invalidate on changes to identity or privacy guards. */
+    fun rebindResolved(previous:List<ResolvedResumeQueue>,sessions:List<ResumeQueueSession>):List<ResolvedResumeQueue> {
+        val mappings=previous.associateBy{it.session.id}
+        return sessions.mapNotNull{session->
+            mappings[session.id]?.takeIf{it.session.entries==session.entries&&
+                it.session.occurrenceIds==session.occurrenceIds&&it.ids.size==session.entries.size}
+                ?.copy(session=session)
+        }
+    }
+
     /** Resolve both the physical aliases and known listening-history track ID.
      * A conflicting/ambiguous match is unavailable, never a guessed replacement.
      * Build an index once rather than scanning hundreds of tracks per queue entry. */
@@ -48,18 +69,29 @@ internal object ResumeQueuePolicy {
     }
     fun resolveAll(sessions:List<ResumeQueueSession>,candidates:List<SmartTrackCandidate>,aliases:Map<String,String>):List<ResolvedResumeQueue> {
         if(sessions.isEmpty()) return emptyList()
-        val rows=SmartMusicPolicy.resolve(candidates,aliases)
-        val keyIndex=rows.flatMap { (row,_)->row.keys.map {it to row.rowId} }.groupBy({it.first},{it.second})
-        val trackIndex=rows.mapNotNull { (row,track)->track?.let{it to row.rowId} }.groupBy({it.first},{it.second})
-        return sessions.map { session ->
-        val ids=session.entries.map { keys ->
+        val raw=candidates.filter{it.rowId.isNotBlank()&&it.keys.isNotEmpty()}
+        val byId=raw.groupBy{it.rowId}
+        val accepted=SmartMusicPolicy.resolve(raw,aliases).mapTo(hashSetOf()){it.first.rowId}
+        // Keep conflicting candidates in the index: dropping them first can
+        // hide ambiguity. A unique exact physical version may survive an
+        // unrelated shared alias, but never a competing match for this entry.
+        val keyIndex=raw.flatMap{row->row.keys.map{it to row.rowId}}.groupBy({it.first},{it.second})
+        val trackIndex=raw.flatMap{row->row.keys.mapNotNull(aliases::get).distinct().map{it to row.rowId}}
+            .groupBy({it.first},{it.second})
+        fun match(keys:Set<String>):Pair<String?,ResumeAvailability> {
             val known=keys.mapNotNull(aliases::get).distinct()
-            if(known.size>1) null else {
-                val matches=(keys.flatMap{keyIndex[it].orEmpty()}+known.flatMap{trackIndex[it].orEmpty()}).distinct()
-                matches.singleOrNull()
-            }
+            if(known.size>1)return null to ResumeAvailability.CONFLICTING
+            val matches=(keys.flatMap{keyIndex[it].orEmpty()}+known.flatMap{trackIndex[it].orEmpty()}).distinct()
+            if(matches.isEmpty())return null to ResumeAvailability.UNMATCHED
+            val id=matches.singleOrNull()?:return null to ResumeAvailability.AMBIGUOUS
+            val row=byId[id]?.singleOrNull()?:return null to ResumeAvailability.AMBIGUOUS
+            if(row.keys.mapNotNull(aliases::get).distinct().size>1)return null to ResumeAvailability.CONFLICTING
+            val exactPhysical=keys.any{it.startsWith("file-stat:")&&it in row.keys&&keyIndex[it].orEmpty().distinct()==listOf(id)}
+            return if(id in accepted||exactPhysical)id to ResumeAvailability.VERIFIED else null to ResumeAvailability.AMBIGUOUS
         }
-        ResolvedResumeQueue(session,ids)
+        return sessions.map { session ->
+            val matches=session.entries.map(::match)
+            ResolvedResumeQueue(session,matches.map{it.first},matches.map{it.second})
         }
     }
     /** Remove occurrences, never track IDs: the same track may appear repeatedly. */

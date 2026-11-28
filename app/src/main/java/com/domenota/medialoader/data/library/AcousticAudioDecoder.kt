@@ -6,7 +6,12 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import com.domenota.medialoader.core.logging.AppLog
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import kotlin.coroutines.coroutineContext
 import java.nio.ByteOrder
 
@@ -24,14 +29,138 @@ internal object AcousticAudioDecoder {
         // Some providers/codecs cannot seek reliably; do not silently omit their acoustic analysis.
         return first ?: if(windows.size>1)decode(listOf(AcousticWindow(0,null))) else null
     }
-    suspend fun comparisonFrames(context:Context,uri:Uri,stepMs:Long):List<ComparisonFrame>? {
+    suspend fun comparisonFrames(context:Context,uri:Uri,stepMs:Long):List<ComparisonFrame>? =
+        comparisonCapture(context,uri,stepMs,false)?.frames
+
+    suspend fun comparisonCapture(context:Context,uri:Uri,stepMs:Long,capturePcm:Boolean):ComparisonFrameCapture? {
         require(stepMs in setOf(256L,512L,1024L))
         val active = coroutineContext
-        val builder = AcousticFingerprints.ComparisonBuilder(stepMs) { active.ensureActive() }
-        if (!decodeWindow(context,uri,AcousticWindow(0,null),{},builder::accept)) return null
+        val capture=ComparisonSampleCapture(stepMs,capturePcm,{active.ensureActive()})
+        if (!decodeWindow(context,uri,AcousticWindow(0,null),{},capture::accept)) return null
         active.ensureActive()
-        return builder.finish()
+        return capture.finish()
     }
+    /** Continuous PCM is scoped to the actively opened comparison pair only.
+     * It is never written to a persistent cache or included in a cached report.
+     * On long/unsupported recordings the previous spectral path remains.
+     */
+    suspend fun comparisonPcm(context:Context,uri:Uri):AudioPcmBlocks? {
+        val active = coroutineContext
+        val samples = AudioPcmBlocks()
+        return try {
+            if (!decodeWindow(context,uri,AcousticWindow(0,null),{}, { value ->
+                    active.ensureActive()
+                    samples.append(value)
+                })) null else samples
+        } catch(e:kotlinx.coroutines.CancellationException) { throw e }
+          catch(_:Exception) { null }
+    }
+
+    suspend fun refineCompletePair(
+        context:Context,firstUri:Uri,secondUri:Uri,aligned:AlignedAudioComparison,
+    ):AlignedAudioComparison {
+        val source = coroutineScope {
+            val a = async { comparisonPcm(context,firstUri) }
+            val b = async { comparisonPcm(context,secondUri) }
+            a.await() to b.await()
+        }
+        return refineCapturedPair(context,firstUri,secondUri,aligned,source.first,source.second)
+    }
+
+    suspend fun refineCapturedPair(context:Context,firstUri:Uri,secondUri:Uri,
+        aligned:AlignedAudioComparison,first:AudioPcmBlocks?,second:AudioPcmBlocks?):AlignedAudioComparison {
+        if(first==null || second==null) {
+            AppLog.i("MusicCompare", "fullPcm unavailable; fallback to coarse spectral verification")
+            return refineShortDifferences(context,firstUri,secondUri,aligned)
+        }
+        val precise = withContext(Dispatchers.Default) {
+            val job=coroutineContext
+            AudioContinuousDifference.detect(first,second,aligned){job.ensureActive()}
+        }
+        AppLog.i("MusicCompare", "fullPcm firstSamples=${first.size} secondSamples=${second.size} " +
+            "preciseZones=${precise.size} coarseZones=${aligned.zones.size}")
+        return aligned.withPreciseZones(precise)
+    }
+
+    /** Confirm only tiny discarded coarse candidates; do not decode either full
+     * song again. Guarded URI stamps and privacy are checked by the caller both
+     * before and after the bounded additional reads.
+     */
+    suspend fun refineShortDifferences(
+        context: Context, firstUri: Uri, secondUri: Uri,
+        aligned: AlignedAudioComparison,
+    ): AlignedAudioComparison {
+        if (aligned.stepMs != AudioPairAlignment.BASE_STEP_MS || aligned.shortCandidates.isEmpty())
+            return aligned
+        val job = coroutineContext
+        val accepted = mutableSetOf<ComparisonZone>()
+        var spectralAccepted = 0
+        var pcmAccepted = 0
+        var decodeUnavailable = 0
+        // Keep candidate count and PCM memory bounded; never re-decode whole songs.
+        val candidates = aligned.shortCandidates.take(48)
+        for (candidate in candidates) {
+            job.ensureActive()
+            val column = aligned.columns[candidate.start]
+            val firstIndex = column.first ?: continue
+            val secondIndex = column.second ?: continue
+            val leftBaseMs = firstIndex * aligned.stepMs
+            val rightBaseMs = secondIndex * aligned.stepMs
+            val leftStart = (leftBaseMs - 128L).coerceAtLeast(0L)
+            val rightStart = (rightBaseMs - 128L).coerceAtLeast(0L)
+            val left = shortComparisonFrames(context, firstUri, leftStart, leftBaseMs + aligned.stepMs + 128L)
+            val right = shortComparisonFrames(context, secondUri, rightStart, rightBaseMs + aligned.stepMs + 128L)
+            if (left == null || right == null) {
+                decodeUnavailable++
+                continue
+            }
+            val coreLeft = ((leftBaseMs - leftStart) / 64L).toInt()
+            val coreRight = ((rightBaseMs - rightStart) / 64L).toInt()
+            val spectrumAccepted = AudioPairAlignment.confirmsShortDifference(
+                left.frames, right.frames, coreLeft, coreRight, 4)
+            if (spectrumAccepted) {
+                spectralAccepted++
+                accepted.add(candidate)
+            } else if (coreLeft == coreRight &&
+                AudioPcmShortDifference.confirms(left.samples, right.samples,
+                    contextFrames = coreLeft, coreFrames = 4)) {
+                // Soundtrack spectra may remain similar despite a removed word.
+                // Local 8-kHz PCM residuals are aligned on unchanged context.
+                pcmAccepted++
+                accepted.add(candidate)
+            }
+        }
+        // No titles, names, file paths, URI, or PCM ever enter diagnostics.
+        AppLog.i("MusicCompare",
+            "shortRefine candidates=${aligned.shortCandidates.size} inspected=${candidates.size} " +
+                "spectral=$spectralAccepted pcm=$pcmAccepted unavailable=$decodeUnavailable")
+        return aligned.withConfirmedShortZones(accepted)
+    }
+
+    private data class ShortWindow(val frames: List<ComparisonFrame>, val samples: FloatArray)
+
+    private suspend fun shortComparisonFrames(
+        context: Context, uri: Uri, startMs: Long, endMs: Long,
+    ): ShortWindow? {
+        val job = coroutineContext
+        val builder = AcousticFingerprints.ShortComparisonBuilder { job.ensureActive() }
+        // Temporary PCM is limited to one tiny local window and never cached.
+        val pcm = FloatArray(8192)
+        var count = 0
+        return try {
+            val decoded = decodeWindow(context, uri, AcousticWindow(startMs, endMs), {}) { sample ->
+                check(count < pcm.size) { "Short comparison window exceeded limit" }
+                pcm[count++] = sample
+                builder.accept(sample)
+            }
+            if (!decoded) null else ShortWindow(builder.finish(), pcm.copyOf(count))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private suspend fun decodeWindow(context:Context,uri:Uri,window:AcousticWindow,beginWindow:(Long)->Unit,accept:(Float)->Unit):Boolean {
         val active = coroutineContext
         val previousPriority = android.os.Process.getThreadPriority(android.os.Process.myTid())

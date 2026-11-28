@@ -98,7 +98,7 @@ internal class ResumeQueueStore private constructor(context:Context,fileName:Str
     /** Optimistic equality prevents a stale editor from overwriting a newer checkpoint.
      * Successful edits invalidate old recorder leases without touching its player. */
     suspend fun edit(expected:ResumeQueueSession,remove:Set<String>,resolved:ResolvedResumeQueue)=withContext(Dispatchers.IO){mutex.withLock {
-        load();check(state.value.firstOrNull { it.id==expected.id }==expected) { "Сеанс изменился. Откройте очередь заново" }
+        load();check(state.value.firstOrNull { it.id==expected.id }==expected) { "Сеанс изменился. Открой очередь заново" }
         val replacement=ResumeQueuePolicy.removeOccurrences(resolved,remove)
         val result=state.value.mapNotNull { if(it.id==expected.id)replacement else it }
         if(result!=state.value) { write(result);revisions[expected.id]=lease(expected.id)+1 }

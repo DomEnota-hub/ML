@@ -18,15 +18,35 @@ import org.robolectric.annotation.LooperMode
 @LooperMode(LooperMode.Mode.PAUSED)
 class LibraryModeHeaderTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
-    @Test fun titleSwitchesBetweenAllThreeModes() {
-        compose.setContent { MaterialTheme {
-            var mode by remember { mutableStateOf(AppMode.DOWNLOADER) }
-            AppModeTitle(mode) { mode = it }
-        } }
-        for (label in listOf("Галерея", "Музыка", "Загрузчик")) {
-            compose.onNodeWithContentDescription("Сменить режим").performClick()
-            compose.onNodeWithText(label).performClick()
-            compose.onNodeWithText(label).assertExists()
+    @Test fun titlesAreStaticInAllThreeModes() {
+        var mode by mutableStateOf(AppMode.DOWNLOADER)
+        compose.setContent { MaterialTheme { AppModeTitle(mode) } }
+        for (item in AppMode.entries) {
+            compose.runOnIdle { mode = item }
+            compose.onNodeWithText(item.label).assertExists().assertHasNoClickAction()
+            compose.onNodeWithContentDescription("Сменить режим").assertDoesNotExist()
+            compose.onNodeWithTag("app-mode-chevron",useUnmergedTree=true).assertDoesNotExist()
+            for (other in AppMode.entries.filter { it != item }) {
+                compose.onNodeWithText(other.label).assertDoesNotExist()
+            }
         }
+    }
+
+    @Test fun unifiedHeaderRemovesOnlyApprovedDuplicates(){
+        var mode by mutableStateOf(AppMode.GALLERY)
+        compose.setContent { MaterialTheme {
+            LibraryModeHeader(mode,com.domenota.medialoader.data.library.LibrarySource.APP,
+                {}, {},{},onCalendar={},
+                onHiddenTracks={},unifiedDrawerRoutes=true)
+        } }
+        compose.onNodeWithContentDescription("Личное").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Архив").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Корзина").assertExists()
+        compose.onNodeWithContentDescription("Поиск").assertExists()
+        compose.onNodeWithContentDescription("Перейти к дате").assertExists()
+        compose.runOnIdle{mode=AppMode.MUSIC}
+        compose.onNodeWithContentDescription("Настройки").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Скрытые треки").assertExists()
+        compose.onNodeWithContentDescription("Поиск").assertExists()
     }
 }

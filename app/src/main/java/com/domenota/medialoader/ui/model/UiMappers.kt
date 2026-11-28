@@ -64,6 +64,9 @@ fun DownloadEntity.toUi(fileStatus: SavedFileStatus = SavedFileStatus.UNCHECKED)
             ?.takeIf { mediaType == MediaType.VIDEO && it > 0L }
             ?.let(::formatDurationLabel),
         state = uiState,
+        networkWaitLabel = com.domenota.medialoader.data.download.DownloadNetworkWait.from(state, errorMessage)?.label,
+        canDownloadNow = com.domenota.medialoader.data.download.DownloadNetworkWait.from(state, errorMessage) ==
+            com.domenota.medialoader.data.download.DownloadNetworkWait.WIFI,
         progress = progress,
         dateLabel = downloadDateLabel(createdAtEpochMillis),
         // Embedded artwork is read first by DownloadThumbnail. If absent after a
@@ -96,7 +99,9 @@ fun DownloadEntity.toUi(fileStatus: SavedFileStatus = SavedFileStatus.UNCHECKED)
 /** Optional audio tracks are never selected by default. */
 fun List<MediaItem>.defaultSelectedIds(): Set<String> =
     filter { item ->
-        if (item.group != null || item.providerId == "youtube") item.preselected
+        if (item.group != null || item.providerId == "youtube" ||
+            (item.type == MediaType.AUDIO && item.providerId in setOf("vk", "rutube") && item.preselected))
+            item.preselected
         else item.type != MediaType.AUDIO
     }
         .let { defaults -> if (none { it.type == MediaType.PHOTO }) defaults.take(1) else defaults }

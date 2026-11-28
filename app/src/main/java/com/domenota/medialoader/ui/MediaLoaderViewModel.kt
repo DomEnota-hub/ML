@@ -175,7 +175,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                             } }
                         }
                         if (started == null) {
-                            _deferredMessage.value = "Загрузка ещё в очереди. Остальные ссылки сохранены — повторите позже."
+                            _deferredMessage.value = "Загрузка ещё в очереди. Остальные ссылки сохранены — повтори позже."
                             break
                         }
                     } catch (e: CancellationException) { throw e }
@@ -338,7 +338,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                 it.state == com.domenota.medialoader.core.model.DownloadState.QUEUED ||
                     it.state == com.domenota.medialoader.core.model.DownloadState.RUNNING
             }) {
-            _ytDlpUpdate.value = "Дождитесь завершения загрузок"
+            _ytDlpUpdate.value = "Дождись завершения загрузок"
             return
         }
         _ytDlpUpdating.value = true
@@ -652,7 +652,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                 val count = repository.previewRecoverableDates()
                 _dateRecoveryReady.value = count > 0
                 _dateRecoveryStatus.value = if (count > 0)
-                    "Подходящих файлов: $count. Для проверки начните с одного."
+                    "Подходящих файлов: $count. Для проверки начни с одного."
                     else "Подходящих файлов не найдено. Ничего не изменено."
             } catch (cancel: CancellationException) { throw cancel }
             catch (error: Exception) {
@@ -759,7 +759,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
         val storageReady = android.os.Build.VERSION.SDK_INT >= 29 || !needsLegacyStoragePermission() ||
             androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
                 android.content.pm.PackageManager.PERMISSION_GRANTED
-        val automatic = allowAutomatic && storageReady && InstagramShareSettings.isAutomatic(context) &&
+        val automatic = allowAutomatic && storageReady && com.domenota.medialoader.data.download.SourceDownloadProfiles(context).automatic("youtube") &&
             YouTubeAutoSelection.canonicalUrl(url) != null
         analyzeInternal(url, null, automatic, onAutomaticFinished)
     }
@@ -857,9 +857,9 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     recoveryHistoryId = recoveryHistoryId,
                     message = when (error.reason) {
                         ProviderException.Reason.ACCESS_REQUIRED -> error.message ?: "Требуется вход."
-                        ProviderException.Reason.TEMPORARY_FAILURE -> error.message ?: "Нет соединения. Повторите."
+                        ProviderException.Reason.TEMPORARY_FAILURE -> error.message ?: "Нет соединения. Повтори попытку."
                         ProviderException.Reason.UNSUPPORTED -> error.message ?: "Медиа недоступно или ссылка не поддерживается."
-                        ProviderException.Reason.RATE_LIMITED -> error.message ?: "Instagram ограничил запросы. Попробуйте позже."
+                        ProviderException.Reason.RATE_LIMITED -> error.message ?: "Instagram ограничил запросы. Попробуй позже."
                     },
                 )
             } catch(error:Exception) {
@@ -869,7 +869,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     url = link,
                     recoveryHistoryId = recoveryHistoryId,
                     recoveryIdentityFailure=failure!=null,
-                    message = failure?.message ?: "Не удалось проверить ссылку. Попробуйте ещё раз.",
+                    message = failure?.message ?: "Не удалось проверить ссылку. Попробуй ещё раз.",
                 )
             } finally {
                 if (generation == analysisGeneration) automaticAnalysis = false
@@ -923,7 +923,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                             com.domenota.medialoader.core.recognition.PreviewMusicStatus.AUDIO_UNAVAILABLE ->
                                 "Источник не предоставил музыку публикации. Можно ввести название вручную."
                             com.domenota.medialoader.core.recognition.PreviewMusicStatus.NO_MATCH ->
-                                "Композицию определить не удалось. Введите исполнителя и название вручную."
+                                "Композицию определить не удалось. Введи исполнителя и название вручную."
                             com.domenota.medialoader.core.recognition.PreviewMusicStatus.EXTRACTION_FAILED ->
                                 "Не удалось подготовить аудиодорожку. Можно ввести название вручную."
                             com.domenota.medialoader.core.recognition.PreviewMusicStatus.PROVIDER_FAILED ->
@@ -979,7 +979,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
     private fun restoreSelectedRecovery(state:PreviewState,onRestored:()->Unit){
         val id=state.recoveryHistoryId?:return
         if(recoveryDownloadJob?.isActive==true){
-            showMessage("Дождитесь завершения текущего восстановления.")
+            showMessage("Дождись завершения текущего восстановления.")
             return
         }
         if(state.recoveryCandidates.isEmpty())return
@@ -1008,7 +1008,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
             }catch(error:Exception){
                 AppLog.e("MissingRecovery","Restore failed",error)
                 message((error as? com.domenota.medialoader.data.download.MissingRecoveryFailure)?.message
-                    ?:"Не удалось восстановить файл. Исходная запись сохранена. Повторите.")
+                    ?:"Не удалось восстановить файл. Исходная запись сохранена. Повтори попытку.")
             }
         }
     }
@@ -1091,7 +1091,7 @@ class MediaLoaderViewModel(application: Application) : AndroidViewModel(applicat
                     it.copy(
                         enqueuing = false,
                         duplicateMatches = emptyList(),
-                        message = "Не удалось добавить загрузку. Повторите.",
+                        message = "Не удалось добавить загрузку. Повтори попытку.",
                     )
                 }
             }

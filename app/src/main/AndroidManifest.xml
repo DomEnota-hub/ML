@@ -41,6 +41,8 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.MediaLoader">
 
+        <receiver android:name=".data.tasks.TaskNotificationCommandReceiver" android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize"
@@ -82,6 +84,8 @@
         <activity
             android:name=".ui.RutubeLoginActivity"
             android:exported="false" />
+        <service android:name=".data.playback.alignment.LyricsAlignmentService"
+            android:exported="false" android:foregroundServiceType="dataSync|mediaProcessing" />
         <service android:name=".data.library.VisualDuplicateScanService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

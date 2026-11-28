@@ -45,6 +45,7 @@ data class VideoEditSpec(
     val cropRight: Float = 0f,
     val cropTop: Float = 0f,
     val cropBottom: Float = 0f,
+    val cropShape: MediaCropShape = MediaCropShape.RECTANGLE,
     val rotationDegrees: Int = 0,
     val mirrorHorizontal: Boolean = false,
     val mirrorVertical: Boolean = false,
@@ -74,7 +75,8 @@ data class VideoEditSpec(
     }
 
     val hasCrop: Boolean
-        get() = cropLeft > 0f || cropRight > 0f || cropTop > 0f || cropBottom > 0f
+        get() = cropShape == MediaCropShape.RECTANGLE &&
+            (cropLeft > 0f || cropRight > 0f || cropTop > 0f || cropBottom > 0f)
 }
 
 @OptIn(UnstableApi::class)
@@ -93,7 +95,8 @@ class VideoEditor(private val context: Context) {
                     (spec.endMs ?: (spec.startMs + 1L)).coerceAtLeast(spec.startMs + 1L)))
         }
         val size = spec.exportSettings.dimensions(sourceDimensions.first, sourceDimensions.second,
-            1f - spec.cropLeft - spec.cropRight, 1f - spec.cropTop - spec.cropBottom,
+            if(spec.cropShape == MediaCropShape.CIRCLE)1f else 1f - spec.cropLeft - spec.cropRight,
+            if(spec.cropShape == MediaCropShape.CIRCLE)1f else 1f - spec.cropTop - spec.cropBottom,
             spec.rotationDegrees).let { spec.canvasAspect.dimensions(it, spec.exportSettings.resolution.shortSidePx) }
         val effects = previewEffects(spec, timeOffsetMs = spec.sourceTimeOffsetMs ?: 0L,
             presentation = Presentation.createForWidthAndHeight(
@@ -130,7 +133,9 @@ class VideoEditor(private val context: Context) {
         }
         val canvas = spec.exportSettings.dimensions(
             dimensions.first, dimensions.second,
-            first.crop.keptWidth, first.crop.keptHeight, first.rotationDegrees).let {
+            if(first.cropShape==MediaCropShape.CIRCLE)1f else first.crop.keptWidth,
+            if(first.cropShape==MediaCropShape.CIRCLE)1f else first.crop.keptHeight,
+            first.rotationDegrees).let {
                 project.aspect.dimensions(it, spec.exportSettings.resolution.shortSidePx) }
         val composition = compositionForProject(project, spec, canvas)
         val destination = File(context.cacheDir, "video-join-${UUID.randomUUID()}.mp4")
@@ -186,6 +191,7 @@ class VideoEditor(private val context: Context) {
                 startMs = clip.inMs, endMs = clip.outMs,
                 cropLeft = clip.crop.left, cropRight = clip.crop.right,
                 cropTop = clip.crop.top, cropBottom = clip.crop.bottom,
+                cropShape = clip.cropShape,
                 rotationDegrees = clip.rotationDegrees,
                 mirrorHorizontal = clip.mirrorHorizontal,
                 mirrorVertical = clip.mirrorVertical,
@@ -260,6 +266,8 @@ class VideoEditor(private val context: Context) {
         spec.transitionPhases.forEach { phase ->
             timedOverlays += VideoTransitionOverlay(phase, timeOffsetMs)
         }
+        if(spec.cropShape==MediaCropShape.CIRCLE)
+            timedOverlays += VideoCircleMaskOverlay { spec }
         if (timedOverlays.isNotEmpty()) videoEffects += OverlayEffect(timedOverlays)
         return videoEffects
     }

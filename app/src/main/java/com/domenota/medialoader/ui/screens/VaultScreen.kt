@@ -198,7 +198,7 @@ internal fun VaultScreen(access:PrivateAccessManager,onBack:()->Unit,recoveryOnl
                     contentPadding=PaddingValues(12.dp),
                     verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     if(listing.items.isEmpty()) item {
-                        Text(if(recoveryOnly) "Нет ранее защищённых файлов" else "Сейф пока пуст. Выберите файлы через системный проводник.",
+                        Text(if(recoveryOnly) "Нет ранее защищённых файлов" else "Сейф пока пуст. Выбери файлы через системный проводник.",
                             Modifier.padding(14.dp),color=MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     items(listing.items,key={it.id}) { record ->
@@ -306,7 +306,7 @@ internal fun VaultScreen(access:PrivateAccessManager,onBack:()->Unit,recoveryOnl
     if(showUninstallWarning) AlertDialog(
         onDismissRequest={showUninstallWarning=false},
         title={Text("Важно о резервных копиях")},
-        text={Text("Файлы Сейфа зашифрованы ключом Android Keystore и находятся внутри ML. При удалении приложения или потере ключа они могут стать безвозвратно недоступны. До удаления ML экспортируйте нужные файлы через «Резервная копия» в выбранное вами безопасное место. Экспорт делает файл публично доступным в выбранном каталоге.")},
+        text={Text("Файлы Сейфа зашифрованы ключом Android Keystore и находятся внутри ML. При удалении приложения или потере ключа они могут стать безвозвратно недоступны. До удаления ML необходимо экспортировать нужные файлы через «Резервная копия» в безопасное место. Экспорт делает файл публично доступным в выбранном каталоге.")},
         confirmButton={TextButton(onClick={showUninstallWarning=false}){Text("Понятно")}}
     )
 }

@@ -175,6 +175,9 @@ fun MediaViewerScreen(
     onAudioFavorite: ((DownloadEntity) -> Unit)? = null, onEqualizer: (() -> Unit)? = null,
     onAudioCurrentItemChanged: (DownloadEntity) -> Unit = {},
     onAudioRecognize:((DownloadEntity,Long)->Unit)?=null, onPublicAudioToggle:(()->Unit)?=null,
+    onSaveAudioQueue: (suspend (String, List<MediaItem>) -> Unit)? = null,
+    onAudioBookmarkRef: (suspend (MediaItem) -> com.domenota.medialoader.data.library.LibraryMediaRef?)? = null,
+    audioBookmarkPermissionEpoch: Long = 0L,
 ) {
     var selectedId by rememberSaveable(item.id) { mutableStateOf(item.id) }
     val selectedItem = mediaQueue.firstOrNull { it.id == selectedId } ?: item
@@ -189,9 +192,11 @@ fun MediaViewerScreen(
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val view = LocalView.current
-    DisposableEffect(selectedItem.id, trashReadOnly) {
-        AppLog.verbose("Viewer", "Opened · id=${selectedItem.id} · trash=$trashReadOnly · type=${selectedItem.mediaType}")
-        onDispose { AppLog.verbose("Viewer", "Closed · id=${selectedItem.id} · trash=$trashReadOnly") }
+    DisposableEffect(selectedItem.id, trashReadOnly, selectedItem.isPrivate, selectedItem.hidden) {
+        val session=AppLog.newOperationId("viewer")
+        val admitted=!selectedItem.isPrivate&&!selectedItem.hidden
+        if(admitted)AppLog.verbose("Viewer","Opened · session=$session · trash=$trashReadOnly · type=${selectedItem.mediaType}")
+        onDispose { if(admitted)AppLog.verbose("Viewer","Closed · session=$session") }
     }
     var confirmTrashDelete by remember { mutableStateOf(false) }
     var songSearchOpen by remember(selectedItem.id) { mutableStateOf(false) }
@@ -343,6 +348,9 @@ fun MediaViewerScreen(
                 currentSessionOnly = currentAudioSessionOnly,
                 libraryLayout = modernAudioLayout, metadataLookup = audioMetadataRows, blockedIdentities = audioBlockedIdentities,
                 onBack = onBack, onEqualizer = onEqualizer, favoriteIds = audioFavoriteIds, onFavorite = onAudioFavorite, onEdit = onEdit, onToggle=onPublicAudioToggle.takeUnless{selectedItem.isPrivate}, onRecognize=onAudioRecognize?.takeUnless{trashReadOnly||selectedItem.isPrivate},
+                onSaveQueue=onSaveAudioQueue?.takeUnless{trashReadOnly||selectedItem.isPrivate},
+                onBookmarkRef=onAudioBookmarkRef?.takeUnless{trashReadOnly||selectedItem.isPrivate},
+                bookmarkPermissionEpoch=audioBookmarkPermissionEpoch,
             )
         }
     }
@@ -376,6 +384,8 @@ internal fun LocalVideoPlayer(
     galleryCommand: Pair<Int, String>? = null,
     onAudioTrackCountChanged: (Int) -> Unit = {},
     onPlaybackGestureOwnershipChanged: (Boolean) -> Unit = {},
+    floatingHandoffToken: String? = null,
+    onFloatingHandoffFinished: (String, com.domenota.medialoader.data.playback.FloatingPlaybackState?) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val gestureThresholdPx = with(LocalDensity.current) { 24.dp.toPx() }
@@ -432,11 +442,11 @@ internal fun LocalVideoPlayer(
         if (galleryPagingEnabled) notifyControlsVisibility?.invoke(chromeVisible)
     }
     var unlockVisible by remember(uri) { mutableStateOf(false) }
-    var playerView by remember(uri, retryGeneration) { mutableStateOf<PlayerView?>(null) }
-    var posterView by remember(uri, retryGeneration) { mutableStateOf<ImageView?>(null) }
+    var playerView by remember(uri, retryGeneration, galleryPagingEnabled) { mutableStateOf<PlayerView?>(null) }
+    var posterView by remember(uri, retryGeneration, galleryPagingEnabled) { mutableStateOf<ImageView?>(null) }
     val poster = initialPoster ?: rememberVideoViewerPoster(itemId, uri)
     val initialPositionMs = remember(itemId, uri, retryGeneration, startAtBeginning) {
-        if (startAtBeginning) 0L else poster.positionMs
+        if (startAtBeginning || floatingHandoffToken?.let { FloatingVideoService.pendingHandoff(it)?.matches(itemId, uri.toString()) } == true) 0L else poster.positionMs
     }
     val activity = remember(context) { context.findActivity() }
     val audioManager = remember(context) {
@@ -538,11 +548,28 @@ internal fun LocalVideoPlayer(
             player.setPlaybackSpeed(it)
         }
     }
+    val notifyFloatingHandoff by rememberUpdatedState(onFloatingHandoffFinished)
+    LaunchedEffect(player, floatingHandoffToken) {
+        val token = floatingHandoffToken ?: return@LaunchedEffect
+        while (FloatingVideoService.pendingHandoff(token)?.matches(itemId, uri.toString()) == true) {
+            if (player.playerError != null) break
+            if (player.playbackState == Player.STATE_READY) {
+                val state = FloatingVideoService.completeHandoff(token, itemId, uri.toString(), player)
+                if (state != null) { notifyFloatingHandoff(token, state); return@LaunchedEffect }
+                break
+            }
+            delay(50L)
+        }
+        FloatingVideoService.cancelHandoff(token)
+        notifyFloatingHandoff(token, null)
+    }
     fun launchFloatingVideo() {
         if (!allowExternal) return
         try {
             endHoldSpeed()
-            FloatingVideoService.start(context, itemId, uri, player.currentPosition, true)
+            val state = com.domenota.medialoader.data.playback.FloatingPlaybackState.capture(player)
+            FloatingVideoService.start(context, itemId, uri, state.positionMs, state.play,
+                state.repeatMode, state.speed, state.volume)
             player.pause()
             activity?.moveTaskToBack(true)
         } catch (error: Exception) {
@@ -553,7 +580,7 @@ internal fun LocalVideoPlayer(
     val overlayPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()) {
         if (FloatingVideoService.canShow(context)) launchFloatingVideo()
-        else AppNotice.post(context, "Разрешите показ поверх других приложений")
+        else AppNotice.post(context, "Разреши показ поверх других приложений")
     }
     // Gallery's always-visible PiP icon delegates to the current player.
     LaunchedEffect(floatingWindowRequest) {
@@ -677,12 +704,9 @@ internal fun LocalVideoPlayer(
                     player.pause()
                 }
                 Lifecycle.Event.ON_RESUME -> {
+                    // Legacy preference must never resume a player on ordinary app navigation.
                     val key = "floating_resume_play_$itemId"
-                    if (prefs.contains(key)) {
-                        player.seekTo(com.domenota.medialoader.data.playback.VideoWatchProgress.resumePosition(prefs, itemId, player.currentPosition))
-                        if (prefs.getBoolean(key, false)) player.play() else player.pause()
-                        prefs.edit().remove(key).apply()
-                    }
+                    if (prefs.contains(key)) prefs.edit().remove(key).apply()
                 }
                 Lifecycle.Event.ON_DESTROY -> { endHoldSpeed(); savePosition() }
                 else -> Unit
@@ -698,7 +722,15 @@ internal fun LocalVideoPlayer(
             lifecycleOwner.lifecycle.removeObserver(observer)
             player.removeListener(listener)
             notifyGestureOwnership(false)
-            player.release()
+            val releaseStarted = android.os.SystemClock.elapsedRealtime()
+            var releaseCompleted = false
+            try {
+                player.release()
+                releaseCompleted = true
+            } finally {
+                AppLog.i("VideoPlayer", "PLAYER_RELEASE_FINISHED session=$playerSession success=$releaseCompleted" +
+                    " durationMs=${android.os.SystemClock.elapsedRealtime()-releaseStarted}")
+            }
         }
     }
 
@@ -717,8 +749,10 @@ internal fun LocalVideoPlayer(
     }
 
     LaunchedEffect(fullscreen, controlsLocked, playerView, galleryPagingEnabled) {
-        if (galleryPagingEnabled || controlsLocked) playerView?.hideController()
-        else if (!galleryPagingEnabled) playerView?.showController()
+        if (!galleryPagingEnabled) {
+            if (controlsLocked) playerView?.hideController()
+            else playerView?.showController()
+        }
     }
     LaunchedEffect(controlsLocked) {
         // Keep the unlock affordance visible immediately after locking.
@@ -814,7 +848,7 @@ internal fun LocalVideoPlayer(
             TextButton(onClick = { showGalleryTracks = false }) { Text("Закрыть") }
         },
     )
-    if (showPlayerSettings) AlertDialog(
+    if (!galleryPagingEnabled && showPlayerSettings) AlertDialog(
         onDismissRequest = { showPlayerSettings = false },
         title = { Text("Настройки плеера") },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -841,106 +875,115 @@ internal fun LocalVideoPlayer(
             .onSizeChanged { videoViewportSize = it },
         contentAlignment = Alignment.Center,
     ) {
-        AndroidView(
-            factory = { viewContext ->
-                PlayerView(viewContext).apply {
-                    playerView = this
-                    this.player = player
-                    useController = !galleryPagingEnabled && !controlsLocked
-                    setControllerAnimationEnabled(false)
-                    setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
-                        if (!galleryPagingEnabled) chromeVisible = visibility == android.view.View.VISIBLE
-                    })
-                    setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
-                    setShowRewindButton(false)
-                    setShowFastForwardButton(false)
-                    setShowPreviousButton(true)
-                    setShowNextButton(showAlbumSkipButton)
-                    // A one-item Media3 queue may DISABLE its previous button.
-                    // Keep the existing native slot but provide our own active
-                    // Compose control aligned over it.
-                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
-                        ?.apply { scaleX = 0f; scaleY = 0f }
-                    if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
-                        ?.apply { scaleX = 0f; scaleY = 0f }
-                    // Media3 restores the native button's alpha when playback state changes.
-                    // Keep its layout slot for adjacent buttons, but draw only our Compose icon.
-                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
-                        ?.apply { scaleX = 0f; scaleY = 0f }
-                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_settings)
-                        ?.visibility = android.view.View.GONE
-                    resizeMode = videoResizeMode
-                    findViewById<android.view.View>(androidx.media3.ui.R.id.exo_controller)
-                        ?.setPadding(0, 0, 0, 0)
-                    viewTreeObserver.addOnGlobalLayoutListener {
-                        fun centerInPlayer(child: android.view.View): Offset {
-                            var x = child.width / 2f
-                            var y = child.height / 2f
-                            var node: android.view.View? = child
-                            while (node != null && node !== this) {
-                                x += node.left - node.scrollX
-                                y += node.top - node.scrollY
-                                node = node.parent as? android.view.View
+        // A change of presentation must never reuse a native-controller hierarchy.
+        key(galleryPagingEnabled) {
+            AndroidView(
+                factory = { viewContext ->
+                    createLocalVideoPlayerView(viewContext, galleryPagingEnabled).apply {
+                        playerView = this
+                        if (!galleryPagingEnabled) {
+                            setControllerAnimationEnabled(false)
+                            useController = !controlsLocked
+                            setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
+                                if (!galleryPagingEnabled) chromeVisible = visibility == android.view.View.VISIBLE
+                            })
+                            setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
+                            setShowRewindButton(false)
+                            setShowFastForwardButton(false)
+                            setShowPreviousButton(true)
+                            setShowNextButton(showAlbumSkipButton)
+                            // A one-item Media3 queue may DISABLE its previous button.
+                            // Keep the existing native slot but provide our own active
+                            // Compose control aligned over it.
+                            findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
+                                ?.apply { scaleX = 0f; scaleY = 0f }
+                            if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
+                                ?.apply { scaleX = 0f; scaleY = 0f }
+                            // Media3 restores the native button's alpha when playback state changes.
+                            // Keep its layout slot for adjacent buttons, but draw only our Compose icon.
+                            findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
+                                ?.apply { scaleX = 0f; scaleY = 0f }
+                            findViewById<android.view.View>(androidx.media3.ui.R.id.exo_settings)
+                                ?.visibility = android.view.View.GONE
+                            findViewById<android.view.View>(androidx.media3.ui.R.id.exo_controller)
+                                ?.setPadding(0, 0, 0, 0)
+                            viewTreeObserver.addOnGlobalLayoutListener {
+                                fun centerInPlayer(child: android.view.View): Offset {
+                                    var x = child.width / 2f
+                                    var y = child.height / 2f
+                                    var node: android.view.View? = child
+                                    while (node != null && node !== this) {
+                                        x += node.left - node.scrollX
+                                        y += node.top - node.scrollY
+                                        node = node.parent as? android.view.View
+                                    }
+                                    return Offset(x, y)
+                                }
+                                findViewById<android.view.View>(androidx.media3.ui.R.id.exo_progress)
+                                    ?.takeIf { it.height > 0 }?.let {
+                                        timelineTop = centerInPlayer(it).y - it.height / 2f
+                                    }
+                                findViewById<android.view.View>(androidx.media3.ui.R.id.exo_position)
+                                    ?.takeIf { it.height > 0 }?.let { toolbarCenterY = centerInPlayer(it).y }
+                                findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
+                                    ?.takeIf { it.width > 0 && it.height > 0 }?.let {
+                                        nativePreviousCenter = centerInPlayer(it)
+                                    }
+                                if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
+                                    ?.takeIf { it.width > 0 && it.height > 0 }?.let {
+                                        nativeNextCenter = centerInPlayer(it)
+                                    }
+                                val button = findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
+                                if (button != null && button.width > 0) {
+                                    var x = button.width / 2f
+                                    var y = button.height / 2f
+                                    var node: android.view.View? = button
+                                    while (node != null && node !== this) {
+                                        x += node.left - node.scrollX
+                                        y += node.top - node.scrollY
+                                        node = node.parent as? android.view.View
+                                    }
+                                    nativePlayCenter = Offset(x, y)
+                                }
                             }
-                            return Offset(x, y)
                         }
-                        findViewById<android.view.View>(androidx.media3.ui.R.id.exo_progress)
-                            ?.takeIf { it.height > 0 }?.let {
-                                timelineTop = centerInPlayer(it).y - it.height / 2f
-                            }
-                        findViewById<android.view.View>(androidx.media3.ui.R.id.exo_position)
-                            ?.takeIf { it.height > 0 }?.let { toolbarCenterY = centerInPlayer(it).y }
-                        findViewById<android.view.View>(androidx.media3.ui.R.id.exo_prev)
-                            ?.takeIf { it.width > 0 && it.height > 0 }?.let {
-                                nativePreviousCenter = centerInPlayer(it)
-                            }
-                        if (showAlbumSkipButton) findViewById<android.view.View>(androidx.media3.ui.R.id.exo_next)
-                            ?.takeIf { it.width > 0 && it.height > 0 }?.let {
-                                nativeNextCenter = centerInPlayer(it)
-                            }
-                        val button = findViewById<android.view.View>(androidx.media3.ui.R.id.exo_play_pause)
-                        if (button != null && button.width > 0) {
-                            var x = button.width / 2f
-                            var y = button.height / 2f
-                            var node: android.view.View? = button
-                            while (node != null && node !== this) {
-                                x += node.left - node.scrollX
-                                y += node.top - node.scrollY
-                                node = node.parent as? android.view.View
-                            }
-                            nativePlayCenter = Offset(x, y)
-                        }
-                    }
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                    setBackgroundColor(android.graphics.Color.BLACK)
-                    // Keep a matching frame above the video surface until a real frame is drawn.
-                    // PlayerView's overlay is below its controller, so controls remain usable.
-                    overlayFrameLayout?.addView(ImageView(viewContext).apply {
-                        scaleType = ImageView.ScaleType.FIT_CENTER
+                        // The gallery layout contains no PlayerControlView at all.
+                        // Native-only setters above require one in Media3 1.9.0.
+                        resizeMode = videoResizeMode
+                        this.player = player
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         setBackgroundColor(android.graphics.Color.BLACK)
+                        // Keep a matching frame above the video surface until a real frame is drawn.
+                        // PlayerView's overlay is below its controller, so controls remain usable.
+                        overlayFrameLayout?.addView(ImageView(viewContext).apply {
+                            scaleType = ImageView.ScaleType.FIT_CENTER
+                            setBackgroundColor(android.graphics.Color.BLACK)
+                            setImageBitmap(poster.bitmap)
+                            visibility = if (renderedFirstFrame) android.view.View.GONE else android.view.View.VISIBLE
+                            posterView = this
+                        }, android.widget.FrameLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        ))
+                    }
+                },
+                update = {
+                    if (!galleryPagingEnabled) {
+                        it.useController = !controlsLocked
+                        it.setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
+                    }
+                    it.player = player
+                    it.resizeMode = videoResizeMode
+                    it.findViewById<AspectRatioFrameLayout>(androidx.media3.ui.R.id.exo_content_frame)
+                        ?.setAspectRatio(forcedAspectRatio ?: sourceAspectRatio)
+                    posterView?.apply {
                         setImageBitmap(poster.bitmap)
                         visibility = if (renderedFirstFrame) android.view.View.GONE else android.view.View.VISIBLE
-                        posterView = this
-                    }, android.widget.FrameLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    ))
-                }
-            },
-            update = {
-                it.player = player
-                it.resizeMode = videoResizeMode
-                it.findViewById<AspectRatioFrameLayout>(androidx.media3.ui.R.id.exo_content_frame)
-                    ?.setAspectRatio(forcedAspectRatio ?: sourceAspectRatio)
-                it.useController = !galleryPagingEnabled && !controlsLocked
-                it.setControllerShowTimeoutMs(VideoPlayerUiPolicy.NATIVE_CONTROLLER_TIMEOUT_MS)
-                posterView?.apply {
-                    setImageBitmap(poster.bitmap)
-                    visibility = if (renderedFirstFrame) android.view.View.GONE else android.view.View.VISIBLE
-                }
-            },
-            modifier = Modifier.fillMaxSize(),
-        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
 
         // Touches above the timeline control chrome; the timeline remains native and draggable.
         if (!controlsLocked) {
@@ -1285,7 +1328,7 @@ internal fun LocalVideoPlayer(
                     },
                 )
             }, contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.AspectRatio, contentDescription = "Соотношение сторон. Удерживайте для списка",
+                Icon(Icons.Rounded.AspectRatio, contentDescription = "Соотношение сторон. Удерживай для списка",
                     tint = androidx.compose.ui.graphics.Color.White)
             }
             IconButton(onClick = {
@@ -1460,7 +1503,7 @@ internal fun LocalVideoPlayer(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    if (allowExternal) "Файл можно открыть установленным на устройстве проигрывателем." else "Попробуйте открыть файл заново.",
+                    if (allowExternal) "Файл можно открыть установленным на устройстве проигрывателем." else "Попробуй открыть файл заново.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
@@ -1784,7 +1827,7 @@ internal fun ZoomablePhoto(
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(
-                        "${image.sourceWidth} × ${image.sourceHeight} · ${formatMediaSize(item.sizeBytes)}",
+                        "${image.sourceWidth} × ${image.sourceHeight}, ${formatMediaSize(item.sizeBytes)}",
                         color = androidx.compose.ui.graphics.Color.White,
                         style = MaterialTheme.typography.bodyMedium,
                     )

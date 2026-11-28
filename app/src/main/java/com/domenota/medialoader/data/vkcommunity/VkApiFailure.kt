@@ -11,7 +11,7 @@ class VkApiFailure(
     fun userMessage(): String = when (kind) {
         Kind.BAD_TOKEN -> "Ключ VK недействителен или отозван"
         Kind.PERMISSION -> "У ключа недостаточно прав для этой стены"
-        Kind.RATE_LIMIT -> "VK ограничил частоту запросов. Повторите позже"
+        Kind.RATE_LIMIT -> "VK ограничил частоту запросов. Повтори позже"
         Kind.PRIVATE_WALL -> "Стена сообщества закрыта или недоступна"
         Kind.NOT_COMMUNITY -> "Адрес ведёт не на сообщество VK"
         Kind.EMPTY_WALL -> "На стене нет публикаций; тип сообщества подтвердить не удалось"

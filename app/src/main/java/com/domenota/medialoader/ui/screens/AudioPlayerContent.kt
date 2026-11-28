@@ -88,6 +88,9 @@ fun BackgroundAudioPlayer(
     onBack: () -> Unit = {}, onEqualizer: (() -> Unit)? = null,
     favoriteIds: Set<String> = emptySet(), onFavorite: ((DownloadEntity) -> Unit)? = null, onEdit: ((DownloadEntity) -> Unit)? = null,
     onRecognize:((DownloadEntity,Long)->Unit)?=null, onToggle:(()->Unit)?=null,
+    onSaveQueue: (suspend (String, List<MediaItem>) -> Unit)? = null,
+    onBookmarkRef: (suspend (MediaItem) -> com.domenota.medialoader.data.library.LibraryMediaRef?)? = null,
+    bookmarkPermissionEpoch: Long = 0L,
 ) {
     val context = LocalContext.current
     val playableQueue = remember(item.id, queue) {
@@ -270,6 +273,11 @@ fun BackgroundAudioPlayer(
         waveform = withContext(Dispatchers.IO) { peekAudioWaveform(context, currentUri) }
         val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
         waveform = withContext(Dispatchers.IO) {
+            val providerDuration = com.domenota.medialoader.ui.components.readWaveformSourceVersion(context,currentUri).providerDuration
+            if(providerDuration>0L) {
+                val cached=com.domenota.medialoader.ui.components.readCachedAudioWaveform(context,currentUri,providerDuration)
+                if(!cached.isNullOrEmpty())return@withContext com.domenota.medialoader.ui.components.waveformColumnPeaks(cached,256)
+            }
             val metadataDuration = runCatching {
                 val retriever = MediaMetadataRetriever()
                 try {
@@ -295,6 +303,8 @@ fun BackgroundAudioPlayer(
     }
 
     if (libraryLayout) {
+        val lyricIdentity = durationState.identity
+        var lyricsOpen by remember(lyricIdentity, bookmarkPermissionEpoch, blockedIdentities) { mutableStateOf(false) }
         val blocked = privateSession || currentItem.id in blockedIdentities || currentIdentityKeys.any(blockedIdentities::contains)
         if (blocked) Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Воспроизведение в «Личном»")
@@ -303,11 +313,28 @@ fun BackgroundAudioPlayer(
             MusicPlayerControls(currentItem, controller, positionMs, durationMs, isPlaying, shuffleEnabled, repeatMode, playbackSpeed,
                 onBack, onEqualizer, { queueOpen = true }, onFavorite?.let { action -> { action(currentItem) } },
                 seekAvailable=seekAvailable, favorite = currentItem.id in favoriteIds, onEdit = onEdit?.let { action -> { action(currentItem) } },
-                onToggle=onToggle,onRecognize=onRecognize?.takeIf{!currentItem.isPrivate&&!currentItem.hidden&&controller!=null}?.let{action->{action(currentItem,controller?.currentPosition?.coerceAtLeast(0L)?:positionMs)}})
+                onToggle=onToggle,onRecognize=onRecognize?.takeIf{!currentItem.isPrivate&&!currentItem.hidden&&controller!=null}?.let{action->{action(currentItem,controller?.currentPosition?.coerceAtLeast(0L)?:positionMs)}},
+                bookmarks = if (onBookmarkRef != null && controller != null && durationState.identity != null) ({
+                    com.domenota.medialoader.ui.screens.music.AudioBookmarksPanel(
+                        controller, durationState.identity!!, positionMs, durationMs, seekAvailable,
+                        blockedIdentities, bookmarkPermissionEpoch, onBookmarkRef)
+                }) else null,
+                onLyrics = if (onBookmarkRef != null && controller != null && lyricIdentity != null &&
+                    !currentItem.isPrivate && !currentItem.hidden) ({ lyricsOpen = true }) else null)
+        }
+        if (lyricsOpen && !blocked && controller != null && lyricIdentity != null && onBookmarkRef != null) {
+            com.domenota.medialoader.ui.screens.music.TrackLyricsSheet(
+                controller, lyricIdentity, positionMs, durationMs, seekAvailable,
+                blockedIdentities, bookmarkPermissionEpoch, onBookmarkRef,
+                onDismiss = { lyricsOpen = false })
         }
         if (queueOpen && !blocked) ModalBottomSheet(onDismissRequest = { queueOpen = false }) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
             Text("Очередь воспроизведения", Modifier.padding(17.dp), style = MaterialTheme.typography.titleLarge)
+            if (onSaveQueue != null && controller != null) {
+                com.domenota.medialoader.ui.screens.music.SaveQueuePlaylistAction(
+                    controller, sessionItems.isNotEmpty(), blockedIdentities, onSaveQueue)
+            }
             com.domenota.medialoader.ui.screens.music.EditableAudioQueue(
                 sessionItems, controller, currentIndex, isPlaying, lookup, blockedIdentities,
                 onSelect = { index ->
@@ -405,7 +432,7 @@ fun BackgroundAudioPlayer(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 IconButton(
-                    onClick = { controller?.seekToPrevious() },
+                    onClick = { controller?.let{com.domenota.medialoader.data.playback.AudioQueuePlayback.step(it,false)} },
                     enabled = playableQueue.isNotEmpty(),
                     modifier = Modifier.size(52.dp),
                 ) {
@@ -432,7 +459,7 @@ fun BackgroundAudioPlayer(
                 }
 
                 IconButton(
-                    onClick = { controller?.seekToNextMediaItem() },
+                    onClick = { controller?.let{com.domenota.medialoader.data.playback.AudioQueuePlayback.step(it,true)} },
                     enabled = playableQueue.size > 1,
                     modifier = Modifier.size(52.dp),
                 ) {

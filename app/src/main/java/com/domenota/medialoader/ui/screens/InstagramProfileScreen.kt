@@ -200,7 +200,7 @@ fun InstagramProfileScreen(onBack: () -> Unit) {
             if (page == "checks") Button(onClick = {
                 val started = controller.checkFavorites()
                 if (started.isEmpty()) message = if (favorites.isEmpty()) "Добавьте профиль в избранное"
-                    else "Сначала завершите просмотр предыдущей проверки"
+                    else "Сначала заверши просмотр предыдущей проверки"
                 else { jobs = controller.store.jobs(); activeId = started.first() }
             }, enabled = jobs.none { it.favoriteCheck &&
                 (it.phase == InstagramProfilePhase.SCANNING || it.scanComplete && !it.reviewed) },
@@ -234,7 +234,7 @@ fun InstagramProfileScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(12.dp))
             Button(onClick = {
                 activeId = controller.search(input, period?.start, period?.endInclusive, withReels)
-                if (activeId == null) message = "Введите ссылку на профиль Instagram"
+                if (activeId == null) message = "Введи ссылку на профиль Instagram"
                 else { jobs = controller.store.jobs(); page = "results" }
             }, enabled = InstagramProfileLink.parse(input) != null,
                 modifier = Modifier.fillMaxWidth()) { Text("Найти фото и видео") }
@@ -355,7 +355,7 @@ private fun InstagramProfilePreview(post: InstagramStoredPost, onDismiss: () -> 
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            error = "Не удалось открыть файлы публикации. Попробуйте позже."
+            error = "Не удалось открыть файлы публикации. Попробуй позже."
         } finally { loading = false }
     }
     val pager = rememberPagerState(pageCount = { visuals.size.coerceAtLeast(1) })
@@ -392,7 +392,7 @@ private fun InstagramProfilePreview(post: InstagramStoredPost, onDismiss: () -> 
                                 color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
-                    Text("${pager.currentPage + 1} из ${visuals.size} · листайте изображения",
+                    Text("${pager.currentPage + 1} из ${visuals.size} · листай изображения",
                         style = MaterialTheme.typography.bodySmall)
                 } else Text(error ?: "Файлы не найдены", Modifier.padding(vertical = 20.dp))
                 Row {

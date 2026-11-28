@@ -7,7 +7,7 @@ import androidx.compose.runtime.Composable
 @Composable
 fun MediaPreviewHeader(
     title: String = "Предпросмотр",
-    subtitle: String = "Выберите файлы для загрузки"
+    subtitle: String = "Выбери файлы для загрузки"
 ) {
     Text(title, style = MaterialTheme.typography.headlineSmall)
     Text(

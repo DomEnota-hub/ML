@@ -116,8 +116,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.domenota.medialoader.core.model.PreferredVideoQuality
-import com.domenota.medialoader.data.preferences.VideoPreferences
 import com.domenota.medialoader.data.preview.RemoteImageLoader
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -287,7 +285,7 @@ class MediaRepository private constructor(context: Context) {
         referer = com.domenota.medialoader.core.provider.VkDirectMedia.REFERER)
     private val recognitionAudioPreprocessor = RecognitionAudioPreprocessor(appContext)
     private val sourceCoverGate = Semaphore(2)
-    private val videoPreferences = VideoPreferences(appContext)
+    private val sourceProfiles = com.domenota.medialoader.data.download.SourceDownloadProfiles(appContext)
     private val recognitionScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val waveformGate = Semaphore(1)
     private val musicPostProcessGate = Semaphore(1)
@@ -302,6 +300,7 @@ class MediaRepository private constructor(context: Context) {
         preprocessor = recognitionAudioPreprocessor,
         metadataWriter = Mp3MetadataWriter(appContext),
     )
+    private val downloadNetwork = com.domenota.medialoader.data.download.DownloadNetworkPreferences(appContext)
     private val queue = DownloadQueue(
         history = history,
         engine = RoutingDownloadEngine(
@@ -314,6 +313,11 @@ class MediaRepository private constructor(context: Context) {
             muzmo = MuzmoDownloadEngine(appContext, storage),
         ),
         existingNames = storage::existingNames,
+        destinationFor = { item -> sourceProfiles.folderPath(item.providerId, storage.usesSelectedFolder) },
+        networkWait = downloadNetwork::waitFor,
+        networkUpdates = downloadNetwork.changes(),
+        restoreWaitingAllowed = resolver::canDownload,
+        onDeferredRestored = { ActiveDownloadService.start(appContext) },
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
         onBatchChanged = { id, items -> notifier.update(id, items) },
         onCompleted = { task, result ->
@@ -518,6 +522,51 @@ class MediaRepository private constructor(context: Context) {
     suspend fun setDownloadFavorite(id: String, favorite: Boolean) { history.byId(id)?.let(::requireMediaAccess); catalog.setFavorite(id, favorite) }
     suspend fun toggleDownloadFavorite(id: String) { history.byId(id)?.let(::requireMediaAccess); catalog.toggleFavorite(id) }
     val bulk by lazy { BulkCoordinator(appContext, this, CoroutineScope(SupervisorJob() + Dispatchers.IO)) }
+    private val taskFeedScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    init {
+        com.domenota.medialoader.data.tasks.TaskCenter.initialize(appContext)
+        com.domenota.medialoader.data.tasks.observeDuplicateTasks(appContext, taskFeedScope)
+        taskFeedScope.launch {
+            combine(downloads, com.domenota.medialoader.data.tasks.TaskHistoryStore.settings, bulk.state) { rows, settings, job -> Triple(rows,settings,job) }.collect { (rows, settings, job) ->
+                val feed = com.domenota.medialoader.data.tasks.DownloadTaskFeed
+                val cutoff = if(settings.retention==0) 0L else System.currentTimeMillis() - settings.retention * 86_400_000L
+                val bulkFeed=com.domenota.medialoader.data.tasks.BulkTaskFeed
+                val taskRegistry=com.domenota.medialoader.data.tasks.TaskCenter.registry
+                val bulkRow=bulkFeed.snapshot(job,rows)
+                taskRegistry.publish(com.domenota.medialoader.data.tasks.TaskOwner.BULK,listOfNotNull(bulkRow)) { id, action ->
+                    val live=bulk.state.value
+                    if(id==com.domenota.medialoader.data.tasks.taskId(com.domenota.medialoader.data.tasks.TaskOwner.BULK,live.jobId)) {
+                        when(action) {
+                            com.domenota.medialoader.data.tasks.TaskCommand.PAUSE -> bulk.pause()
+                            com.domenota.medialoader.data.tasks.TaskCommand.RESUME -> bulk.resume()
+                            com.domenota.medialoader.data.tasks.TaskCommand.CANCEL -> if(live.phase==com.domenota.medialoader.data.bulk.BulkPhase.ANALYZING)bulk.stopAnalysis() else bulk.stop()
+                            com.domenota.medialoader.data.tasks.TaskCommand.RETRY -> bulk.retryFailed()
+                            else -> Unit
+                        }
+                    }
+                }
+                val relevant = rows.filter { it.createdAtEpochMillis >= cutoff ||
+                    it.state == DownloadState.RUNNING || it.state == DownloadState.QUEUED }
+                com.domenota.medialoader.data.tasks.TaskCenter.registry.publish(
+                    com.domenota.medialoader.data.tasks.TaskOwner.DOWNLOADS, feed.groups(relevant.filterNot { com.domenota.medialoader.data.tasks.BulkTaskFeed.belongs(it,job) })
+                ) { id, action ->
+                    taskFeedScope.launch {
+                        val targets = feed.commandTargets(history.all(), id, action)
+                        targets.forEach { target ->
+                            try {
+                                when (action) {
+                                    com.domenota.medialoader.data.tasks.TaskCommand.CANCEL -> cancel(target)
+                                    com.domenota.medialoader.data.tasks.TaskCommand.RETRY -> retry(target)
+                                    else -> Unit
+                                }
+                            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                              catch (_: Exception) { }
+                        }
+                    }
+                }
+            }
+        }
+    }
     val hiddenCount: Flow<Int> = history.observeHiddenCount()
     val hiddenItems: Flow<List<DownloadEntity>> = history.observeHidden()
     fun trashedUri(id: String): String? = storage.trashedUri(id)
@@ -743,6 +792,8 @@ class MediaRepository private constructor(context: Context) {
                 val version=TrackRecognitionVersion(source.id,uri,TrackRecognitionCache.sha256(appContext,uri),epoch)
                 val initial=withContext(Dispatchers.IO){TrackRecognitionCache.loadRetry(appContext,version)}
                     ?:TrackRetryState(RecognitionWindowPlanner.playbackStarts(recognitionAudioPreprocessor.savedDurationMs(uri),positionMs))
+                if(initial.candidate==null)com.domenota.medialoader.data.recognition.ShazamClient.cooldownRemainingMs()
+                    .takeIf{it>0}?.let{throw com.domenota.medialoader.data.recognition.ShazamRateLimitException(it,requestSent=false)}
                 val found=withContext(Dispatchers.Default){
                     TrackRecognitionRetry.search(initial,if(initial.rejected.isNotEmpty())maxOf(maxAttempts,5) else maxAttempts,
                         {at->recognitionAudioPreprocessor.decodeTrackWindow(uri,at)},liveMusicRecognizer,
@@ -1060,7 +1111,7 @@ class MediaRepository private constructor(context: Context) {
             } }.awaitAll().map { item ->
                 item.copy(sourcePageUrl = item.sourcePageUrl ?: if (item.providerId == VkProvider.ID) item.downloadUrl else url)
             }
-        }.let { PreferredVideoQuality.apply(it, videoPreferences.preferredHeight, videoPreferences.qualityDirection) }.also { results ->
+        }.let(sourceProfiles::defaults).also { results ->
             AppLog.verbose(
                 "Resolve",
                 "Completed · items=${results.size} · sources=${results.map { it.providerId }.distinct().joinToString(",")} · elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAt}",
@@ -1916,6 +1967,12 @@ class MediaRepository private constructor(context: Context) {
         requireMediaAccess(previous)
         require(!previous.isPrivate)
         if (previous.sourceUrl == null) return
+        if (com.domenota.medialoader.data.download.DownloadNetworkWait.from(previous.state, previous.errorMessage) ==
+            com.domenota.medialoader.data.download.DownloadNetworkWait.WIFI) {
+            ActiveDownloadService.start(appContext)
+            queue.downloadNow(id)
+            return
+        }
         if (previous.state != com.domenota.medialoader.core.model.DownloadState.FAILED &&
             previous.state != com.domenota.medialoader.core.model.DownloadState.CANCELLED) return
         ActiveDownloadService.start(appContext)

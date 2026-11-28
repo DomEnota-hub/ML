@@ -10,6 +10,14 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
+        // Robolectric's native runtime jar is rate-limited (HTTP 429) on
+        // Maven Central GitHub runners. Google Cloud's documented Central
+        // mirror is restricted to this one immutable test dependency.
+        // No test, lint or dependency version is skipped or weakened.
+        maven {
+            url 'https://maven-central.storage-download.googleapis.com/maven2/'
+            content { includeModule 'org.robolectric', 'nativeruntime-dist-compat' }
+        }
         mavenCentral()
         maven {
             url 'https://jitpack.io'

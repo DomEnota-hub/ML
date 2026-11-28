@@ -16,7 +16,7 @@ import org.json.JSONObject
 import org.json.JSONArray
 import com.domenota.medialoader.data.playback.PublicMediaIdentity
 
-internal data class VisualScanResult(val groups:List<VisualDuplicateGroup>,val skipped:Int,val privacyEpoch:Long=0, val coverage:VisualScanCoverage?=null)
+internal data class VisualScanResult(val groups:List<VisualDuplicateGroup>,val skipped:Int,val privacyEpoch:Long=0, val coverage:VisualScanCoverage?=null, val scopeLabel:String="Все файлы")
 internal object VisualDuplicateScanner {
     private data class Stamp(val bytes:Long,val modified:Long?)
     private fun directory(context:Context)=File(context.noBackupFilesDir,"visual-duplicate-cache-v1")
@@ -134,7 +134,7 @@ internal object VisualDuplicateScanner {
     }
 
     suspend fun scan(context:Context,refs:List<LibraryMediaRef>,source:LibrarySource=LibrarySource.PHONE,
-        expectedEpoch:Long=DuplicatePrivacyGuard.generation(context),onPhase:(DuplicateScanPhase)->Unit={},
+        expectedEpoch:Long=DuplicatePrivacyGuard.generation(context),isScoped:Boolean=false,onPhase:(DuplicateScanPhase)->Unit={},
         onPartial:(VisualScanResult)->Unit={},progress:(VisualScanCoverage)->Unit={}):VisualScanResult=withContext(Dispatchers.IO){
         val candidates=VisualDuplicateCatalog.candidates(refs)
         val metrics=DuplicateScanMetrics("gallery")
@@ -142,7 +142,7 @@ internal object VisualDuplicateScanner {
         check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск устарел"}
         // A narrower ML-only scan must not delete fingerprints of other phone files.
         // Prune stale entries only when scanning the complete accessible phone scope.
-        if(source==LibrarySource.PHONE) synchronized(DuplicatePrivacyGuard.lock){
+        if(source==LibrarySource.PHONE && !isScoped) synchronized(DuplicatePrivacyGuard.lock){
             check(DuplicatePrivacyGuard.generation(context)==epoch){"Поиск устарел"}
             val allowed=candidates.mapNotNull{it.item.savedUri}.map(::key).toSet()
             directory(context).listFiles().orEmpty().filter{it.name !in allowed}.forEach{it.delete()}

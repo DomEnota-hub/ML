@@ -183,13 +183,21 @@ internal data class CollectionHistorySnapshot(val rows: Map<String, DownloadEnti
 private data class AppReferenceBatch(val refs: List<LibraryMediaRef>, val complete: Boolean)
 internal data class AudioCatalogGuard(val privacy: Set<String>, val accessEpoch: Long,
     val visibility: FolderVisibilityLibraryGuard? = null)
-internal data class AudioCatalogSnapshot(val guard: AudioCatalogGuard, val refs: List<LibraryMediaRef>)
-internal data class AudioCatalogUpdate(val guard: AudioCatalogGuard?, val refs: List<LibraryMediaRef>?)
+internal data class AudioCatalogSnapshot(val guard: AudioCatalogGuard, val refs: List<LibraryMediaRef>, val phoneRevision:Long?=null)
+internal data class AudioCatalogUpdate(val guard: AudioCatalogGuard?, val refs: List<LibraryMediaRef>?, val phoneRevision:Long?=null)
 /** Incomplete routine updates never replace a validated audio generation. */
 internal fun retainAudioCatalog(previous: AudioCatalogSnapshot?, update: AudioCatalogUpdate): AudioCatalogSnapshot? {
     val guard = update.guard ?: return null
-    return update.refs?.let { AudioCatalogSnapshot(guard, it) } ?: previous?.takeIf { it.guard == guard }
+    return update.refs?.let { AudioCatalogSnapshot(guard, it, update.phoneRevision) } ?: previous?.takeIf { it.guard == guard }
 }
+/** A retained catalogue may render during a routine refresh, but only the
+ * matching complete generation can decide that a saved track is unavailable. */
+internal fun resumeCatalogCurrent(snapshot:AudioCatalogSnapshot?,phone:PhoneLibraryState,
+    projectionReady:Boolean,phoneAccess:Boolean):Boolean =
+    projectionReady && snapshot!=null && snapshot.phoneRevision==phone.revision &&
+        snapshot.guard.accessEpoch==phone.accessEpoch && phone.loaded && phone.complete &&
+        !phone.loading && (phone.message==null || !phoneAccess)
+
 private data class PhoneReferenceInput(
     val pictures: List<DownloadEntity>, val audio: List<DownloadEntity>, val app: List<DownloadEntity>,
     val pictureIdentities: Map<String, Set<String>>, val audioIdentities: Map<String, Set<String>>,
@@ -229,6 +237,28 @@ internal fun canBootstrapPhoneDuringTransfer(reason: PhoneScanReason, recovering
         !guard.policy.unknownPending && guard.policy.pendingFolder != null &&
         (!state.loaded || !state.complete || changedAccess || invalidated || selectedOnly)
 
+/** A progressive scan has already checked the same permission signature and
+ * private keys before each cumulative page. The first page of a new epoch
+ * still needs its canonical index. Subsequent pages must not revoke that
+ * epoch's already admitted index just because their revision advanced.
+ * Selected-only grants have no progressive publication and never use this path. */
+internal fun mayRetainProgressivePhoneIndex(
+    previous: PhoneLibraryState, accessEpoch: Long, selectedOnly: Boolean,
+): Boolean = !selectedOnly && previous.loaded && previous.loading &&
+    !previous.complete && previous.message == null && previous.accessEpoch == accessEpoch
+
+/** A missing exact phone visual is not a negative result until the relevant
+ * scan and its canonical index have caught up. A failed scan is distinct
+ * from a completed scan that proved absence. Never admit a stale locator. */
+internal fun phoneVisualResolutionPending(id: String?, gallery: PhoneLibraryState,
+    index: LibraryIndex, rowsReady: Boolean, aliasesReady: Boolean, scanInProgress: Boolean = false): Boolean {
+    if (id?.startsWith("phone:") != true || id.startsWith("phone:audio:")) return false
+    return scanInProgress || !gallery.loaded || gallery.loading ||
+        (!gallery.complete && gallery.message == null) || !index.ready ||
+        index.galleryAccessEpoch != gallery.accessEpoch ||
+        index.galleryRevision != gallery.revision || !rowsReady || !aliasesReady
+}
+
 /** Retained editor references are not validated public display data until this snapshot lands. */
 internal fun phoneValidationPending(index: LibraryIndex, gallery: PhoneLibraryState, music: PhoneLibraryState): Boolean =
     index.galleryAccessEpoch != gallery.accessEpoch || index.musicAccessEpoch != music.accessEpoch ||
@@ -263,20 +293,32 @@ internal fun canRefreshLibrarySilently(
     (!state.requiresValidation || state.revision == indexedRevision) &&
     !accessChanged && !selectedOnlyAccess && !privacyInvalidated
 
+/** Navigation is not a provider-change notification. An already complete
+ * full-access catalog remains usable, but cold, failed or changed-access
+ * states must go through the existing validation path. */
+internal fun needsPhoneRefreshOnNavigation(state:PhoneLibraryState,accessChanged:Boolean,selectedOnly:Boolean):Boolean =
+    accessChanged||selectedOnly||!state.loaded||!state.complete||state.message!=null
+
 /** Map MediaStore notifications to the affected library without guessing for unknown URIs. */
 internal fun phoneModesForMediaChange(uri: String?): Set<AppMode> {
     val both = setOf(AppMode.GALLERY, AppMode.MUSIC)
     if (uri.isNullOrBlank()) return both
-    val segments = runCatching { java.net.URI(uri).path.orEmpty()
-        .split('/').map { it.lowercase(java.util.Locale.ROOT) } }.getOrNull() ?: return both
-    val pictures = "images" in segments || "video" in segments
-    val audio = "audio" in segments
-    return when {
-        pictures && !audio -> setOf(AppMode.GALLERY)
-        audio && !pictures -> setOf(AppMode.MUSIC)
+    val address = runCatching { java.net.URI(uri) }.getOrNull() ?: return both
+    if(address.scheme!="content"||address.authority!="media")return both
+    val segments=address.path.orEmpty().trim('/').split('/')
+    if(segments.size !in 3..4||segments[0].isBlank()||segments[2]!="media"||
+        (segments.size==4&&segments[3].toLongOrNull()?.let{it>=0}!=true))return both
+    return when(segments[1]){
+        "images","video" -> setOf(AppMode.GALLERY)
+        "audio" -> setOf(AppMode.MUSIC)
         else -> both
     }
 }
+
+/** A busy gallery scan must not postpone audio reconciliation (and vice versa).
+ * Busy modes remain pending; consuming one batch never clears another mode. */
+internal fun readyPhoneMediaChanges(pending:Set<AppMode>,busy:Set<AppMode>):Set<AppMode> =
+    pending.filterTo(linkedSetOf()){it!=AppMode.DOWNLOADER&&it !in busy}
 
 /**
  * A ContentObserver callback can be redundant (e.g. provider/thumbnail metadata).
@@ -670,7 +712,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Audio catalog ready · count=${it.size}")
                 }
             } else null
-            AudioCatalogUpdate(guard, refs)
+            AudioCatalogUpdate(guard, refs, input.phone.revision)
         }.runningFold<AudioCatalogUpdate, AudioCatalogSnapshot?>(null, ::retainAudioCatalog)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000, replayExpirationMillis = 0), null)
 
@@ -910,38 +952,63 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             pendingMediaChanges += phoneModesForMediaChange(uri?.toString())
             notifyCollectionAddresses(uri)
         }
-        mediaChangeJob?.cancel()
         if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return
-        if (AppMode.MUSIC in pendingMediaChanges) AudioWaveformPrecompute.request(getApplication())
-        mediaChangeJob?.cancel()
+        // A fixed window, not a restartable debounce: notifications arriving
+        // while a scan or stamp read is in flight belong to the next batch.
+        // Do not cancel a worker on every callback or starve a busy provider.
+        if(mediaChangeJob?.isActive==true)return
         mediaChangeJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(500)
-            if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
-            val affected = pendingMediaChanges.toSet()
-            // The current scan must finish before the next reconciliation starts.
-            affected.forEach { jobs[it]?.join() }
-            if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
-            pendingMediaChanges.removeAll(affected)
-            affected.forEach { mode ->
-                val state = if (mode == AppMode.GALLERY) galleryState else musicState
-                if (!state.value.loaded) return@forEach
-                val permissions = PhoneMediaLibrary.permissions(mode)
-                val signature = permissions.map { permission ->
-                    ContextCompat.checkSelfPermission(getApplication(), permission) == PackageManager.PERMISSION_GRANTED
+            while(pendingMediaChanges.isNotEmpty()) {
+                kotlinx.coroutines.delay(500)
+                if (editorHoldsAutomaticIndexing || HistoricalRecoverySignals.isRunning.value) return@launch
+                // Reconcile independently. A busy scan retains its pending
+                // notification; do not query the provider while every mode is busy.
+                val affected=readyPhoneMediaChanges(pendingMediaChanges,
+                    pendingMediaChanges.filterTo(mutableSetOf()){jobs[it]?.isActive==true})
+                if(affected.isEmpty())continue
+                pendingMediaChanges.removeAll(affected)
+                val loaded=affected.filter { mode ->
+                    (if(mode==AppMode.GALLERY)galleryState else musicState).value.loaded
                 }
-                val selectedOnly = android.os.Build.VERSION.SDK_INT >= 34 && mode == AppMode.GALLERY &&
-                    permissions.zip(signature).any { (name, granted) ->
-                        name == android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && granted
-                    } && permissions.zip(signature).any { (name, granted) ->
-                        name != android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && !granted
+                // A cold/unopened music library still needs independent background analysis.
+                // A loaded library requests it after observing a real new snapshot below.
+                if(AppMode.MUSIC in affected && AppMode.MUSIC !in loaded) AudioWaveformPrecompute.request(getApplication())
+                if(loaded.isEmpty())continue
+                val currentStamp=try { phone.storeStamp() }
+                catch(e:CancellationException){pendingMediaChanges+=affected;throw e}
+                // A hold may have cancelled this coroutine during the IO call.
+                // If not cancelled, still check the barrier before dispatching.
+                if(editorHoldsAutomaticIndexing||HistoricalRecoverySignals.isRunning.value){
+                    pendingMediaChanges+=affected
+                    return@launch
+                }
+                for (mode in loaded) {
+                    val state = if (mode == AppMode.GALLERY) galleryState else musicState
+                    val permissions = PhoneMediaLibrary.permissions(mode)
+                    val signature = permissions.map { permission ->
+                        ContextCompat.checkSelfPermission(getApplication(), permission) == PackageManager.PERMISSION_GRANTED
                     }
-                val currentStamp = phone.storeStamp()
-                if (maySkipUnchangedMediaNotification(storeStamps[mode], currentStamp,
-                        accessSignatures[mode] == signature, selectedOnly)) {
-                    com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED){}
-                    return@forEach
+                    val selectedOnly = android.os.Build.VERSION.SDK_INT >= 34 && mode == AppMode.GALLERY &&
+                        permissions.zip(signature).any { (name, granted) ->
+                            name == android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && granted
+                        } && permissions.zip(signature).any { (name, granted) ->
+                            name != android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED && !granted
+                        }
+                    // Never treat partial or failed catalogs as a complete
+                    // generation. Permissions and privacy invalidations keep
+                    // their existing direct refresh path.
+                    if (state.value.complete && state.value.message==null &&
+                        maySkipUnchangedMediaNotification(storeStamps[mode], currentStamp,
+                            accessSignatures[mode] == signature, selectedOnly)) {
+                        com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED){}
+                        continue
+                    }
+                    if(jobs[mode]?.isActive==true){
+                        pendingMediaChanges+=mode
+                        continue
+                    }
+                    refresh(mode, force = true, reason = PhoneScanReason.MEDIASTORE_CHANGE)
                 }
-                refresh(mode, force = true, reason = PhoneScanReason.MEDIASTORE_CHANGE)
             }
         }
     }
@@ -972,13 +1039,28 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
         }
     }
 
+    fun refreshOnNavigation(mode:AppMode){
+        if(mode==AppMode.DOWNLOADER)return
+        val permissions=PhoneMediaLibrary.permissions(mode)
+        val signature=permissions.map{permission->
+            ContextCompat.checkSelfPermission(getApplication(),permission)==PackageManager.PERMISSION_GRANTED
+        }
+        val selectedOnly=android.os.Build.VERSION.SDK_INT>=34&&mode==AppMode.GALLERY&&
+            permissions.zip(signature).any{(name,granted)->name==android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED&&granted}&&
+            permissions.zip(signature).any{(name,granted)->name!=android.Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED&&!granted}
+        val state=(if(mode==AppMode.GALLERY)galleryState else musicState).value
+        if(needsPhoneRefreshOnNavigation(state,accessSignatures[mode]!=signature,selectedOnly))refresh(mode)
+        // Keep existing observer reconciliation, including changes queued during
+        // an editor/transfer; never consume or discard them just on navigation.
+        else if(mode in pendingMediaChanges)scheduleMediaChange(null,addModes=false)
+    }
+
     fun refresh(mode: AppMode, force: Boolean = false, invalidate: Boolean = false, reason: PhoneScanReason = PhoneScanReason.REQUEST) {
         if (mode == AppMode.DOWNLOADER) return
         val context = getApplication<Application>()
         val permissions = PhoneMediaLibrary.permissions(mode)
         fun currentSignature() = permissions.map { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
         val signature = currentSignature()
-        if (mode == AppMode.MUSIC && signature.any { it } && !HistoricalRecoverySignals.isRunning.value) AudioWaveformPrecompute.request(context)
         val coldStart = accessSignatures[mode] == null && !invalidate
         val accessKey = permissions.zip(signature).filter { it.second }.map { it.first }.sorted().joinToString("|")
         val changedAccess = accessSignatures[mode] != signature
@@ -1026,7 +1108,7 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             if (!changedAccess && !invalidate && state.value.loaded) return
             refreshedAt[mode] = now
             state.value = PhoneLibraryState(loaded = true, complete = true, revision = state.value.revision + 1, accessEpoch = accessEpoch, message =
-                if (mode == AppMode.MUSIC) "Разрешите доступ к музыке телефона" else "Разрешите доступ к фото и видео телефона")
+                if (mode == AppMode.MUSIC) "Разреши доступ к музыке телефона" else "Разреши доступ к фото и видео телефона")
             viewModelScope.launch { phoneCache.clear(mode) }
             return
         }
@@ -1082,8 +1164,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     blocking = !state.value.loaded
                     if (blocking) state.value = PhoneLibraryState(loading = true, revision = ++revision, accessEpoch = accessEpoch)
                 }
-                if (!blocking && state.value.complete && stamp.generation != null && previousStamp == stamp) {
-                    state.value = state.value.copy(loading = false)
+                if (!blocking && state.value.complete && state.value.message == null &&
+                    !state.value.requiresValidation &&
+                    maySkipUnchangedMediaNotification(previousStamp,stamp,!changedAccess,partial)) {
+                    if (state.value.loading) state.value = state.value.copy(loading = false)
                     com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.PHONE_SCAN_SKIPPED) {}
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan skipped · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch · stamp=unchanged")
                     refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
@@ -1101,9 +1185,10 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                 com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone scan started · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch · retained=${previous?.items?.size ?: 0}")
                 val progress: (suspend (PhoneMediaSnapshot) -> Unit)? = if (blocking && !partial) { { partialSnapshot ->
                     if (blocking && !partial && stillAllowed() && (!bootstrapDuringTransfer || !state.value.loaded)) {
+                        val retainAdmittedIndex = mayRetainProgressivePhoneIndex(state.value, accessEpoch, partial)
                         state.value = PhoneLibraryState(items = partialSnapshot.items, identities = partialSnapshot.identities,
                             fingerprints = partialSnapshot.fingerprints, loaded = true, loading = true,
-                            revision = ++revision, requiresValidation = true, accessEpoch = accessEpoch)
+                            revision = ++revision, requiresValidation = !retainAdmittedIndex, accessEpoch = accessEpoch)
                         // A large library can publish progress every second; serializing
                         // 11k+ entries to JSON on *every* update stalls the cursor.
                         // Keep first-page recovery, then bounded checkpoints; the final
@@ -1135,9 +1220,12 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
                     if (existing.loading || existing.message != null || existing.requiresValidation) state.value = existing.copy(loading=false,message=null,requiresValidation=false)
                     com.domenota.medialoader.core.logging.AppLog.i("Library", "Phone snapshot unchanged · mode=$mode")
                 } else state.value = PhoneLibraryState(items = snapshot.items, identities = snapshot.identities,
-                    fingerprints = snapshot.fingerprints, loaded = true, complete = true, revision = revision + 1, requiresValidation = blocking && !bootstrapDuringTransfer, accessEpoch = accessEpoch)
+                    fingerprints = snapshot.fingerprints, loaded = true, complete = true, revision = revision + 1, requiresValidation = blocking && !bootstrapDuringTransfer &&
+                        !mayRetainProgressivePhoneIndex(existing, accessEpoch, partial), accessEpoch = accessEpoch)
                 storeStamps[mode] = stamp
                 refreshedAt[mode] = android.os.SystemClock.elapsedRealtime()
+                if (mode==AppMode.MUSIC && !HistoricalRecoverySignals.isRunning.value && (changedAccess || !unchanged))
+                    AudioWaveformPrecompute.request(context)
                 if (!bootstrapDuringTransfer && !partial && (!unchanged || previousStamp != stamp)) try { phoneCache.write(mode, accessKey, privacy, stamp, snapshot) }
                 catch (e: CancellationException) { throw e }
                 catch (_: Exception) { com.domenota.medialoader.core.logging.AppLog.w("Library", "Phone metadata cache save deferred") }
@@ -1148,7 +1236,9 @@ internal class LibraryViewModel(application: Application) : AndroidViewModel(app
             }
             catch (_: Exception) {
                 com.domenota.medialoader.core.logging.AppLog.w("Library", "Phone scan failed · owner=phone · mode=$mode · reason=$scanReason · generation=$scanGeneration · accessEpoch=$accessEpoch")
-                val message = "Не удалось обновить файлы телефона. Проверьте доступ и повторите."
+                if(mode==AppMode.MUSIC && scanReason==PhoneScanReason.MEDIASTORE_CHANGE &&
+                    signature.any{it} && !HistoricalRecoverySignals.isRunning.value) AudioWaveformPrecompute.request(context)
+                val message = "Не удалось обновить файлы телефона. Проверь доступ и повтори попытку."
                 state.value = if (!blocking && state.value.loaded) state.value.copy(loading = false, message = message)
                     else PhoneLibraryState(loaded = true, revision = revision + 1, message = message, accessEpoch = accessEpoch)
             }finally{

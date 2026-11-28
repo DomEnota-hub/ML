@@ -20,31 +20,6 @@ internal data class TrackRecognitionMatch(val version:TrackRecognitionVersion,va
 internal data class TrackRecognitionOutcome(val match:TrackRecognitionMatch?,val nextIndex:Int,val total:Int,val conflict:Boolean=false,val retried:Boolean=false)
 internal enum class TrackRecognitionStage { DECODING, SEARCHING }
 internal data class TrackRecognitionProgress(val index:Int,val total:Int,val stage:TrackRecognitionStage,val startMs:Long?=null,val durationMs:Long?=null)
-internal data class WindowRecognitionResult(val result:MusicRecognitionResult?,val nextIndex:Int)
-
-internal object LocalTrackRecognitionSearch {
-    suspend fun find(starts:List<Long>,startIndex:Int,maxAttempts:Int,
-        decode:suspend (Long)->ShortArray,provider:MusicRecognitionProvider,
-        onProgress:suspend (TrackRecognitionProgress)->Unit={}):WindowRecognitionResult {
-        require(startIndex>=0&&maxAttempts>0)
-        var index=startIndex.coerceAtMost(starts.size)
-        val end=minOf(starts.size,index+maxAttempts)
-        while(index<end){
-            currentCoroutineContext().ensureActive()
-            onProgress(TrackRecognitionProgress(index,starts.size,TrackRecognitionStage.DECODING))
-            val pcm=decode(starts[index])
-            if(RecognitionAudio.eligible(pcm)){
-                onProgress(TrackRecognitionProgress(index,starts.size,TrackRecognitionStage.SEARCHING))
-                val result=provider.recognize(pcm)
-                if(result!=null&&result.title.isNotBlank()&&result.artist.isNotBlank())
-                    return WindowRecognitionResult(result,index+1)
-            }
-            index++
-        }
-        return WindowRecognitionResult(null,index)
-    }
-}
-
 internal object TrackRecognitionCache {
     private const val VERSION=1
     private const val LIMIT=128

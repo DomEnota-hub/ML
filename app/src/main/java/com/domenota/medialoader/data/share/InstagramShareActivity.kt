@@ -26,9 +26,9 @@ class InstagramShareActivity : ComponentActivity() {
         }?.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
         val link = extractFirstUrl(text)
         val canonical = InstagramShareRouting.automaticUrl(this, intent)
-        AppLog.i("Share", "Share route · entry=receiver · automatic=${InstagramShareSettings.isAutomatic(this)} · supported=${link?.let(InstagramAutoShareSelection::canonicalUrl) != null}")
+        AppLog.i("Share", "Share route · entry=receiver · automatic=${com.domenota.medialoader.data.download.SourceDownloadProfiles(this).automatic("instagram")} · supported=${link?.let(InstagramAutoShareSelection::canonicalUrl) != null}")
 
-        if (InstagramShareSettings.isAutomatic(this) && canonical != null) {
+        if (canonical != null) {
             try {
                 val operation = InstagramAutoShareWorker.schedule(applicationContext, canonical)
                 // Wait for WorkManager to commit the task before closing the short

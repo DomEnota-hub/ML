@@ -17,6 +17,11 @@ internal class GalleryBrowseInventory private constructor(
     val favorites: List<DownloadEntity>,
     private val hiddenFolders: Set<String>,
 ) {
+    // Index constructed with the browse generation, normally on the projection worker.
+    private val allowedRows = items.associate { it.id to it.savedUri }
+    fun containsAddress(row:DownloadEntity):Boolean =
+        allowedRows.containsKey(row.id) && allowedRows[row.id]==row.savedUri
+
     /** Content equivalence across routine MediaStore/catalog re-emissions.
      * Preserve the previously verified grid and date-group cache if the actual
      * public album/media identity has not changed. Checked on Default, off UI. */
@@ -59,13 +64,13 @@ internal class GalleryBrowseInventory private constructor(
         }
         return next
     }
-    fun select(selection: String, search: String): List<DownloadEntity> {
+    fun select(selection: String, search: String, noteMatches: Set<String> = emptySet()): List<DownloadEntity> {
         if (search.isBlank()) when (selection) {
             "all" -> return media
             "videos" -> return videos
             "favorites" -> return favorites
         }
-        return GalleryLibraryState.filter(items, assignments, selection, search, buckets, hiddenFolders)
+        return GalleryLibraryState.filter(items, assignments, selection, search, buckets, hiddenFolders, noteMatches)
     }
     companion object {
         val EMPTY = build(emptyList(), emptyList(), emptyList(), LibrarySource.APP, emptyMap(), emptySet())

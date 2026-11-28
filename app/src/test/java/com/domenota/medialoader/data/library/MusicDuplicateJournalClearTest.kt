@@ -98,4 +98,30 @@ class MusicDuplicateJournalClearTest {
         assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
         assertNull(MusicDuplicateSessionStore.partial(context))
     }
+
+    @Test fun deleteOneMusicReportPreservesOtherHistoryPartialAndMedia()=runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+        val epoch=DuplicatePrivacyGuard.generation(context)
+        fun row(at:Long)=DuplicateSession(DuplicateScanResult(emptyList(),0,privacyEpoch=epoch),
+            emptySet(),emptyMap(),0,0,at)
+        val a=1700000911000L;val b=1700000912000L;val c=1700000913000L
+        assertTrue(MusicDuplicateSessionStore.save(context,row(a)))
+        assertTrue(MusicDuplicateSessionStore.save(context,row(b)))
+        assertTrue(MusicDuplicateSessionStore.save(context,row(c)))
+        assertTrue(MusicDuplicateSessionStore.savePartial(context,row(1700000914000L)))
+        val oldToken=MusicDuplicateSessionStore.journalGeneration()
+        assertTrue(MusicDuplicateSessionStore.deleteCompleted(context,b))
+        assertEquals(listOf(c,a),MusicDuplicateSessionStore.history(context).map{it.scannedAt})
+        assertEquals(c,MusicDuplicateSessionStore.load(context)?.scannedAt)
+        assertEquals(1700000914000L,MusicDuplicateSessionStore.partial(context)?.scannedAt)
+        assertFalse("Late stale autosave must not recreate deleted history",
+            MusicDuplicateSessionStore.saveInteraction(context,row(b),false,oldToken))
+        assertFalse(MusicDuplicateSessionStore.save(context,row(b)))
+        assertTrue(MusicDuplicateSessionStore.deleteCompleted(context,c))
+        assertEquals(a,MusicDuplicateSessionStore.load(context)?.scannedAt)
+        assertEquals(listOf(a),MusicDuplicateSessionStore.history(context).map{it.scannedAt})
+        assertFalse(MusicDuplicateSessionStore.deleteCompleted(context,b))
+        assertTrue(MusicDuplicateSessionStore.clearJournal(context,true))
+    }
 }

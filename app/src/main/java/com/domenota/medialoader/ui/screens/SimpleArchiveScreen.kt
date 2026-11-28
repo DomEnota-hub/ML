@@ -1,11 +1,22 @@
 package com.domenota.medialoader.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -21,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.core.model.MediaType
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.ui.components.DownloadThumbnail
+import com.domenota.medialoader.ui.components.AppCard
 import com.domenota.medialoader.ui.model.toUi
 import com.domenota.medialoader.data.archive.SimpleArchiveRecord
 import com.domenota.medialoader.data.catalog.visibility.SelectiveArchiveQaEntry
@@ -47,10 +59,27 @@ internal fun SimpleArchiveScreen(
     legacyHiddenFolders: Set<String> = emptySet(),
     onLegacyFolderRestore: ((String) -> Unit)? = null,
 ) {
+    val context = LocalContext.current
+    val prefs = remember(context) { context.getSharedPreferences("ui", 0) }
+    var gridMode by rememberSaveable { mutableStateOf(prefs.getBoolean("archive_grid", false)) }
     var type by remember { mutableStateOf<MediaType?>(null) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
-    val filtered = remember(records, type) {
-        records.filter { type == null || it.mediaType == type }.sortedByDescending { it.archivedAtMillis }
+    var sort by remember { mutableStateOf(PrivateArchiveSort.read(prefs, "archive")) }
+    val candidates = remember(records, type) { records.filter { type == null || it.mediaType == type } }
+    val admittedRows = remember(candidates, liveRows) { candidates.mapNotNull { record ->
+        liveRows[record.catalogId]?.takeIf { !it.isPrivate && !it.hidden && it.savedUri == record.savedUri }
+            ?.let { record.catalogId to it }
+    }.toMap() }
+    val dates = rememberPrivateArchiveDates(context, admittedRows,
+        sort.field == PrivateArchiveSortField.FILE_DATE, privateSection = false)
+    val keysById = remember(candidates, admittedRows, dates) { candidates.associate { record ->
+        val admitted = admittedRows[record.catalogId]
+        record.catalogId to PrivateArchiveSortKey(record.catalogId, record.displayName,
+            dates[record.catalogId], record.archivedAtMillis.takeIf { it > 0 },
+            if (admitted != null) (admitted.sizeBytes ?: record.fileSizeBytes)?.takeIf { it >= 0 } else null)
+    } }
+    val filtered = remember(candidates, sort, keysById) {
+        sortPrivateArchive(candidates, sort) { requireNotNull(keysById[it.catalogId]) }
     }
     val liveIds = remember(filtered) { filtered.mapTo(mutableSetOf()) { it.catalogId } }
     val chosen = selected.intersect(liveIds)
@@ -58,14 +87,101 @@ internal fun SimpleArchiveScreen(
     fun toggle(id: String) {
         if (!busy && id in liveIds) selected = if (id in selected) selected - id else selected + id
     }
+    var expandedGroups by remember { mutableStateOf(emptySet<String>()) }
+    val grouped = remember(filtered, sort, keysById) {
+        val groups = filtered.groupBy { record ->
+            record.group?.let { it.kind.name + ":" + it.key } ?: ("file:" + record.catalogId)
+        }
+        sortPrivateArchive(groups.entries.toList(), sort) { (id, members) ->
+            groupPrivateArchiveKey(id, members.first().group?.name ?: members.first().displayName,
+                members.map { requireNotNull(keysById[it.catalogId]) })
+        }
+    }
+        @Composable
+        fun itemRow(item: SimpleArchiveRecord) {
+                Row(
+                    Modifier.fillMaxWidth().combinedClickable(enabled = !busy,
+                        onClick = { if (chosen.isEmpty()) onOpen(item) else toggle(item.catalogId) },
+                        onLongClick = { toggle(item.catalogId) }).padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    val liveRow = liveRows[item.catalogId]
+                    if (liveRow != null) DownloadThumbnail(liveRow.savedUri, liveRow.previewUrl,
+                        liveRow.toUi().kind, Modifier.size(56.dp))
+                    else Icon(when (item.mediaType) {
+                        MediaType.PHOTO -> Icons.Rounded.Image
+                        MediaType.VIDEO -> Icons.Rounded.Movie
+                        MediaType.AUDIO -> Icons.Rounded.MusicNote
+                    }, null, Modifier.size(32.dp))
+                    Text(item.displayName, Modifier.weight(1f), maxLines = 2,
+                        overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = { toggle(item.catalogId) }, enabled = !busy) {
+                        Icon(if (item.catalogId in chosen) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                            if (item.catalogId in chosen) "Снять выбор" else "Выбрать",
+                            tint = if (item.catalogId in chosen) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+    @Composable
+    fun itemCell(item: SimpleArchiveRecord) {
+        if (!gridMode) {
+            itemRow(item)
+        } else {
+            val checked = item.catalogId in chosen
+            Column(Modifier.padding(2.dp).testTag("archive-grid-${item.catalogId}")) {
+                Box(Modifier.fillMaxWidth().aspectRatio(1f)
+                    .combinedClickable(enabled = !busy,
+                        onClick = { if (chosen.isEmpty()) onOpen(item) else toggle(item.catalogId) },
+                        onLongClick = { toggle(item.catalogId) })
+                    .semantics { contentDescription = item.displayName }) {
+                    val row = liveRows[item.catalogId]
+                    if (row != null) DownloadThumbnail(row.savedUri, row.previewUrl, row.toUi().kind, Modifier.fillMaxSize())
+                    else Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surfaceVariant) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(when (item.mediaType) {
+                                MediaType.PHOTO -> Icons.Rounded.Image
+                                MediaType.VIDEO -> Icons.Rounded.Movie
+                                MediaType.AUDIO -> Icons.Rounded.MusicNote
+                            }, null, Modifier.size(32.dp))
+                        }
+                    }
+                    Box(Modifier.align(Alignment.TopEnd).size(48.dp)
+                        .testTag("archive-select-${item.catalogId}")
+                        .toggleable(value = checked, enabled = !busy, role = Role.Checkbox,
+                            onValueChange = { toggle(item.catalogId) })
+                        .semantics { contentDescription = if (checked) "Снять выбор" else "Выбрать" },
+                        contentAlignment = Alignment.Center) {
+                        Surface(shape = androidx.compose.foundation.shape.CircleShape,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = .9f)) {
+                            Icon(if (checked) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                null, Modifier.size(24.dp), tint = if (checked) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(!busy&&!legacyBusy&&chosen.isEmpty())
     androidx.activity.compose.BackHandler(chosen.isNotEmpty() && !busy) { selected = emptySet() }
     Column(Modifier.fillMaxSize().testTag("simple-archive-screen")) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClose) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
             Text("Архив", Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold)
-            ArchiveActionIcon(contentDescription = null)
-            Spacer(Modifier.width(12.dp))
+            PrivateArchiveSortMenu(sort, { next ->
+                sort = next; next.save(prefs, "archive")
+            }, enabled = !busy && !legacyBusy)
+            IconButton(onClick = {
+                gridMode = !gridMode
+                prefs.edit().putBoolean("archive_grid", gridMode).apply()
+            }, enabled = !busy) {
+                Icon(if (gridMode) Icons.Rounded.ViewList else Icons.Rounded.GridView,
+                    if (gridMode) "Показать списком" else "Показать сеткой",
+                    tint = MaterialTheme.colorScheme.primary)
+            }
         }
         Text("Файлов: ${records.size}", Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -100,10 +216,11 @@ internal fun SimpleArchiveScreen(
                 }
             }
         } else {
-            LazyColumn(Modifier.weight(1f)) {
+            LazyVerticalGrid(columns = GridCells.Fixed(if (gridMode) 4 else 1),
+                modifier = Modifier.weight(1f).testTag("archive-items")) {
                 if (hasLegacy) {
-                    item { Text("Ранее скрытые файлы", Modifier.padding(16.dp), fontWeight = FontWeight.SemiBold) }
-                    items(legacyRecovery, key = { "legacy:" + it.folderId }) { entry ->
+                    item(span = { GridItemSpan(maxLineSpan) }) { Text("Ранее скрытые файлы", Modifier.padding(16.dp), fontWeight = FontWeight.SemiBold) }
+                    items(legacyRecovery, key = { "legacy:" + it.folderId }, span = { GridItemSpan(maxLineSpan) }) { entry ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -116,7 +233,7 @@ internal fun SimpleArchiveScreen(
                         }
                     }
                 }
-                if (hasLegacy) items(legacyHiddenFolders.sorted(), key = { "folder:" + it }) { folderId ->
+                if (hasLegacy) items(legacyHiddenFolders.sorted(), key = { "folder:" + it }, span = { GridItemSpan(maxLineSpan) }) { folderId ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -127,41 +244,72 @@ internal fun SimpleArchiveScreen(
                             enabled = !busy && !legacyBusy && onLegacyFolderRestore != null) { Text("Вернуть") }
                     }
                 }
-                items(filtered, key = { it.catalogId }) { item ->
-                    Row(
-                        Modifier.fillMaxWidth().combinedClickable(enabled = !busy,
-                            onClick = { if (chosen.isEmpty()) onOpen(item) else toggle(item.catalogId) },
-                            onLongClick = { toggle(item.catalogId) }).padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        val liveRow = liveRows[item.catalogId]
-                        if (liveRow != null) DownloadThumbnail(liveRow.savedUri, liveRow.previewUrl,
-                            liveRow.toUi().kind, Modifier.size(56.dp))
-                        else Icon(when (item.mediaType) {
-                            MediaType.PHOTO -> Icons.Rounded.Image
-                            MediaType.VIDEO -> Icons.Rounded.Movie
-                            MediaType.AUDIO -> Icons.Rounded.MusicNote
-                        }, null, Modifier.size(32.dp))
-                        Text(item.displayName, Modifier.weight(1f), maxLines = 2,
-                            overflow = TextOverflow.Ellipsis)
-                        IconButton(onClick = { toggle(item.catalogId) }, enabled = !busy) {
-                            Icon(if (item.catalogId in chosen) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
-                                if (item.catalogId in chosen) "Снять выбор" else "Выбрать",
-                                tint = if (item.catalogId in chosen) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant)
+                grouped.forEach { (key, members) ->
+                    if (members.first().group == null) {
+                        val record = members.single()
+                        item(key = "file:" + record.catalogId) { itemCell(record) }
+                        return@forEach
+                    }
+                    val expanded = key in expandedGroups
+                    val ids = members.mapTo(mutableSetOf()) { it.catalogId }
+                    val allSelected = chosen.containsAll(ids)
+                    item(key = "group:" + key, span = { GridItemSpan(maxLineSpan) }) {
+                        // Same card surface and cover layout as DownloadGroupCard, with Archive-specific actions.
+                        AppCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                            .testTag("archive-group-$key")) {
+                            Row(Modifier.fillMaxWidth().padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Row(Modifier.weight(1f).testTag("archive-group-expand-$key")
+                                    .combinedClickable(enabled = !busy,
+                                        onClick = { expandedGroups = if (expanded) expandedGroups - key else expandedGroups + key },
+                                        onLongClick = { selected = if (allSelected) selected - ids else selected + ids })
+                                    .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    val cover = members.firstNotNullOfOrNull { liveRows[it.catalogId] }
+                                    if (cover != null) {
+                                        DownloadThumbnail(cover.savedUri, cover.previewUrl, cover.toUi().kind,
+                                            Modifier.size(44.dp))
+                                    } else {
+                                        Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Rounded.Folder, null, tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                    Column(Modifier.weight(1f)) {
+                                        Text(members.first().group?.name.orEmpty(), maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
+                                        Text("Файлов: ${members.size}", style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                        if (expanded) "Свернуть" else "Развернуть")
+                                }
+                                IconButton(onClick = { selected = if (allSelected) selected - ids else selected + ids },
+                                    enabled = !busy, modifier = Modifier.testTag("archive-group-select-$key")) {
+                                    Icon(if (allSelected) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                        if (allSelected) "Снять выбор группы" else "Выбрать группу",
+                                        tint = if (allSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
                         }
                     }
+                    if (expanded) items(members, key = { "file:" + it.catalogId }) { item -> itemCell(item) }
                 }
             }
         }
-        if (chosen.isNotEmpty()) Surface(color = MaterialTheme.colorScheme.surfaceContainer, tonalElevation = 5.dp) {
+        if (chosen.isNotEmpty()) Surface(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(16.dp),
+            color = Color(0xFF08090D),
+            contentColor = Color.White,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+        ) {
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Выбрано: ${chosen.size}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                 Button(onClick = { onRestore(chosen) }, enabled = !busy,
                     modifier = Modifier.testTag("simple-archive-restore")) { Text("Вернуть") }
                 IconButton(onClick = { selected = emptySet() }, enabled = !busy) {
-                    Icon(Icons.Rounded.Close, "Отменить выбор")
+                    Icon(Icons.Rounded.Close, "Отменить выбор", tint = Color.White)
                 }
             }
         }

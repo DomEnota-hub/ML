@@ -61,13 +61,14 @@ class GalleryBulkAlbumMoveTest {
         }
         compose.onNodeWithContentDescription("a.jpg").performTouchInput { longClick() }
         compose.onNodeWithContentDescription("b.jpg").performClick()
-        compose.onNodeWithContentDescription("Переместить выбранные в альбом").performClick()
+        compose.onNodeWithContentDescription("Действия с выбранными").performClick()
+        compose.onNodeWithText("Переместить выбранные в альбом").performClick()
         compose.onNodeWithText("Переместить в альбом").assertExists()
         compose.onNodeWithText("Работа").performClick()
         compose.onNodeWithText("Переместить 2").performClick()
         compose.waitForIdle()
         assertEquals(listOf("a" to "work", "b" to "work"), moved)
-        compose.onNodeWithContentDescription("Переместить выбранные в альбом").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Действия с выбранными").assertDoesNotExist()
     }
 
     @Test fun newPhoneAlbumNamesCannotEscapeThePhotoDirectory() {

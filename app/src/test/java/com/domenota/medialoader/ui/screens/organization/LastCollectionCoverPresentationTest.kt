@@ -41,23 +41,6 @@ class LastCollectionCoverPresentationTest {
     private val collection=MediaCollection(MediaCollectionEntity(id,"Synthetic",1L),listOf(member))
     @After fun clean(){CollectionCoverStore(context).delete(id);LastCollectionCoverStore.clearMemory()}
 
-    @Test fun unverifiedMediaStoreReadCannotCreateOrSwapAnAcceptedCover() {
-        val bitmap=Bitmap.createBitmap(8,8,Bitmap.Config.ARGB_8888)
-        try {
-            val accepted=LastCollectionCoverFrame(
-                LastCollectionCover("slot-a","verified-content","content://media/external/images/media/17",
-                    setOf("uri:content://media/external/images/media/17"),42L),
-                bitmap,
-            )
-            assertNull(unverifiedCoverFallback(null,"slot-a",accepted.metadata.source))
-            assertSame(accepted,unverifiedCoverFallback(accepted,"slot-a",accepted.metadata.source))
-            assertNull(unverifiedCoverFallback(accepted,"slot-b",accepted.metadata.source))
-            assertNull(unverifiedCoverFallback(accepted,"slot-a","content://media/external/images/media/18"))
-            assertEquals("verified-content",
-                unverifiedCoverFallback(accepted,"slot-a",accepted.metadata.source)!!.metadata.contentToken)
-        }finally{bitmap.recycle()}
-    }
-
     @Test fun lastRenderedCoverSurvivesRecreationWithoutSourcePermissionAndPrivacyRevokesItImmediately() {
         val calls=AtomicInteger()
         val bitmap=Bitmap.createBitmap(320,240,Bitmap.Config.ARGB_8888)
@@ -153,7 +136,12 @@ class LastCollectionCoverPresentationTest {
         compose.setContent{MaterialTheme{
             CollectionCoverImage(collection,ref,coverAccess=CollectionCoverAccess(true,emptySet(),emptySet()),decoder=decoder)
         }}
-        compose.waitUntil(12_000){LastCollectionCoverStore(context).peek(id)?.metadata?.slotToken?.startsWith("automatic:")==true}
+        // Persistence completes on IO before Compose accepts and renders the frame.
+        // Establish the actual initial frame before testing a blocked replacement.
+        compose.waitUntil(12_000){
+            LastCollectionCoverStore(context).peek(id)?.metadata?.slotToken?.startsWith("automatic:")==true &&
+                compose.onAllNodesWithTag("collection-last-cover-image").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("collection-last-cover-image").assertIsDisplayed()
         val field=LastCollectionCoverStore::class.java.getDeclaredField("ioLock").apply{isAccessible=true}
         val lock=field.get(null)

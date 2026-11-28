@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.AccessTime
+import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 
@@ -198,6 +199,7 @@ private val v10PhotoRows = listOf(
     V10MenuRow("album", "В альбом", "album"),
     V10MenuRow("wallpaper", "Установить как обои", "wallpaper"),
     V10MenuRow("info", "Сведения", "info"),
+    V10MenuRow("notes", "Заметки", "notes"),
     V10MenuRow("divider1", "", ""),
     V10MenuRow("extract", "Извлечь", "extract", true),
     V10MenuRow("cutout", "Вырезка фото", "cutout"),
@@ -214,6 +216,7 @@ private val v10VideoRows = listOf(
     V10MenuRow("album", "В альбом", "album"),
     V10MenuRow("wallpaper", "Установить как обои", "wallpaper"),
     V10MenuRow("info", "Сведения", "info"),
+    V10MenuRow("notes", "Заметки", "notes"),
     V10MenuRow("divider1", "", ""),
     V10MenuRow("cast", "Транслировать", "cast"),
     V10MenuRow("loop", "Зациклить одно видео", "loop"),
@@ -234,6 +237,7 @@ internal fun galleryVideoMenuGlyph(id: String): ImageVector? = when (id) {
     "speed" -> Icons.Rounded.Speed
     "aspect" -> Icons.Rounded.AspectRatio
     "time" -> Icons.Rounded.AccessTime
+    "notes" -> Icons.Rounded.EditNote
     else -> null
 }
 
@@ -246,9 +250,9 @@ private fun GalleryVideoMenuIcon(id: String, fallback: String, modifier: Modifie
 }
 
 /** Stable labels are verified against the approved photo/video action lists. */
-internal fun galleryV10ActionLabels(isPhoto: Boolean): List<String> =
+internal fun galleryV10ActionLabels(isPhoto: Boolean, allowNotes: Boolean = true): List<String> =
     (if (isPhoto) v10PhotoRows else v10VideoRows)
-        .filterNot { it.id.startsWith("divider") }
+        .filterNot { it.id.startsWith("divider") || (!allowNotes && it.id == "notes") }
         .map { it.title }
 
 /** Keep nested action surfaces adjacent to their selected parent row, respecting short screens. */
@@ -268,6 +272,7 @@ internal fun GalleryV10Popup(
     onDismiss: () -> Unit,
     onAction: (String) -> Unit,
     onSpeed: (Float) -> Unit,
+    allowNotes: Boolean = false,
 ) {
     var secondary by remember(isPhoto) { mutableStateOf<String?>(null) }
     val anchorPositions = remember(isPhoto) { mutableStateMapOf<String, Float>() }
@@ -281,7 +286,7 @@ internal fun GalleryV10Popup(
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .55f)).clickable(onClick = onDismiss))
         val menuWidth = minOf(287.dp, maxWidth - 32.dp)
         val bodyHeight = maxHeight * .65f
-        val menuRows = (if (isPhoto) v10PhotoRows else v10VideoRows).filter { (allowPrivate || it.id != "private") && (it.id != "tracks" || com.domenota.medialoader.ui.screens.GalleryAudioTrackPolicy.showSelector(audioTrackCount)) }
+        val menuRows = (if (isPhoto) v10PhotoRows else v10VideoRows).filter { (allowPrivate || it.id != "private") && (allowNotes || it.id != "notes") && (it.id != "tracks" || com.domenota.medialoader.ui.screens.GalleryAudioTrackPolicy.showSelector(audioTrackCount)) }
         Column(
             modifier = Modifier.align(Alignment.TopEnd).offset(x = (-16).dp, y = maxHeight * .23f)
                 .width(menuWidth).heightIn(max = bodyHeight).clip(RoundedCornerShape(17.dp))

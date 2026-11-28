@@ -132,6 +132,9 @@ fun AudioWaveformTimeline(
     uri: Uri,
     durationMs: Long,
     modifier: Modifier = Modifier,
+    viewportStartMs: Long = 0L,
+    viewportEndMs: Long = durationMs,
+    zoom: Int = 1,
 ) {
     val context = LocalContext.current
     var waveform by remember(uri, durationMs) { mutableStateOf<List<Float>>(emptyList()) }
@@ -156,6 +159,36 @@ fun AudioWaveformTimeline(
         }
     }
 
+    // The library's ordinary waveform/cache stays at 1024 buckets. Only this editor
+    // requests bounded high-resolution PCM, once per open track, on demand.
+    var detailRequested by remember(uri, durationMs) { mutableStateOf(false) }
+    var detailFinished by remember(uri, durationMs) { mutableStateOf(false) }
+    var detail by remember(uri, durationMs) { mutableStateOf<List<Float>>(emptyList()) }
+    LaunchedEffect(zoom) { if (zoom > 1) detailRequested = true }
+    LaunchedEffect(uri, durationMs, detailRequested) {
+        if (!detailRequested || durationMs <= 0L) return@LaunchedEffect
+        val job = kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]
+        val cancelled = { job?.isActive == false }
+        val started = com.domenota.medialoader.core.logging.PerformanceLog.begin("editor_waveform_detail")
+        try {
+            detail = withContext(Dispatchers.IO) {
+                com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode(cancelled) {
+                    decodeAudioWaveform(context, uri, durationMs, AudioEditorViewport.detailBuckets(durationMs), cancelled, detailed = true)
+                }
+            }
+        } catch (cancelledError: CancellationException) { throw cancelledError }
+        catch (error: Exception) {
+            com.domenota.medialoader.core.logging.AppLog.e("AudioWaveform", "Editor detail failed", error)
+        } finally {
+            detailFinished = true
+            com.domenota.medialoader.core.logging.PerformanceLog.end("editor_waveform_detail", started, "buckets=${detail.size}")
+        }
+    }
+    val selected = if (zoom > 1) detail else waveform
+    val visibleWaveform = remember(selected, durationMs, viewportStartMs, viewportEndMs) {
+        AudioEditorViewport.visiblePeaks(selected, durationMs, viewportStartMs, viewportEndMs)
+    }
+    val visibleLoading = if (zoom > 1) !detailFinished else loading
     val barColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
     Box(modifier) {
     Canvas(
@@ -165,11 +198,11 @@ fun AudioWaveformTimeline(
                 androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
             ),
     ) {
-        if (waveform.isEmpty()) return@Canvas
+        if (visibleWaveform.isEmpty()) return@Canvas
         // AIMP-like: individual narrow vertical strokes, almost touching at phone scale.
         // Never fill a continuous polygon; preserve actual amplitude differences.
-        val columns = (size.width / 1.35f).toInt().coerceIn(1, waveform.size)
-        val amplitudes = waveformColumnPeaks(waveform, columns)
+        val columns = (size.width / 1.35f).toInt().coerceIn(1, visibleWaveform.size)
+        val amplitudes = waveformColumnPeaks(visibleWaveform, columns)
         val center = size.height / 2f
         val slot = size.width / columns
         val stroke = (slot * 0.84f).coerceIn(0.85f, 1.6f)
@@ -184,8 +217,8 @@ fun AudioWaveformTimeline(
             )
         }
     }
-    if (waveform.isEmpty()) androidx.compose.material3.Text(
-        if (loading) "Строим звуковую волну…" else "Не удалось построить звуковую волну",
+    if (visibleWaveform.isEmpty()) androidx.compose.material3.Text(
+        if (visibleLoading) "Строим звуковую волну…" else "Не удалось построить звуковую волну",
         modifier = Modifier.align(Alignment.Center),
         style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
     }
@@ -284,84 +317,113 @@ private fun loadVideoTimelineFrames(
     }
 }
 
-private val audioCacheLocks = java.util.concurrent.ConcurrentHashMap<String, Any>()
-
 /** Content and file updates invalidate a saved waveform, even when their URI is unchanged. */
 internal fun waveformCacheIdentity(uri: String, durationMs: Long, size: Long, modified: Long, buckets: Int): String =
     "v6|$uri|$durationMs|$size|$modified|$buckets"
 
-private fun audioWaveformCacheFile(context: Context, uri: Uri, durationMs: Long, buckets: Int): File {
-    var bytes = -1L
-    var modified = -1L
-    if (uri.scheme == "file") {
-        val file = uri.path?.let(::File)
-        if (file != null) { bytes = file.length(); modified = file.lastModified() }
-    } else if (uri.scheme == "content") {
-        runCatching {
-            context.contentResolver.query(
-                uri,
-                arrayOf(android.provider.MediaStore.MediaColumns.SIZE,
-                    android.provider.MediaStore.MediaColumns.DATE_MODIFIED),
-                null, null, null
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val sizeCol = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.SIZE)
-                    val modifiedCol = cursor.getColumnIndex(android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
-                    if (sizeCol >= 0 && !cursor.isNull(sizeCol)) bytes = cursor.getLong(sizeCol)
-                    if (modifiedCol >= 0 && !cursor.isNull(modifiedCol)) modified = cursor.getLong(modifiedCol)
-                }
-            }
-        }
+/** Only proven file versions may bypass a later full cache read. */
+internal data class WaveformSourceVersion(val size:Long=-1L,val modified:Long=-1L,val providerDuration:Long=0L) {
+    val proven get()=size>0L && modified>0L
+}
+internal fun waveformDurations(requested:Long,provider:Long,proven:Boolean):List<Long> {
+    // A MediaStore duration and a player duration may differ by encoder padding.
+    // Never reuse across a substantial duration discrepancy or unknown version.
+    val near=proven && requested>0L && provider>0L &&
+        kotlin.math.abs(requested-provider)<=minOf(1000L,maxOf(20L,requested/200L))
+    return if(near)listOf(provider,requested).distinct() else listOf(requested)
+}
+internal fun readWaveformSourceVersion(context:Context,uri:Uri):WaveformSourceVersion {
+    if(uri.scheme=="file") {
+        val file=uri.path?.let(::File)
+        return if(file?.isFile==true) WaveformSourceVersion(file.length(),file.lastModified()) else WaveformSourceVersion()
     }
-    val identity = waveformCacheIdentity(uri.toString(), durationMs, bytes, modified, buckets)
-    return File(context.filesDir, "timeline/audio/${cacheKey(identity)}.wave")
+    if(uri.scheme!="content")return WaveformSourceVersion()
+    fun query(duration:Boolean):WaveformSourceVersion?=runCatching {
+        val columns=buildList {
+            add(android.provider.MediaStore.MediaColumns.SIZE)
+            add(android.provider.MediaStore.MediaColumns.DATE_MODIFIED)
+            if(duration)add(android.provider.MediaStore.Audio.Media.DURATION)
+        }
+        context.contentResolver.query(uri,columns.toTypedArray(),null,null,null)?.use { cursor ->
+            if(!cursor.moveToFirst())return@use null
+            fun value(name:String,default:Long):Long {
+                val i=cursor.getColumnIndex(name)
+                return if(i>=0&&!cursor.isNull(i))cursor.getLong(i) else default
+            }
+            WaveformSourceVersion(value(android.provider.MediaStore.MediaColumns.SIZE,-1L),
+                value(android.provider.MediaStore.MediaColumns.DATE_MODIFIED,-1L),
+                value(android.provider.MediaStore.Audio.Media.DURATION,0L))
+        }
+    }.getOrNull()
+    return (if(uri.authority=="media")query(true) else null) ?: query(false) ?: WaveformSourceVersion()
+}
+internal fun waveformCacheFileFor(context:Context,source:String,durationMs:Long,version:WaveformSourceVersion,
+    buckets:Int=AUDIO_WAVEFORM_BUCKETS):File {
+    val identity=waveformCacheIdentity(source,durationMs,version.size,version.modified,buckets)
+    return File(context.filesDir,"timeline/audio/${cacheKey(identity)}.wave")
 }
 
 /** Read-only UI path: never decode or wait for a decoder on the UI coroutine. */
 internal fun readCachedAudioWaveform(
     context: Context, uri: Uri, durationMs: Long,
     bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
-): List<Float>? = readAudioWaveformCacheFile(audioWaveformCacheFile(context, uri, durationMs, bucketCount), bucketCount)
-
-private fun readAudioWaveformCacheFile(cache: File, bucketCount: Int): List<Float>? {
-    if (!cache.isFile) return null
-    return runCatching {
-        cache.readText().split(',').mapNotNull(String::toFloatOrNull)
-            .takeIf { it.size == bucketCount && it.all { value -> value.isFinite() && value in 0f..1f } }
-    }.getOrNull()
+): List<Float>? {
+    val version=readWaveformSourceVersion(context,uri)
+    val cached=waveformDurations(durationMs,version.providerDuration,version.proven).firstNotNullOfOrNull { duration ->
+        readAudioWaveformCacheFile(waveformCacheFileFor(context,uri.toString(),duration,version,bucketCount),bucketCount)
+    }
+    return cached?.takeIf{readWaveformSourceVersion(context,uri)==version}
 }
+
+private fun readAudioWaveformCacheFile(cache: File, bucketCount: Int): List<Float>? =
+    com.domenota.medialoader.data.playback.TimelineWaveformDiskCache.read(cache,bucketCount)
 
 internal fun hasCachedAudioWaveform(context: Context, uri: Uri, durationMs: Long): Boolean =
     readCachedAudioWaveform(context, uri, durationMs) != null
 
-/** Only the background worker calls this. Per-key locks prevent duplicate decoding. */
 internal fun loadAudioWaveform(
     context: Context,
     uri: Uri,
     durationMs: Long,
     bucketCount: Int = AUDIO_WAVEFORM_BUCKETS,
     isCancelled: () -> Boolean = { false },
-): List<Float> {
-    val cache = audioWaveformCacheFile(context, uri, durationMs, bucketCount)
-    val lock = audioCacheLocks.computeIfAbsent(cache.name) { Any() }
-    readAudioWaveformCacheFile(cache, bucketCount)?.let { return it }
-    return com.domenota.medialoader.data.playback.WaveformDecodeGate.shared.decode(isCancelled) { synchronized(lock) {
-        readAudioWaveformCacheFile(cache, bucketCount)?.let { return@synchronized it }
-        val decoded = decodeAudioWaveform(context, uri, durationMs, bucketCount, isCancelled)
-        if (decoded.size == bucketCount && decoded.any { it > 0f }) {
-            runCatching {
-                cache.parentFile?.mkdirs()
-                val temporary = File.createTempFile("waveform-", ".tmp", cache.parentFile)
-                try {
-                    temporary.writeText(decoded.joinToString(","))
-                    check(temporary.renameTo(cache))
-                } finally {
-                    temporary.delete()
-                }
-            }
-        }
-        decoded
-    } }
+): List<Float> =
+    preparePersistedAudioWaveform(context,uri,durationMs,bucketCount,isCancelled).peaks
+
+/** Retain v6 filenames; canonical duration is used only with a proven near match. */
+internal fun preparePersistedAudioWaveform(
+    context:Context,uri:Uri,durationMs:Long,bucketCount:Int=AUDIO_WAVEFORM_BUCKETS,
+    isCancelled:()->Boolean={false}
+):com.domenota.medialoader.data.playback.WaveformPreparation {
+    val version=readWaveformSourceVersion(context,uri)
+    val durations=waveformDurations(durationMs,version.providerDuration,version.proven)
+    fun file(duration:Long)=waveformCacheFileFor(context,uri.toString(),duration,version,bucketCount)
+    fun sameVersion()=readWaveformSourceVersion(context,uri)==version
+    fun active(){if(isCancelled())throw java.util.concurrent.CancellationException("Waveform stopped")}
+    active()
+    for(duration in durations) {
+        val cache=file(duration)
+        val peaks=readAudioWaveformCacheFile(cache,bucketCount) ?: continue
+        active()
+        if(!sameVersion())return com.domenota.medialoader.data.playback.WaveformPreparation(emptyList(),
+            com.domenota.medialoader.data.playback.WaveformOutcome.FAILED,
+            com.domenota.medialoader.data.tasks.TaskFailure.IO)
+        return com.domenota.medialoader.data.playback.WaveformPreparation(peaks,
+            com.domenota.medialoader.data.playback.WaveformOutcome.CACHED,
+            cacheReceipt=if(version.proven)com.domenota.medialoader.data.playback.WaveformCacheReceipt.stamp(cache) else null)
+    }
+    val selected=durations.first()
+    val cache=file(selected)
+    val result=com.domenota.medialoader.data.playback.TimelineWaveformDiskCache.prepare(cache,bucketCount,isCancelled,
+        sameVersion=::sameVersion) { decodeAudioWaveform(context,uri,selected,bucketCount,isCancelled) }
+    active()
+    if(!sameVersion())return com.domenota.medialoader.data.playback.WaveformPreparation(emptyList(),
+        com.domenota.medialoader.data.playback.WaveformOutcome.FAILED,
+        com.domenota.medialoader.data.tasks.TaskFailure.IO)
+    return if(version.proven && result.outcome in setOf(
+        com.domenota.medialoader.data.playback.WaveformOutcome.CACHED,
+        com.domenota.medialoader.data.playback.WaveformOutcome.GENERATED))
+        result.copy(cacheReceipt=com.domenota.medialoader.data.playback.WaveformCacheReceipt.stamp(cache)) else result
 }
 
 private fun decodeAudioWaveform(
@@ -370,6 +432,7 @@ private fun decodeAudioWaveform(
     durationMs: Long,
     bucketCount: Int,
     isCancelled: () -> Boolean,
+    detailed: Boolean = false,
 ): List<Float> {
     val extractor = MediaExtractor()
     var codec: MediaCodec? = null
@@ -406,6 +469,8 @@ private fun decodeAudioWaveform(
         var inputEnded = false
         var outputEnded = false
         var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
+        var sampleRate = inputFormat.getIntegerOrNull(MediaFormat.KEY_SAMPLE_RATE) ?: 0
+        var channels = inputFormat.getIntegerOrNull(MediaFormat.KEY_CHANNEL_COUNT) ?: 0
 
         while (!outputEnded) {
             if (isCancelled() || Thread.currentThread().isInterrupted)
@@ -444,17 +509,24 @@ private fun decodeAudioWaveform(
                     val output = decoder.outputFormat
                     pcmEncoding = output.getIntegerOrNull(MediaFormat.KEY_PCM_ENCODING)
                         ?: AudioFormat.ENCODING_PCM_16BIT
+                    sampleRate = output.getIntegerOrNull(MediaFormat.KEY_SAMPLE_RATE) ?: sampleRate
+                    channels = output.getIntegerOrNull(MediaFormat.KEY_CHANNEL_COUNT) ?: channels
                 }
                 MediaCodec.INFO_TRY_AGAIN_LATER -> Unit
                 else -> if (outputIndex >= 0) {
                     if (info.size > 0) {
                         decoder.getOutputBuffer(outputIndex)?.let { buffer ->
-                            val part = pcmEnergy(buffer, info.offset, info.size, pcmEncoding)
-                            val bucket = (
-                                info.presentationTimeUs.coerceAtLeast(0L) * bucketCount / durationUs
-                                ).toInt().coerceIn(0, bucketCount - 1)
-                            energy[bucket] += part.total
-                            sampleCounts[bucket] += part.count
+                            if (detailed) {
+                                accumulateEditorPcm(buffer, info.offset, info.size, pcmEncoding,
+                                    info.presentationTimeUs, durationUs, sampleRate, channels, energy, sampleCounts)
+                            } else {
+                                val part = pcmEnergy(buffer, info.offset, info.size, pcmEncoding)
+                                val bucket = (
+                                    info.presentationTimeUs.coerceAtLeast(0L) * bucketCount / durationUs
+                                    ).toInt().coerceIn(0, bucketCount - 1)
+                                energy[bucket] += part.total
+                                sampleCounts[bucket] += part.count
+                            }
                         }
                     }
                     outputEnded = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
@@ -469,7 +541,8 @@ private fun decodeAudioWaveform(
             if (sampleCounts[index] == 0L) 0f
             else sqrt(energy[index] / sampleCounts[index]).toFloat()
         }
-        normalizeWaveformRms(rms)
+        if (sampleCounts.any { it > 0L } && rms.all { it == 0f }) rms.toList()
+        else normalizeWaveformRms(rms)
     } catch (cancelled: java.util.concurrent.CancellationException) {
         throw cancelled
     } catch (_: Exception) {
@@ -565,9 +638,8 @@ private fun MediaFormat.getIntegerOrNull(key: String): Int? =
     if (containsKey(key)) runCatching { getInteger(key) }.getOrNull() else null
 
 private fun cacheKey(value: String): String =
-    MessageDigest.getInstance("SHA-256")
-        .digest(value.toByteArray())
-        .joinToString("") { "%02x".format(it) }
+    com.domenota.medialoader.data.playback.waveformHex(MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray()))
 
 private const val VIDEO_TIMELINE_FRAMES = 8
 internal const val AUDIO_WAVEFORM_BUCKETS = 1024

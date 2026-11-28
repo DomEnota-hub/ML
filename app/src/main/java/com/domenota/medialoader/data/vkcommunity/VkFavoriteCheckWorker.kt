@@ -32,7 +32,7 @@ class VkFavoriteCheckWorker(context: Context, parameters: WorkerParameters) :
         setForeground(notice())
         val token = VkTokenStore(applicationContext).read()
         if (token == null) {
-            failPending(batch, "Сервисный ключ VK отсутствует. Добавьте ключ и повторите проверку")
+            failPending(batch, "Сервисный ключ VK отсутствует. Добавь ключ и повтори проверку")
             return Result.failure()
         }
         val api = VkCommunityApi()
@@ -46,7 +46,7 @@ class VkFavoriteCheckWorker(context: Context, parameters: WorkerParameters) :
             val favorite = favorites.list().firstOrNull { it.key == entry.favoriteKey }
             if (favorite?.sinceDate != entry.sinceDate ||
                 favorite.reviewedThroughEpoch != entry.reviewedThroughAtStart) {
-                database.phase(job.id, VkJobPhase.ERROR, "Дата сообщества изменилась. Запустите новую проверку")
+                database.phase(job.id, VkJobPhase.ERROR, "Дата сообщества изменилась. Запусти новую проверку")
                 continue
             }
             try {
@@ -61,7 +61,7 @@ class VkFavoriteCheckWorker(context: Context, parameters: WorkerParameters) :
                 database.phase(job.id, VkJobPhase.ERROR, error.userMessage())
                 AppLog.w("VkFavoriteCheck", "Community check failed · kind=${error.kind} · ${error.diagnostic()}")
                 if (error.kind == VkApiFailure.Kind.BAD_TOKEN) {
-                    failPending(batch, "Сервисный ключ VK отклонён. Замените ключ и повторите проверку")
+                    failPending(batch, "Сервисный ключ VK отклонён. Замени ключ и повтори проверку")
                     return Result.failure()
                 }
             } catch (error: Exception) {

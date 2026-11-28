@@ -20,8 +20,8 @@ class AudioDownloadEngine(private val extractor: AudioExtractor) : DownloadEngin
     } catch (error: AudioExtractor.InsufficientStorageException) {
         throw DownloadFailure(error.message ?: "Недостаточно места на устройстве.", error)
     } catch (error: LinkageError) {
-        throw DownloadFailure("Не удалось запустить обработку MP3. Обновите приложение.", error)
+        throw DownloadFailure("Не удалось запустить обработку MP3. Обнови приложение.", error)
     } catch (error: Exception) {
-        throw DownloadFailure("Не удалось извлечь аудио. Повторите попытку.", error)
+        throw DownloadFailure("Не удалось извлечь аудио. Повтори попытку.", error)
     }
 }

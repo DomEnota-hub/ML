@@ -34,7 +34,7 @@ import java.util.Locale
 
 @Composable
 internal fun RecentMusicCard(onOpen: () -> Unit) {
-    MusicOverviewCard("Недавно добавленные","История добавления по датам",com.domenota.medialoader.ui.components.CalendarDatesOutline,"recent-music-card",onOpen)
+    MusicOverviewCard("Недавно добавленные","",com.domenota.medialoader.ui.components.CalendarDatesOutline,"recent-music-card",onOpen)
 }
 
 @Composable
@@ -86,7 +86,7 @@ internal fun RecentMusicScreen(rows:List<DownloadEntity>,loading:Boolean,current
                         Box(Modifier.size(42.dp).background(musicPlaybackAccent.copy(alpha=.13f),RoundedCornerShape(10.dp)),contentAlignment=Alignment.Center){
                             Icon(CalendarDatesOutline,null,Modifier.size(28.dp),tint=musicPlaybackAccent)
                         }
-                        Column(Modifier.weight(1f)){Text("История добавления",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.SemiBold);Text(if(loading&&rows.isEmpty())"Загрузка музыки…" else RussianCounts.tracks(ids.size),color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
+                        Column(Modifier.weight(1f)){Text(if(loading&&rows.isEmpty())"Загрузка музыки…" else RussianCounts.tracks(ids.size),color=MaterialTheme.colorScheme.onSurfaceVariant,style=MaterialTheme.typography.bodySmall)}
                     }
                     RecentPlayButtons(ids,onPlay)
                 }

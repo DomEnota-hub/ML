@@ -92,7 +92,7 @@ internal fun MediaRecoveryLabSection(
     onRestoreRemainingDates: () -> Unit,
     onUndoMediaDateChanges: () -> Unit,
 ) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(true) }
     var diagnosticsExpanded by rememberSaveable { mutableStateOf(false) }
     var oldExpanded by rememberSaveable { mutableStateOf(false) }
     var historicalExpanded by rememberSaveable { mutableStateOf(false) }
@@ -123,7 +123,7 @@ internal fun MediaRecoveryLabSection(
             onClick = { if (!operationBusy) expanded = !expanded },
         )
         ExpandableSettingsBody(expanded || operationBusy) {
-            TextButton(onClick = onHide, enabled = !operationBusy) { Text("Скрыть лабораторию") }
+            TextButton(onClick = onHide, enabled = !operationBusy) { Text("Закрыть лабораторию") }
             GroupDivider()
             SettingRow(Icons.Rounded.FolderOpen, "Старые загрузки", "Инвентаризация и перенос",
                 grouped = true, nested = true, expanded = oldExpanded || oldRecoveryBusy,
@@ -482,7 +482,7 @@ internal fun MediaRecoveryLabSection(
             "Это не обязательно реальное время съёмки! Сам оригинал, ссылки " +
             "Загрузок, избранное, альбомы и история не изменяются. " +
             "Проверка даты, порядка, звука и воспроизведения в Xiaomi, " +
-            "потом удалите копию отдельной кнопкой.") },
+            "затем копию можно удалить отдельной кнопкой.") },
         confirmButton = { TextButton(onClick = {
             videoTrialDialog = false
             if (!sameUriBusy && !videoTrialBusy && !exifTrialBusy && !republishTrialBusy &&

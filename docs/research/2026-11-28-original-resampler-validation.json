@@ -1,0 +1,141 @@
+{
+  "status": "SYNTHETIC_LOCAL_VALIDATION_NOT_ANDROID",
+  "runtime": "ONNX Runtime1.20.0 Linux CPU1",
+  "source_wheel_sha256": "142d8b3ce7716684992826a269304f5ce9cf1c0fe704b751358e223f45d2a5cf",
+  "preprocessors": [
+    {
+      "file": "resample_11_16.b64",
+      "bytes": 10040,
+      "sha256": "d2a57251995f9688a1172723852fc3c1b3b222eee73d8050525975deb9684c7f"
+    },
+    {
+      "file": "resample_22_16.b64",
+      "bytes": 8776,
+      "sha256": "6a4f9ae1f6fd83a1b8ac24fdaf148a01a72269c5535649b8f3a68ffc8f126b7f"
+    },
+    {
+      "file": "resample_24_16.b64",
+      "bytes": 4029,
+      "sha256": "4fd046461013b80c7bc9684eb0ccf2c905cbbd3cd8a2e1d2e1d4c4166af8dbbc"
+    },
+    {
+      "file": "resample_32_16.b64",
+      "bytes": 3705,
+      "sha256": "a8ceb2777bc78989400d28607c9e8c75330ae1495631bab39daf24713c5511f1"
+    },
+    {
+      "file": "resample_44_16.b64",
+      "bytes": 8200,
+      "sha256": "b2ff60730b462c48854a226bc60472b9e4a57d60f5c69e10a49920f3e5d0627f"
+    },
+    {
+      "file": "resample_48_16.b64",
+      "bytes": 3758,
+      "sha256": "08f4c3190f2af9bb14ccf1c8f1f71b888cf0c733238380c7950051a5d5ddc83f"
+    },
+    {
+      "file": "resample_8_16.b64",
+      "bytes": 3727,
+      "sha256": "284a1fae00455c7a6335ea6d719d9cb84e3dc1bbabe4c9cf341ab79a2ee67873"
+    }
+  ],
+  "original_filter_tones": [
+    {
+      "input_hz": 1000,
+      "rms": 0.7068248391151428,
+      "output_len": 32000
+    },
+    {
+      "input_hz": 6000,
+      "rms": 0.6963130235671997,
+      "output_len": 32000
+    },
+    {
+      "input_hz": 10000,
+      "rms": 0.003835846669971943,
+      "output_len": 32000
+    }
+  ],
+  "streaming_java_golden": [
+    {
+      "rate": 8000,
+      "source_frames": 24017,
+      "output_frames": 48034,
+      "chunks": 4,
+      "fixture_sha256": "32f7002070418b0d6b2db15af28c0130fe9667dac90fcda1a4c4f2ad1957f8ef",
+      "max_abs_error": 0.0,
+      "passed": true
+    },
+    {
+      "rate": 11025,
+      "source_frames": 33092,
+      "output_frames": 48025,
+      "chunks": 4,
+      "fixture_sha256": "0fa9f5d2c13f31b81e2ca82b9d626dd94d90a04615bb3e8601485a41f42d5ad2",
+      "max_abs_error": 0.0,
+      "passed": true
+    },
+    {
+      "rate": 22050,
+      "source_frames": 66167,
+      "output_frames": 48013,
+      "chunks": 4,
+      "fixture_sha256": "4d26bc25831b4d8ca6f0aba5a5c26e45308af20cff4555f651223afbafdcb2e3",
+      "max_abs_error": 0.0,
+      "passed": true
+    },
+    {
+      "rate": 24000,
+      "source_frames": 72017,
+      "output_frames": 48012,
+      "chunks": 4,
+      "fixture_sha256": "a7b79e6e283e1df8562292129ff8ebb6d9363830e0b491cc8c98186faafa3652",
+      "max_abs_error": 0.0,
+      "passed": true
+    },
+    {
+      "rate": 32000,
+      "source_frames": 96017,
+      "output_frames": 48009,
+      "chunks": 4,
+      "fixture_sha256": "37d219833d7a52e4d4f352caecd42519efc00ee8cb76c026af0b0eefe51f9106",
+      "max_abs_error": 0.0,
+      "passed": true
+    },
+    {
+      "rate": 44100,
+      "source_frames": 132317,
+      "output_frames": 48007,
+      "chunks": 4,
+      "fixture_sha256": "f6485e0beda36c127775a460ee01e0c17d4092957877fb2b68b96b53710873df",
+      "max_abs_error": 0.0,
+      "passed": true
+    },
+    {
+      "rate": 48000,
+      "source_frames": 144017,
+      "output_frames": 48006,
+      "chunks": 4,
+      "fixture_sha256": "f7c4b52773416a25e6dfd3f341c8635103ce40535fe2f92f22fbf88643f06547",
+      "max_abs_error": 0.0,
+      "passed": true
+    }
+  ],
+  "bound": "one source second plus40ms context on each side;<=51840mono float samples in source buffer at48kHz",
+  "cache_revision": "gigaam-ctc-qa4",
+  "ctc_math": "unchanged fromqa3; revision invalidates generated timing after changed preprocessing",
+  "unsupported_native_rates": "decline; supported original rates8/11.025/16/22.05/24/32/44.1/48kHz;16k direct",
+  "limitations": [
+    "MediaCodec/device clock and native Android ORT are not measured",
+    "Full-song chosen-model changed-frontend probe completed separately: Markul accepted, MUKKA declined; public candidate LRC only",
+    "Independent unique singing changed-frontend probe14/15 accepted, one alto only",
+    "This validation cannot clear release hold"
+  ],
+  "synthetic_tone_source": {
+    "sample_rate": 48000,
+    "duration_seconds": 2,
+    "amplitude": 1,
+    "waveform": "sine",
+    "discard_output_edge_samples": 1600
+  }
+}

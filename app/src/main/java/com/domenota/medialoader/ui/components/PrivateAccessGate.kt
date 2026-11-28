@@ -29,11 +29,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.domenota.medialoader.data.privatevault.PrivateAccessManager
 import com.domenota.medialoader.data.privatevault.PrivateAccessMode
+import com.domenota.medialoader.data.privatevault.PrivateUnlockDuration
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.Executor
 
 @Composable
-fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifier, autoAuthenticate: Boolean = true) {
+fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifier,
+    autoAuthenticate: Boolean = true, allowRememberedSession: Boolean = false) {
     val state by manager.state.collectAsState()
     if (state.unlocked) return
     if (state.mode == PrivateAccessMode.UNCONFIGURED) {
@@ -45,12 +50,16 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var attemptedSystemEntry by rememberSaveable { mutableStateOf(false) }
-    val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
     val authenticate = rememberSystemAuthentication(
         onSuccess = { manager.onSystemAuthenticationSucceeded(); busy = false },
         onFailure = { error = it.takeUnless { reason -> reason == "Подтверждение отменено" }; busy = false }
     )
-    LaunchedEffect(state.mode, lifecycleState, autoAuthenticate) {
+    LaunchedEffect(state.mode, lifecycleState, autoAuthenticate, allowRememberedSession) {
+        if (lifecycleState != Lifecycle.State.RESUMED ||
+            lifecycleOwner.lifecycle.currentState != Lifecycle.State.RESUMED) return@LaunchedEffect
+        if (allowRememberedSession && manager.resumeRememberedAccess()) return@LaunchedEffect
         if (autoAuthenticate && state.mode == PrivateAccessMode.BIOMETRIC &&
             lifecycleState == Lifecycle.State.RESUMED && !attemptedSystemEntry && manager.systemProtectionAvailable) {
             // Consume before launching: credential activities stop/resume our lifecycle.
@@ -67,7 +76,7 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
         Text("Личный раздел", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
         when (state.mode) {
             PrivateAccessMode.PIN -> {
-                Text("Введите PIN из 6 цифр")
+                Text("PIN из 6 цифр")
                 PrivatePinField(pin, { pin = it }, "PIN", !busy)
                 Button(enabled = !busy && pin.length == 6, onClick = {
                     busy = true
@@ -75,17 +84,17 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
                     pin = ""
                     scope.launch {
                         runCatching { manager.unlockWithPin(entered) }
-                            .onSuccess { if (!it) error = "Неверный PIN или слишком много попыток. После 5 ошибок подождите не менее 30 секунд." }
+                            .onSuccess { if (!it) error = "Неверный PIN или слишком много попыток. После 5 ошибок необходимо подождать не менее 30 секунд." }
                             .onFailure { error = it.message ?: "Ошибка входа" }
                         busy = false
                     }
                 }) { Text("Открыть") }
-                Text("Если вы забыли свой PIN, восстановить доступ к приватным файлам нельзя.", style = MaterialTheme.typography.bodySmall)
+                Text("Если PIN забыт, восстановить доступ к приватным файлам нельзя.", style = MaterialTheme.typography.bodySmall)
             }
             PrivateAccessMode.BIOMETRIC -> {
-                Text("Подтвердите вход, чтобы открыть личные файлы", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                Text("Для открытия личных файлов необходимо подтвердить вход", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
                 Button(enabled = !busy && manager.systemProtectionAvailable, onClick = { attemptedSystemEntry = true; busy = true; error = null; authenticate() }) { Text(if (attemptedSystemEntry) "Повторить вход" else "Подтвердить вход") }
-                if (!manager.systemProtectionAvailable) Text("Блокировка устройства недоступна. Восстановите её в настройках Android.")
+                if (!manager.systemProtectionAvailable) Text("Блокировка устройства недоступна. Восстановление доступно в настройках Android.")
             }
             PrivateAccessMode.NONE -> Button(onClick = manager::unlockWithoutProtection) { Text("Открыть раздел") }
             else -> Unit
@@ -96,9 +105,12 @@ fun PrivateAccessGate(manager: PrivateAccessManager, modifier: Modifier = Modifi
 }
 
 @Composable
-fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit) {
+fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit,
+    onManualLock: (() -> Unit)? = null) {
     val state by manager.state.collectAsState()
     val scope = rememberCoroutineScope()
+    val unlockDuration by manager.unlockDuration.collectAsState()
+    var durationMenu by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<PrivateAccessMode?>(null) }
     var pin by remember { mutableStateOf("") }
     var confirmation by remember { mutableStateOf("") }
@@ -119,21 +131,41 @@ fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit)
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Защита приватного раздела", style = MaterialTheme.typography.headlineSmall)
         if (state.mode != PrivateAccessMode.UNCONFIGURED && !state.unlocked) {
-            Text("Сначала разблокируйте приватный раздел")
+            Text("Сначала разблокируй приватный раздел")
             return@Column
         }
-        Text("Выберите способ входа")
+        if (state.unlocked && state.mode in setOf(PrivateAccessMode.PIN, PrivateAccessMode.BIOMETRIC)) {
+            Text("Время разблокировки", style = MaterialTheme.typography.titleMedium)
+            Box {
+                OutlinedButton(onClick = { durationMenu = true }, enabled = !busy) { Text(unlockDuration.title) }
+                DropdownMenu(expanded = durationMenu && !busy, onDismissRequest = { durationMenu = false }) {
+                    PrivateUnlockDuration.values().forEach { choice ->
+                        DropdownMenuItem(text = { Text(choice.title) }, onClick = {
+                            durationMenu = false; busy = true; error = null
+                            scope.launch {
+                                try { withContext(Dispatchers.IO) { manager.setUnlockDuration(choice) } }
+                                catch (cancelled: CancellationException) { throw cancelled }
+                                catch (e: Exception) { error = e.message ?: "Не удалось сохранить время" }
+                                finally { busy = false }
+                            }
+                        })
+                    }
+                }
+            }
+            Text("Отсчёт после выхода из раздела или сворачивания.", style = MaterialTheme.typography.bodySmall)
+        }
+        Text("Выбери способ входа")
         listOf(PrivateAccessMode.NONE to "Без защиты", PrivateAccessMode.PIN to "Свой PIN из 6 цифр", PrivateAccessMode.BIOMETRIC to "Биометрия / блокировка устройства").forEach { (mode, title) ->
             Row {
                 RadioButton(selected = selected == mode, enabled = !busy && (mode != PrivateAccessMode.BIOMETRIC || manager.systemProtectionAvailable), onClick = { selected = mode; pin = ""; confirmation = ""; error = null })
                 TextButton(enabled = !busy && (mode != PrivateAccessMode.BIOMETRIC || manager.systemProtectionAvailable), onClick = { selected = mode; pin = ""; confirmation = ""; error = null }) { Text(title) }
             }
         }
-        if (!manager.systemProtectionAvailable) Text("Для системной защиты сначала задайте PIN, пароль или рисунок в настройках Android.", style = MaterialTheme.typography.bodySmall)
+        if (!manager.systemProtectionAvailable) Text("Для системной защиты необходимо задать PIN, пароль или рисунок в настройках Android.", style = MaterialTheme.typography.bodySmall)
         if (selected == PrivateAccessMode.PIN) {
             PrivatePinField(pin, { pin = it }, "Новый PIN", !busy)
-            PrivatePinField(confirmation, { confirmation = it }, "Повторите PIN", !busy)
-            Text("Забытый PIN восстановить нельзя. Сохраните его в безопасном месте.", style = MaterialTheme.typography.bodySmall)
+            PrivatePinField(confirmation, { confirmation = it }, "Повтори PIN", !busy)
+            Text("Забытый PIN восстановить нельзя. PIN необходимо хранить в безопасном месте.", style = MaterialTheme.typography.bodySmall)
         }
         Text("Приватные файлы хранятся внутри приложения и будут удалены при его удалении.", style = MaterialTheme.typography.bodySmall)
         Button(enabled = !busy && selected != null && (selected != PrivateAccessMode.PIN || (pin.length == 6 && pin == confirmation)), onClick = {
@@ -144,6 +176,10 @@ fun PrivateProtectionSettings(manager: PrivateAccessManager, onDone: () -> Unit)
             // A second credential activity would background the app and revoke that authorization.
             if (mode == PrivateAccessMode.BIOMETRIC && state.mode == PrivateAccessMode.UNCONFIGURED) authenticate() else save(mode)
         }) { Text(if (selected == PrivateAccessMode.BIOMETRIC && state.mode == PrivateAccessMode.UNCONFIGURED) "Подтвердить и сохранить" else "Сохранить") }
+        if (onManualLock != null && state.unlocked &&
+            state.mode in setOf(PrivateAccessMode.PIN, PrivateAccessMode.BIOMETRIC)) {
+            TextButton(onClick = onManualLock, enabled = !busy) { Text("Заблокировать сейчас") }
+        }
         if (busy) CircularProgressIndicator()
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     }
@@ -182,7 +218,7 @@ private fun rememberSystemAuthentication(onSuccess: () -> Unit, onFailure: (Stri
             signal = null
             previousSignal?.cancel()
             @Suppress("DEPRECATION")
-            val intent = keyguard.createConfirmDeviceCredentialIntent("Приватный раздел", "Подтвердите вход")
+            val intent = keyguard.createConfirmDeviceCredentialIntent("Приватный раздел", "Подтверждение входа")
             if (intent == null) failure("Блокировка устройства недоступна")
             else {
                 pendingCredential = true
@@ -199,7 +235,7 @@ private fun rememberSystemAuthentication(onSuccess: () -> Unit, onFailure: (Stri
                 @Suppress("DEPRECATION")
                 val prompt = BiometricPrompt.Builder(context)
                     .setTitle("Приватный раздел")
-                    .setSubtitle("Подтвердите вход")
+                    .setSubtitle("Подтверждение входа")
                     .setNegativeButton("Блокировка устройства", executor) { _, _ -> if (active) credential() }
                     .build()
                 prompt.authenticate(cancellation, executor, object : BiometricPrompt.AuthenticationCallback() {
@@ -208,7 +244,7 @@ private fun rememberSystemAuthentication(onSuccess: () -> Unit, onFailure: (Stri
                         if (!active || signal !== cancellation) return
                         if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT || errorCode == BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS || errorCode == BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE || errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT || errorCode == BiometricPrompt.BIOMETRIC_ERROR_LOCKOUT_PERMANENT) credential()
                         else if (errorCode == BiometricPrompt.BIOMETRIC_ERROR_CANCELED || errorCode == BiometricPrompt.BIOMETRIC_ERROR_USER_CANCELED) failure("Подтверждение отменено")
-                        else failure("Не удалось подтвердить вход. Попробуйте ещё раз.")
+                        else failure("Не удалось подтвердить вход. Повтори попытку.")
                     }
                 })
             }.onFailure { credential() }

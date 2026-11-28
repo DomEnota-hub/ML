@@ -12,6 +12,63 @@ class AudioPairAlignmentTest {
         v[index%128]=1f
         ComparisonFrame(v,.5f)
     }
+    @Test fun isolatedCoarseWordEditIsRetainedForFineConfirmation() {
+        val first = recording(100)
+        val edited = first.toMutableList()
+        // A short word edit can be 83% spectrally similar, so a diagonal
+        // substitution is optimal. An unrelated frame would instead realign
+        // as missing+extra content and would not test this edge case.
+        edited[36] = ComparisonFrame(FloatArray(128).apply {
+            this[36] = .83f; this[120] = .5577634f
+        }, .5f)
+        val aligned = requireNotNull(AudioPairAlignment.align(first, edited, 256))
+        assertTrue("Existing 512-ms gate alone would discard the word", aligned.zones.isEmpty())
+        assertEquals(1, aligned.shortCandidates.size)
+        val region = aligned.shortCandidates.single()
+        assertEquals(36, aligned.columns[region.start].first)
+        val added = aligned.withConfirmedShortZones(setOf(region))
+        assertEquals(listOf(region), added.zones)
+        assertEquals(ComparisonZoneKind.SHORT_CHANGE_UNCERTAIN, added.zoneKind(region))
+    }
+
+    @Test fun twoFineFramesConfirmShortContentButSingleCodecImpulseDoesNot() {
+        val base = recording(12)
+        val changed = base.toMutableList()
+        changed[4] = ComparisonFrame(FloatArray(128).apply { this[124] = 1f }, .5f)
+        changed[5] = ComparisonFrame(FloatArray(128).apply { this[125] = 1f }, .5f)
+        assertTrue(AudioPairAlignment.confirmsShortDifference(base, changed, 2, 2, 4))
+        val blip = base.toMutableList()
+        blip[4] = changed[4]
+        assertFalse(AudioPairAlignment.confirmsShortDifference(base, blip, 2, 2, 4))
+        assertFalse(AudioPairAlignment.confirmsShortDifference(base, base, 2, 2, 4))
+    }
+
+    @Test fun finePassNeedsMatchingContextAndEnoughSignal() {
+        val base = recording(12)
+        val unrelated = List(12) { ComparisonFrame(FloatArray(128).apply { this[100] = 1f }, .5f) }
+        assertFalse(AudioPairAlignment.confirmsShortDifference(base, unrelated, 2, 2, 4))
+        val quiet = base.map { ComparisonFrame(it.spectrum, .00001f) }
+        val edited = quiet.toMutableList()
+        edited[4] = ComparisonFrame(FloatArray(128).apply { this[120] = 1f }, .00001f)
+        edited[5] = ComparisonFrame(FloatArray(128).apply { this[121] = 1f }, .00001f)
+        assertFalse(AudioPairAlignment.confirmsShortDifference(quiet, edited, 2, 2, 4))
+    }
+
+    @Test fun nearThresholdWordIsQueuedButNotAutomaticallyCalledDifferent() {
+        val first = recording(100)
+        val second = first.toMutableList()
+        second[36] = ComparisonFrame(FloatArray(128).apply {
+            this[36] = .89f; this[120] = .4559605f
+        }, .5f)
+        val aligned = requireNotNull(AudioPairAlignment.align(first, second, 256))
+        assertTrue("Borderline spectra must not become confirmed zones", aligned.zones.isEmpty())
+        assertTrue("PCM refinement must get the borderline candidate",
+            aligned.shortCandidates.any { region ->
+                aligned.columns[region.start].first == 36 &&
+                    aligned.columns[region.start].second == 36
+            })
+    }
+
     @Test fun oneSecondLongerIntroDoesNotMarkRemainingRecording() {
         val original=recording(80)
         val intro=List(4){i->ComparisonFrame(FloatArray(128).apply{this[100+i]=1f},.4f)}
@@ -105,6 +162,35 @@ class AudioPairAlignmentTest {
         assertEquals(ComparisonZoneKind.EXTRA_IN_VERSION,result.zoneKind(result.zones[0]))
         assertEquals(ComparisonZoneKind.MISSING_IN_VERSION,result.zoneKind(result.zones[1]))
         assertEquals(320,result.columns.first{it.first==320}.second)
+    }
+
+    @Test fun lowLevelNonSilentTerminalDifferenceIsUncertainNotChangedContent() {
+        val music=recording(72)
+        val a=music+List(9){ComparisonFrame(FloatArray(128).apply{this[117]=1f},.00010f)}
+        val b=music+List(9){ComparisonFrame(FloatArray(128).apply{this[118]=1f},.00012f)}
+        val result=requireNotNull(AudioPairAlignment.align(a,b,256))
+        assertTrue(result.zones.isNotEmpty())
+        assertEquals(result.columns.size,result.zones.last().endExclusive)
+        assertEquals(ComparisonZoneKind.QUIET_EDGE_UNCERTAIN,result.zoneKind(result.zones.last()))
+    }
+
+    @Test fun realQuietAudioOnBoundaryRemainsAReportedDifference() {
+        val music=recording(72)
+        val a=music+List(8){ComparisonFrame(FloatArray(128).apply{this[117]=1f},.002f)}
+        val b=music+List(8){ComparisonFrame(FloatArray(128).apply{this[118]=1f},.002f)}
+        val result=requireNotNull(AudioPairAlignment.align(a,b,256))
+        assertTrue(result.zones.isNotEmpty())
+        assertNotEquals(ComparisonZoneKind.QUIET_EDGE_UNCERTAIN,result.zoneKind(result.zones.last()))
+        assertNotEquals(ComparisonZoneKind.SILENT_PADDING,result.zoneKind(result.zones.last()))
+    }
+
+    @Test fun veryQuietInternalEditIsNeverClassifiedAsTerminalPadding() {
+        val music=recording(72)
+        val a=music.take(28)+List(8){ComparisonFrame(FloatArray(128).apply{this[117]=1f},.0001f)}+music.drop(28)
+        val b=music.take(28)+List(8){ComparisonFrame(FloatArray(128).apply{this[118]=1f},.0001f)}+music.drop(28)
+        val result=requireNotNull(AudioPairAlignment.align(a,b,256))
+        assertTrue(result.zones.isNotEmpty())
+        assertTrue(result.zones.all{result.zoneKind(it)!=ComparisonZoneKind.QUIET_EDGE_UNCERTAIN})
     }
 
     @Test fun silenceInsideTrackAndQuietAudibleIntroAreNotDismissedAsPadding() {

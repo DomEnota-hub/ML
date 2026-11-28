@@ -216,7 +216,7 @@ fun AudioEditorScreen(
                 navigationIcon = {
                     IconButton(onClick = {
                         if (replacingOriginal) {
-                            replaceError = "Завершите замену MP3, прежде чем выходить из редактора."
+                            replaceError = "Перед выходом из редактора необходимо завершить замену MP3."
                         } else requestExit()
                     }) {
                         Icon(Icons.Rounded.ArrowBack, contentDescription = "Назад")
@@ -354,7 +354,6 @@ fun AudioEditorScreen(
             )
 
             Spacer(Modifier.height(24.dp))
-            Text("Обрезка", style = MaterialTheme.typography.titleMedium)
             val duration = sourceInfo?.durationMs ?: 0L
             if (duration > 0L) {
                 MediaTrimControls(
@@ -369,11 +368,14 @@ fun AudioEditorScreen(
                     modifier = Modifier.fillMaxWidth(),
                     showSolidTrimBar = false,
                     independentSeek = true,
-                    timelineVisual = { visualModifier ->
+                    audioTimelineVisual = { visualModifier, start, end, zoom ->
                         AudioWaveformTimeline(
                             uri = uri,
                             durationMs = duration,
                             modifier = visualModifier,
+                            viewportStartMs = start,
+                            viewportEndMs = end,
+                            zoom = zoom,
                         )
                     },
                 )
@@ -383,6 +385,7 @@ fun AudioEditorScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
+                Text("Обрезка", style = MaterialTheme.typography.titleMedium)
                 Text("Определяем длительность…", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
@@ -396,7 +399,7 @@ fun AudioEditorScreen(
                 )
                 Text(
                     if (replacingOriginal)
-                        "Не закрывайте приложение до окончания замены и проверки MP3."
+                        "Не закрывать приложение до окончания замены и проверки MP3."
                     else "Можно выйти из редактора — обработка продолжится в фоне.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -429,10 +432,8 @@ fun AudioEditorScreen(
                 ) {
                     Text("Заменить оригинал")
                 }
-                Text(
-                    if (canReplaceOriginal)
-                        "Копия сохраняется отдельно. Замена MP3 изменяет исходный файл только после подтверждения."
-                    else "Безопасная замена доступна только для общих MP3-файлов в медиатеке. Остальные сохраняются копией.",
+                if (!canReplaceOriginal) Text(
+                    "Безопасная замена доступна только для общих MP3-файлов в медиатеке. Остальные сохраняются копией.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 8.dp),
@@ -446,7 +447,7 @@ fun AudioEditorScreen(
                     title = { Text("Заменить исходный MP3?") },
                     text = {
                         Text("Изменённое аудио заменит оригинал, сохранив его место в галерее и избранном. " +
-                            "ML сделает защитную копию и проверит новую запись. Не закрывайте приложение до завершения.")
+                            "ML сделает защитную копию и проверит новую запись. Не закрывать приложение до завершения.")
                     },
                     confirmButton = {
                         TextButton(onClick = {

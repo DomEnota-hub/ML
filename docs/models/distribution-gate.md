@@ -1,0 +1,28 @@
+# ML-Models: QA230-05 distribution gate (26.11.2026)
+
+Status: DEVELOPMENT INSTALLER IMPLEMENTED; INDEPENDENT CHANGED-WEIGHT RELEASE AND PUBLIC RIGHTS BLOCKED. This document is a design/approval record, not a deployed catalog or release authority.
+
+## Current supported sources
+
+The installed Android model stores and SHA-256 pins remain the authoritative trust boundary. The new AiModelCatalog groups five model descriptions, pinned binary identities and source provenance. The current three upstream checks are advisory only. No server response authorizes changed weights.
+
+- LaMa: sapienkit/LaMa-ONNX publisher card reports Apache-2.0, matching existing SHA. Exact length 208,044,816 bytes corroborated by identical SHA-256 mirror metadata (https://huggingface.co/ravetools/watermark-remover/blob/main/README.md); immutable revision and direct download receipt still required before independent release activation.
+- MobileSAM: Acly/MobileSAM at 0d3b403339b4674a82493d5e97964dd78089ddc8 (export publisher MIT); encoder and single-mask decoder are one bundle. Existing exact sizes and digests in MobileSamModelStore.
+- EfficientDet-Lite0: official MediaPipe URL pinned to float32/1; exact size and SHA in PersonDetectorModelStore. The HF mirror metadata is advisory; retain official source and recheck model terms before redistribution.
+- SRNet: existing MIT-licensed original checkpoint and verified conversion (THIRD_PARTY_NOTICES.md). Offline installation and explicit pinned network download remain available.
+- DExNet + VGG19: exact tested ONNX SHA/bytes in ReflectionDExModelStore; the original code license is not proof of redistribution rights for the exported combined model. Development-only local assembly from original DExNet and VGG19 sources implemented; retain verified SAF import and optional audited bundled build. No combined weights hosted. Original terms still require confirmation; public distribution remains gated.
+
+Sources checked: https://huggingface.co/sapienkit/LaMa-ONNX, https://huggingface.co/Acly/MobileSAM/blob/0d3b403339b4674a82493d5e97964dd78089ddc8/README.md, https://github.com/jjhuangcs/DExNet, THIRD_PARTY_NOTICES.md and docs/qa/stage4_reflection_model_gate_20261109.md.
+
+## Publication and update contract (not active)
+
+Owner provisioned https://github.com/DomEnota-hub/ML-models. Initial inventory and existing MIT SRNet conversion published with attribution. Catalog SHA 82f1ea2991414d07d0757e62e29c2744f009ba85. Android reads inventory as advisory metadata, never as installation authorization. SRNet explicitly downloads the pinned identical artifact or installs offline. DExNet graph-only recipe published at ML-models commit 4b284dacd842dcaddb746d6e6b3490ac08cb6f49. Android fetches exact original sources, checks all bytes, reconstructs the previously pinned ONNX by 1,854 ranges and removes temporary files. Network transfer approx. 694 MB; 900 MB free space required. Research #45804969093 and publication #45805495680 reproduced exact 91,341,128-byte ONNX and SHA-256 without redistributing trained payloads. Device QA pending. Signed independent changed-weight update activation is NOT implemented.
+
+Before independent update activation:
+1. Provision the owner-controlled catalog/large-file hosting and offline catalog signing key, keep the private key outside GitHub; provision the public verification key in the app. Define versioned canonical signed manifests, monotonic release numbers, supported app/engine versions, exact filenames/sizes/SHA-256, immutable HTTPS URLs, license and compatibility evidence, expiration and rollback policy.
+2. For every artifact establish distribution rights, verify actual bytes, tensor/metadata/shape/operator contracts, CPU inference parity, quality and memory budgets. Model card license alone does not clear a composite model.
+3. Stage complete bundles (including both MobileSAM components), verify all contents before activation, switch one durable active-generation pointer atomically, keep the working generation until successful activation. Serialize with ORT/TFLite session lifecycle; support cancellation and process death. Never change installed weights automatically on metadata check.
+4. Test invalid signature, unsupported compatibility, replay, size/hash mismatch, incomplete bundle, failed activation, disk shortage, interrupted download and rollback, and existing editor parity. Existing pinned installs and offline/import fallbacks must remain usable without network.
+5. Only after owner-controlled publication and end-to-end verification, show an Update action for a specifically approved compatible release. Unreviewed upstream changes remain review-only.
+
+The compact UI is implemented independently of publication. QA230-05 cannot be marked complete merely because the current catalog is represented in code.

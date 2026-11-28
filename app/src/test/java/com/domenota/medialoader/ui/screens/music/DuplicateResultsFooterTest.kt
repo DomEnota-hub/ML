@@ -79,4 +79,27 @@ class DuplicateResultsFooterTest {
         compose.onNodeWithTag("duplicates-bytes").assertTextEquals("1,21 ГБ")
         if (count == 0) action.assertIsNotEnabled() else action.assertIsEnabled()
     }
+    @Test fun trackKeepActionsStayRightWithoutMovingPlay(){
+        val kept=androidx.compose.runtime.mutableStateOf(false)
+        val enabled=androidx.compose.runtime.mutableStateOf(true)
+        val show=androidx.compose.runtime.mutableStateOf(true)
+        var clicks=0
+        compose.setContent { MaterialTheme { Box(Modifier.width(320.dp)){
+            DuplicateTrackActionRow(kept.value,show.value,true,enabled.value,false,"Прослушать",{}, {clicks++})
+        } } }
+        val row=compose.onNodeWithTag("duplicate-track-actions").fetchSemanticsNode().boundsInRoot
+        val play=compose.onNodeWithTag("duplicate-track-play").fetchSemanticsNode().boundsInRoot
+        val action=compose.onNodeWithTag("duplicate-track-keep")
+        action.assertIsDisplayed().assertTextContains("Оставить этот").performClick()
+        assertTrue(kotlin.math.abs(row.right-action.fetchSemanticsNode().boundsInRoot.right)<=2f)
+        compose.runOnIdle { assertEquals(1,clicks);kept.value=true }
+        action.assertTextContains("Отметить остальные")
+        assertTrue(kotlin.math.abs(row.right-action.fetchSemanticsNode().boundsInRoot.right)<=2f)
+        assertEquals(play.left,compose.onNodeWithTag("duplicate-track-play").fetchSemanticsNode().boundsInRoot.left,1f)
+        compose.onNodeWithText("Остаётся").assertIsDisplayed()
+        compose.runOnIdle { enabled.value=false }
+        action.assertIsNotEnabled()
+        compose.runOnIdle { show.value=false }
+        action.assertDoesNotExist()
+    }
 }

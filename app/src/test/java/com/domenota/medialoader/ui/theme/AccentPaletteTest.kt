@@ -24,7 +24,12 @@ class AccentPaletteTest {
         assertEquals(Color(0xFF762DFF), originalShazamColor(false))
         assertEquals(Color(0xFFBB9CFF), originalShazamColor(true, true))
         assertEquals(Color(0xFF7036CB), originalShazamColor(false, true))
-        for (tone in listOf(SettingIconTone.ACCOUNTS, SettingIconTone.PLAYER, SettingIconTone.THEME))
+        for (tone in listOf(SettingIconTone.ACCOUNTS, SettingIconTone.PLAYER))
             assertEquals(AppGold, tone.swatch(true).foreground)
+        // QA230-06: the Settings Theme row has its own approved pair in each theme.
+        assertEquals(SettingsIconSwatch(Color(0xFFF2D5A5), Color(0xFF423828)),
+            SettingIconTone.THEME.swatch(true))
+        assertEquals(SettingsIconSwatch(Color(0xFF89612D), Color(0xFFFCF0DC)),
+            SettingIconTone.THEME.swatch(false))
     }
 }

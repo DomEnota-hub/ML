@@ -100,3 +100,5 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 User explicitly installs the bundled model into private app storage; no photo
 leaves the Android device. This model targets specular highlights, not objects,
 glassy reflections or irrevocably clipped overexposure. Quality is not guaranteed.
+
+Original fixed resample_*_16.onnx preprocessing filters bundled for lyrics alignment are from onnx-asr0.11.0, Copyright2025 Ilya Stupakov, MIT. They use the existing ONNX Runtime and are deterministic signal-processing components, not additional learned models. Full permission/copyright notice is bundled in app/src/main/assets/ai/GIGAAM-NOTICES.txt.

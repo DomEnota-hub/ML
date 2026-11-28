@@ -21,7 +21,10 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 MUSIC = ('com.domenota.medialoader.ui.screens.music.RecentMusicScreenTest',
-         'com.domenota.medialoader.ui.screens.music.SmartMusicScreenTest')
+         'com.domenota.medialoader.ui.screens.music.SmartMusicScreenTest',
+         # #293: unchanged paused-results UI test hit AppNotIdleException in bulk.
+         # Run every method of this class in a fresh worker; no assertion/skip changes.
+         'com.domenota.medialoader.ui.screens.music.MusicScanModeControlsTest')
 COLLECTION = (
     'com.domenota.medialoader.ui.screens.organization.MediaOrganizationScreenTest',
     'com.domenota.medialoader.ui.screens.organization.LastCollectionCoverPresentationTest',
@@ -119,6 +122,18 @@ def merge_cases(cases):
         ET.ElementTree(merged).write(RESULTS / f'TEST-{cls}.xml', encoding='utf-8', xml_declaration=True)
 
 
+def preserve_failed_batch(batch_root, shard_root, task_names):
+    """Retain original evidence even when the Gradle graph aborts early."""
+    saved = []
+    for task in task_names:
+        for kind in ('xml', 'html'):
+            source = batch_root / task / kind
+            if source.is_dir():
+                shutil.copytree(source, shard_root / 'failed-batch' / task / kind)
+                saved.append(f'{task}/{kind}')
+    return saved
+
+
 def run_batch(expected, shard_root):
     plan=shard_root/'batch-plan.json'
     plan.write_text(json.dumps(expected,indent=2)+'\n')
@@ -138,7 +153,11 @@ def run_batch(expected, shard_root):
             print(line,end='',flush=True);stream.write(line)
         exit_code=proc.wait()
     batch_seconds=round(time.monotonic()-start,3)
-    if exit_code:raise RuntimeError(f'Batch Gradle exit {exit_code}')
+    if exit_code:
+        saved = preserve_failed_batch(batch_root, shard_root, task_names)
+        print(json.dumps({'shard':'isolated-batch','seconds':batch_seconds,'exit':exit_code,
+                          'preserved_failed_batch':saved}),flush=True)
+        raise RuntimeError(f'Batch Gradle exit {exit_code}')
     print(json.dumps({'shard':'isolated-batch','seconds':batch_seconds,'exit':exit_code}),flush=True)
     log_text=log.read_text()
     for task,(cls,method) in zip(task_names,expected):

@@ -29,19 +29,21 @@ internal fun <T> backgroundLibraryProjection(empty: T, privacy: Set<String>?, va
     var published by remember { mutableStateOf<PublishedLibraryValue<T>?>(null, referentialEqualityPolicy()) }
     LaunchedEffect(key, privacy, accessGuard, enabled, retentionGuard) {
         if (privacy == null || accessGuard == null || !enabled) {
-            if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance())
-                com.domenota.medialoader.core.logging.AppLog.i("Perf", "READ_MODEL_GUARD kind=$kind " +
-                    "reason=${if (privacy == null) "PRIVACY" else if (accessGuard == null) "ACCESS" else "DISABLED"} " +
-                    "retained=false")
+            com.domenota.medialoader.core.logging.AppLog.readModelGuard(kind,
+                if(privacy==null)com.domenota.medialoader.core.logging.ReadModelGuardReason.PRIVACY
+                else if(accessGuard==null)com.domenota.medialoader.core.logging.ReadModelGuardReason.ACCESS
+                else com.domenota.medialoader.core.logging.ReadModelGuardReason.DISABLED)
             published = null
             return@LaunchedEffect
         }
         val previous = published
         if (com.domenota.medialoader.core.logging.AppLog.isDetailedPerformance() && previous != null &&
-            (previous.accessGuard != accessGuard || previous.privacy != privacy || previous.retentionGuard != retentionGuard))
+            (previous.accessGuard != accessGuard || previous.privacy != privacy || previous.retentionGuard != retentionGuard)){
+            com.domenota.medialoader.core.logging.AppLog.flushReadModelGuards(kind)
             com.domenota.medialoader.core.logging.AppLog.i("Perf", "READ_MODEL_GUARD kind=$kind reason=GUARD_TRANSITION " +
                 "samePermissionPrivacyEpoch=${retentionGuard != null && previous.retentionGuard == retentionGuard} " +
                 "hasRemovalPolicy=${revalidateRetained != null}")
+        }
         val reason = when {
             previous == null -> com.domenota.medialoader.core.logging.LibraryProjectionReason.INITIAL
             previous.privacy != privacy || previous.accessGuard != accessGuard -> com.domenota.medialoader.core.logging.LibraryProjectionReason.ACCESS

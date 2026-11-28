@@ -1,5 +1,6 @@
 package com.domenota.medialoader.data.instagramprofile
 
+import com.domenota.medialoader.data.tasks.*
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -23,19 +24,38 @@ import com.domenota.medialoader.data.bulk.BulkIdentity
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 
 class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
     CoroutineWorker(context, parameters) {
     private val store = InstagramProfileStore(context)
     private val repository = MediaRepository.get(context)
     private var stage = "initial"
+    private var task:TaskReporter?=null
+    private var failedPosts=0
 
     override suspend fun doWork(): Result {
         AppLog.init(applicationContext)
         val id = inputData.getString(KEY_JOB) ?: return Result.failure()
         val mode = inputData.getString(KEY_MODE) ?: return Result.failure()
-        setForeground(notification(id, mode))
+        if(mode !in setOf(MODE_SCAN,MODE_DOWNLOAD))return Result.failure()
+        val report=TaskReporter.create(TaskOwner.PROFILE,TaskKind.PROFILE,"$id:$mode")
+        task=report
+        report.report(stage=if(mode==MODE_SCAN)TaskStage.SCANNING else TaskStage.ENQUEUE)
+        var noticeObserver:kotlinx.coroutines.Job?=null
         return try {
+            setForeground(notification(id, mode))
+            noticeObserver=CoroutineScope(currentCoroutineContext()).launch {
+                TaskCenter.registry.liveTasks.collect{rows->
+                    val row=rows.firstOrNull{it.id==taskId(TaskOwner.PROFILE,"$id:$mode")} ?: return@collect
+                    if(!row.status.terminal)try{setForeground(notification(id,mode,row))}
+                    catch(cancelled:CancellationException){throw cancelled}
+                    catch(_:Exception){/* Optional progress must not fail the executor. */}
+                }
+            }
             when (mode) {
                 MODE_SCAN -> scan(id)
                 MODE_DOWNLOAD -> download(id)
@@ -43,29 +63,39 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
             }
             if (mode == MODE_SCAN && store.job(id)?.favoriteCheck == true)
                 InstagramProfileController(applicationContext).scheduleNextFavoriteCheck(id)
+            val saved=store.job(id)
+            val status=when(saved?.phase) {
+                InstagramProfilePhase.READY -> if(saved.scanComplete)TaskStatus.COMPLETE else TaskStatus.PARTIAL
+                InstagramProfilePhase.FINISHED -> if(failedPosts>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE
+                InstagramProfilePhase.CANCELLED -> TaskStatus.CANCELLED
+                else -> TaskStatus.FAILED
+            }
+            report.report(status,files=if(mode==MODE_SCAN)countProgress(saved?.scanned?:0,0)else null,errors=failedPosts,stage=if(mode==MODE_SCAN)TaskStage.SCANNING else TaskStage.ENQUEUE)
             Result.success()
         } catch (cancelled: CancellationException) {
             store.phase(id, InstagramProfilePhase.CANCELLED)
+            report.report(TaskStatus.CANCELLED)
             throw cancelled
         } catch (error: Exception) {
             val message = when (error) {
                 is ProviderException -> error.message ?: "Instagram не ответил"
                 is InstagramProfileFormatException -> error.message ?: "Изменился ответ Instagram"
-                else -> "Не удалось завершить поиск профиля. Проверьте соединение и повторите."
+                else -> "Не удалось завершить поиск профиля. Проверь соединение и повтори."
             }
             store.phase(id, InstagramProfilePhase.ERROR, message)
             val reason = (error as? ProviderException)?.reason?.name ?: error.javaClass.simpleName
             AppLog.w("InstagramProfile", "Task stopped · id=$id · mode=$mode · stage=$stage · reason=$reason")
             if (mode == MODE_SCAN && store.job(id)?.favoriteCheck == true)
                 InstagramProfileController(applicationContext).scheduleNextFavoriteCheck(id)
+            report.report(TaskStatus.FAILED,errors=failedPosts+1)
             Result.failure()
-        }
+        } finally { noticeObserver?.cancel();task=null }
     }
 
     private suspend fun scan(id: String) {
         val session = repository.sessions.cookies() ?: throw ProviderException(
             ProviderException.Reason.ACCESS_REQUIRED,
-            "Для поиска профиля войдите в Instagram в настройках приложения.", "instagram")
+            "Для поиска профиля войди в Instagram в настройках приложения.", "instagram")
         val api = InstagramProfileApi()
         var job = store.job(id) ?: return
         stage = "profile"
@@ -99,6 +129,7 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
                 job.periodEnd, ZoneId.systemDefault())
             store.addPage(id, job.username, decision.posts, reels, page.cursor,
                 page.cursor == null || decision.reachedStart, job.scanned + page.posts.size)
+            task?.report(files=countProgress(job.scanned+page.posts.size,0),stage=TaskStage.SCANNING)
             AppLog.i("InstagramProfile", "Page saved · id=$id · tab=${if (reels) "reels" else "feed"} · posts=${page.posts.size} · total=${job.scanned + page.posts.size}")
             delay(800)
         }
@@ -142,10 +173,10 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
             catch (error: ProviderException) {
                 if (error.reason == ProviderException.Reason.RATE_LIMITED ||
                     error.reason == ProviderException.Reason.ACCESS_REQUIRED) throw error
-                failures++
+                failures++; failedPosts++
                 AppLog.w("InstagramProfile", "Post not queued · id=$id · kind=${error.reason}")
             } catch (error: Exception) {
-                failures++
+                failures++; failedPosts++
                 AppLog.w("InstagramProfile", "Post not queued · id=$id · kind=${error.javaClass.simpleName}")
             }
             if (failures >= 5) throw InstagramProfileFormatException("Пять публикаций подряд не удалось обработать")
@@ -155,18 +186,18 @@ class InstagramProfileWorker(context: Context, parameters: WorkerParameters) :
         AppLog.ok("InstagramProfile", "Selected files queued · id=$id")
     }
 
-    private fun notification(id: String, mode: String): ForegroundInfo {
+    private fun notification(id: String, mode: String, snapshot:TaskSnapshot?=null): ForegroundInfo {
         val manager = applicationContext.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("instagram-profile",
             "Загрузка из профиля Instagram", NotificationManager.IMPORTANCE_LOW))
-        val intent = PendingIntent.getActivity(applicationContext, 0,
-            Intent(applicationContext, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notice = NotificationCompat.Builder(applicationContext, "instagram-profile")
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+        val intent = TaskNotifications.open(applicationContext,taskId(TaskOwner.PROFILE,"$id:$mode"))
+        val builder = NotificationCompat.Builder(applicationContext, "instagram-profile")
+            .setSmallIcon(TaskNotifications.icon(TaskKind.PROFILE))
             .setContentTitle("Профиль Instagram")
             .setContentText(if (mode == MODE_SCAN) "Поиск публикаций" else "Добавление файлов в загрузки")
-            .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(intent).build()
+            .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(intent)
+        if(snapshot!=null)TaskNotifications.apply(applicationContext,builder,snapshot,actions=false)
+        val notice=builder.build()
         val noticeId = 5400 + (id.hashCode() and 1023)
         return if (Build.VERSION.SDK_INT >= 29)
             ForegroundInfo(noticeId, notice, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)

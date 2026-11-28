@@ -44,21 +44,41 @@ internal object DuplicatePrivacyGuard {
     suspend fun revoke(context: Context, id: String, identities: Set<String> = emptySet()) = withContext(Dispatchers.IO + NonCancellable) {
         synchronized(lock) {
             val state = state(context)
-            state.revoke(id,identities)
+            // Full invalidation remains the default. Only a verified, idle,
+            // unrelated move can keep completed and partial search reports.
+            // This proof runs under the shared persistence lock, so no report
+            // writer can change the material being classified.
+            val keepUnrelatedReports = DuplicatePrivacyRetention.provenUnrelated(context,id,identities)
+            if (keepUnrelatedReports) state.revokeUnrelated(id,identities)
+            else state.revoke(id,identities)
+            // Publish the block before any file I/O or expensive cache removal.
             publish(state)
-            mutableChanges.value = state.generation
-            val target = file(context); val stream = target.startWrite()
-            try { stream.write(state.generation.toString().toByteArray()); target.finishWrite(stream) }
-            catch (error: Throwable) { target.failWrite(stream); throw error }
-            // Invalidation removes only our reports/checkpoints; never user media or unrelated caches.
+            com.domenota.medialoader.core.logging.AppLog.i(
+                "DuplicatePrivacy",
+                if (keepUnrelatedReports) "PRIVATE_MOVE · unrelated reports retained"
+                else "PRIVATE_MOVE · strict report invalidation",
+            )
+            if (!keepUnrelatedReports) {
+                mutableChanges.value = state.generation
+                val target = file(context); val stream = target.startWrite()
+                try { stream.write(state.generation.toString().toByteArray()); target.finishWrite(stream) }
+                catch (error: Throwable) { target.failWrite(stream); throw error }
+            }
+            // Computed caches may contain arbitrary media references even when
+            // the saved results do not. Always clear them; never retain PCM.
             MusicComparisonFrames.clearForPrivacy(context)
+            MusicPairResultCache.clearForPrivacy(context)
             MusicDuplicateScanner.clearForPrivacy(context)
-            MusicDuplicateSessionStore.clearForPrivacy(context)
-            DuplicateBackgroundScan.invalidateForPrivacy()
             VisualDuplicateScanner.clearForPrivacy(context)
-            VisualDuplicateSessionStore.clearForPrivacy(context)
-            VisualDuplicateBackgroundScan.invalidateForPrivacy()
+            GalleryOcrIndex.clearForPrivacy(context,id,identities)
             com.domenota.medialoader.data.recognition.TrackRecognitionCache.clearForPrivacy(context)
+            com.domenota.medialoader.data.playback.LocalTrackLyrics.clearForPrivacy(context,id,identities)
+            if (!keepUnrelatedReports) {
+                MusicDuplicateSessionStore.clearForPrivacy(context)
+                DuplicateBackgroundScan.invalidateForPrivacy()
+                VisualDuplicateSessionStore.clearForPrivacy(context)
+                VisualDuplicateBackgroundScan.invalidateForPrivacy()
+            }
         }
         PersistentProjectionCache.clearAll(context)
         com.domenota.medialoader.data.playback.ListeningHistoryStore.get(context).clearDerivedProjections()

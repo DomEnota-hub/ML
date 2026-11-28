@@ -35,12 +35,20 @@ internal fun MusicPlayerControls(
     shuffle: Boolean, repeatMode: Int, speed: Float,
     onBack: () -> Unit, onEqualizer: (() -> Unit)?, onQueue: () -> Unit, onFavorite: (() -> Unit)?,
     seekAvailable: Boolean = true, favorite: Boolean = false, onEdit: (() -> Unit)? = null, onRecognize:(()->Unit)?=null, onToggle:(()->Unit)?=null,
+    bookmarks: (@Composable () -> Unit)? = null,
+    onLyrics: (() -> Unit)? = null,
 ) {
     var scrub by remember(item.id,item.savedUri,durationMs) { mutableStateOf<Float?>(null) }
+    var bookmarksOpen by remember(item.id,item.savedUri,bookmarks != null) { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад") }
-            Text("Сейчас играет", Modifier.weight(1f), fontSize = 24.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("Сейчас играет", Modifier.weight(1f), fontSize = 22.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (bookmarks != null) IconButton(onClick = { bookmarksOpen = !bookmarksOpen }) {
+                Icon(if (bookmarksOpen) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                    if (bookmarksOpen) "Свернуть закладки" else "Закладки",
+                    tint = if (bookmarksOpen) musicPlaybackAccent else MaterialTheme.colorScheme.onSurface)
+            }
             MusicStopTimerAction(player != null)
             if (onEdit != null) {
                 IconButton(onClick = onEdit) {
@@ -57,27 +65,33 @@ internal fun MusicPlayerControls(
             maxLines = 2, overflow = TextOverflow.Ellipsis)
         audioArtist(item)?.let { Text(it, Modifier.padding(top = 5.dp, start = 17.dp, end = 17.dp), fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        if (onLyrics != null) TextButton(onClick = onLyrics, modifier = Modifier.padding(top = 4.dp)) {
+            Icon(Icons.Rounded.Lyrics, contentDescription = null, modifier = Modifier.size(19.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("Текст песни")
+        }
         Column(Modifier.fillMaxWidth().padding(start = 27.dp, end = 27.dp, top = 25.dp, bottom = 8.dp)) {
             AppSlider(value = scrub ?: (if(durationMs>0L)positionMs.toFloat().coerceIn(0f,durationMs.toFloat()) else 0f),
                 onValueChange = { scrub = it }, modifier = Modifier.fillMaxWidth().height(48.dp), enabled = player != null && durationMs > 0 && seekAvailable,
                 valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(), onValueChangeFinished = { scrub?.let { player?.let { active -> if (durationMs>0L && seekAvailable && active.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) active.seekTo(it.toLong().coerceIn(0L,durationMs)) } }; scrub = null },
-                accentColor = musicPlaybackAccent)
+                accentColor = musicPlaybackAccent, retainColorWhenDisabled = true)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(time(scrub?.toLong() ?: positionMs), fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(if(durationMs>0L)time(durationMs) else "--:--", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (bookmarksOpen) bookmarks?.invoke()
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 15.dp), horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically) {
             IconButton({ player?.shuffleModeEnabled = !shuffle }, enabled = player != null) {
                 Icon(Icons.Rounded.Shuffle, "Перемешать", tint = if (shuffle) musicPlaybackAccent else MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            IconButton({ player?.seekToPrevious() }, enabled = player!=null && player.mediaItemCount>0) { Icon(Icons.Rounded.SkipPrevious, "Предыдущий трек") }
+            IconButton({ player?.let{com.domenota.medialoader.data.playback.AudioQueuePlayback.step(it,false)} }, enabled = player!=null && player.mediaItemCount>0) { Icon(Icons.Rounded.SkipPrevious, "Предыдущий трек") }
             FilledIconButton(onClick = { if(onToggle!=null)onToggle() else player?.let { com.domenota.medialoader.data.playback.AudioQueuePlayback.toggle(it) } },
                 enabled = player != null, modifier = Modifier.size(65.dp), shape = CircleShape) {
                 Icon(if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (playing) "Пауза" else "Воспроизвести", Modifier.size(30.dp))
             }
-            IconButton({ player?.seekToNextMediaItem() }, enabled = player?.hasNextMediaItem() == true) { Icon(Icons.Rounded.SkipNext, "Следующий трек") }
+            IconButton({ player?.let{com.domenota.medialoader.data.playback.AudioQueuePlayback.step(it,true)} }, enabled = player?.hasNextMediaItem() == true) { Icon(Icons.Rounded.SkipNext, "Следующий трек") }
             val repeatLabel = when (repeatMode) { Player.REPEAT_MODE_ALL -> "Повтор очереди"; Player.REPEAT_MODE_ONE -> "Повтор трека"; else -> "Повтор выключен" }
             IconButton({ player?.repeatMode = when (repeatMode) { Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL; Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE; else -> Player.REPEAT_MODE_OFF } }, enabled = player != null) {
                 Icon(if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, repeatLabel,

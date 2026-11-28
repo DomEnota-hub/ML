@@ -75,6 +75,40 @@ internal object AudioQueuePlayback {
             player.play()
         } else if (player.playWhenReady) player.pause() else player.play()
     }
+    /** Manual navigation in the existing service-owned queue. A seek cannot
+     * recover an idle/failed decoder by itself; retain the user's play/pause intent. */
+    fun step(player:Player,next:Boolean):Boolean {
+        if(player.mediaItemCount==0 || (next && !player.hasNextMediaItem()))return false
+        val command=if(next)Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM else Player.COMMAND_SEEK_TO_PREVIOUS
+        if(!player.isCommandAvailable(command))return false
+        val requested=player.playWhenReady
+        if(next)player.seekToNextMediaItem() else player.seekToPrevious()
+        val prepare=player.playbackState==Player.STATE_IDLE || player.playbackState==Player.STATE_ENDED || player.playerError!=null
+        if(prepare){player.prepare();player.playWhenReady=requested}
+        com.domenota.medialoader.core.logging.AppLog.i("Audio","Manual skip · next=$next · prepare=$prepare · state=${player.playbackState} · requestedPlaying=$requested")
+        return true
+    }
+    /** Capture actual playback traversal, including shuffle, ignoring repeat and position. */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun playlistSnapshot(player: Player): List<MediaItem> {
+        require(player.isCommandAvailable(Player.COMMAND_GET_TIMELINE))
+        val timeline = player.currentTimeline
+        val count = player.mediaItemCount
+        val shuffle = player.shuffleModeEnabled
+        require(count > 0 && timeline.windowCount == count)
+        val seen = HashSet<Int>()
+        val ordered = ArrayList<MediaItem>(count)
+        var index = timeline.getFirstWindowIndex(shuffle)
+        while (index in 0 until count && seen.add(index)) {
+            val item = player.getMediaItemAt(index)
+            require(!PrivatePlaybackPolicy.isPrivate(item) && item.mediaId.isNotBlank())
+            ordered.add(item)
+            index = timeline.getNextWindowIndex(index, Player.REPEAT_MODE_OFF, shuffle)
+        }
+        check(ordered.size == count && index == androidx.media3.common.C.INDEX_UNSET)
+        return ordered
+    }
+
     fun move(player: Player, from: Int, to: Int): Boolean {
         if (from !in 0 until player.mediaItemCount || to !in 0 until player.mediaItemCount) return false
         nextBatches.remove(player)

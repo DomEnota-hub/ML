@@ -67,3 +67,20 @@ internal val CollectionNotesOutline = outlineIcon("CollectionNotesOutline") {
     moveTo(20f,15.4f); curveTo(20f,18.2f,14f,19f,14f,16f)
     curveTo(14f,13.4f,20f,12.6f,20f,15.4f); close()
 }
+
+/** AI models use a brain/circuit outline, not the Task Center CPU. */
+internal val BrainCircuitOutline=outlineIcon("BrainCircuitOutline"){
+    moveTo(11f,4f);curveTo(9f,1.5f,5.5f,3f,5.5f,6f)
+    curveTo(2.2f,7f,2f,11f,4.2f,13f)
+    curveTo(2.5f,16f,5f,20f,8f,19.2f)
+    curveTo(9f,22f,12f,21.5f,12f,18f)
+    lineTo(12f,5f);curveTo(12f,2f,16f,2f,17.5f,4.5f)
+    curveTo(20.5f,4.5f,22f,8f,19.5f,10f)
+    curveTo(22f,12.5f,21f,15.5f,18.5f,16.5f)
+    curveTo(19f,20f,14f,22f,12f,18f)
+    moveTo(5.5f,6f);curveTo(6f,8f,8f,8.5f,9.5f,7.5f)
+    moveTo(4.2f,13f);curveTo(6f,12f,8.5f,13f,8.5f,15.5f)
+    moveTo(12f,8f);lineTo(16f,8f);lineTo(16f,5.8f)
+    moveTo(12f,12f);lineTo(18f,12f)
+    moveTo(12f,16f);lineTo(16f,16f);lineTo(16f,18.5f)
+}

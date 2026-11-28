@@ -18,6 +18,24 @@ class ResumeQueuePolicyTest {
         assertEquals("b",result.currentId)
         assertNull(ResumeQueuePolicy.resolve(session(),listOf(c("a","app:a"),c("c","app:c")),emptyMap()).currentId)
     }
+    @Test fun exactPhysicalIdentitySurvivesOnlyUnrelatedAliasAmbiguity(){
+        val saved=session().copy(entries=listOf(setOf("app:a"),setOf("file-stat:exact"),setOf("app:c")))
+        val rows=listOf(c("a","app:a"),c("b","file-stat:exact","shared"),c("other","shared"),c("c","app:c"))
+        val resolved=ResumeQueuePolicy.resolve(saved,rows,emptyMap())
+        assertEquals("b",resolved.currentId)
+        assertEquals(ResumeAvailability.VERIFIED,resolved.availability[1])
+        val ambiguous=ResumeQueuePolicy.resolve(saved.copy(entries=listOf(setOf("app:a"),setOf("file-stat:exact","shared"),setOf("app:c"))),rows,emptyMap())
+        assertNull(ambiguous.currentId)
+        assertEquals(ResumeAvailability.AMBIGUOUS,ambiguous.availability[1])
+    }
+    @Test fun conflictingIdentityIsNeverAReplacementAndReasonSurvivesRebind(){
+        val saved=session().copy(entries=listOf(setOf("app:a"),setOf("old:b","file-stat:exact"),setOf("app:c")))
+        val rows=listOf(c("a","app:a"),c("b","file-stat:exact"),c("c","app:c"))
+        val resolved=ResumeQueuePolicy.resolve(saved,rows,mapOf("old:b" to "history-1","file-stat:exact" to "history-2"))
+        assertNull(resolved.currentId)
+        assertEquals(ResumeAvailability.CONFLICTING,resolved.availability[1])
+        assertEquals(resolved.availability,ResumeQueuePolicy.rebindResolved(listOf(resolved),listOf(saved.copy(positionMs=2000))).single().availability)
+    }
     @Test fun queueLimitAndContextAreStable(){
         val entries=session().entries
         assertEquals(ResumeQueuePolicy.contextId(null,entries),ResumeQueuePolicy.contextId(null,entries))
@@ -49,5 +67,20 @@ class ResumeQueuePolicyTest {
         assertNull(ResumeQueuePolicy.removeOccurrences(resolved,saved.occurrenceIds.toSet()))
         assertEquals(saved,ResumeQueuePolicy.removeOccurrences(resolved,emptySet()))
         assertEquals(saved.shuffle,next.shuffle);assertEquals(saved.repeat,next.repeat)
+    }
+    @Test fun membershipIgnoresSessionOrderAndPlaybackPositionButNotQueueChanges(){
+        val a=session("a");val b=session("b")
+        assertEquals(ResumeQueuePolicy.membership(listOf(a,b)),ResumeQueuePolicy.membership(listOf(b.copy(positionMs=8000),a)))
+        assertNotEquals(ResumeQueuePolicy.membership(listOf(a,b)),ResumeQueuePolicy.membership(listOf(a.copy(entries=a.entries.reversed()),b)))
+        assertNotEquals(ResumeQueuePolicy.membership(listOf(a,b)),ResumeQueuePolicy.membership(listOf(a.copy(occurrenceIds=a.occurrenceIds.reversed()),b)))
+    }
+    @Test fun rebindPreservesOnlyUnchangedQueuesAndTheirLatestPosition(){
+        val a=session("a");val b=session("b");val c=session("c")
+        val saved=listOf(a,b,c).map{ResolvedResumeQueue(it,listOf("a","b","c"))}
+        val recent=b.copy(positionMs=9000)
+        val edited=a.copy(entries=a.entries.reversed())
+        val result=ResumeQueuePolicy.rebindResolved(saved,listOf(recent,edited,session("new")))
+        assertEquals(listOf(ResolvedResumeQueue(recent,listOf("a","b","c"))),result)
+        assertTrue(ResumeQueuePolicy.rebindResolved(saved,emptyList()).isEmpty())
     }
 }

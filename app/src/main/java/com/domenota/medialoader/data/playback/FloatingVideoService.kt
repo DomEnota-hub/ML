@@ -55,6 +55,15 @@ class FloatingVideoService : Service() {
         private const val EXTRA_ID = "id"
         private const val EXTRA_POSITION = "position"
         private const val EXTRA_PLAY = "play"
+        private const val EXTRA_REPEAT = "repeat"
+        private const val EXTRA_SPEED = "speed"
+        private const val EXTRA_VOLUME = "volume"
+        internal const val ACTION_EXPAND = "com.domenota.medialoader.action.EXPAND_FLOATING_VIDEO"
+        internal const val EXTRA_HANDOFF_TOKEN = "floating_handoff_token"
+        internal fun pendingHandoff(token: String): FloatingVideoHandoffRequest? = liveInstance?.pendingRequest(token)
+        internal fun cancelHandoff(token: String) { liveInstance?.cancelPending(token) }
+        internal fun completeHandoff(token: String, id: String, source: String, destination: Player): FloatingPlaybackState? =
+            liveInstance?.transferTo(token, id, source, destination)
 
         internal suspend fun releaseHistoricalPlayback(): Unit = withContext(Dispatchers.Main.immediate) {
             check(com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value)
@@ -90,11 +99,13 @@ class FloatingVideoService : Service() {
 
         fun canShow(context: Context): Boolean = Settings.canDrawOverlays(context)
 
-        fun start(context: Context, id: String, uri: Uri, positionMs: Long, play: Boolean) {
+        fun start(context: Context, id: String, uri: Uri, positionMs: Long, play: Boolean,
+            repeatMode: Int = Player.REPEAT_MODE_OFF, speed: Float = 1f, volume: Float = 1f) {
             com.domenota.medialoader.data.storage.HistoricalRecoverySignals.requireIdle()
             val intent = Intent(context, FloatingVideoService::class.java)
                 .putExtra(EXTRA_ID, id).putExtra(EXTRA_URI, uri.toString())
                 .putExtra(EXTRA_POSITION, positionMs).putExtra(EXTRA_PLAY, play)
+                .putExtra(EXTRA_REPEAT, repeatMode).putExtra(EXTRA_SPEED, speed).putExtra(EXTRA_VOLUME, volume)
             ContextCompat.startForegroundService(context, intent)
         }
     }
@@ -110,9 +121,12 @@ class FloatingVideoService : Service() {
     private var controls: FrameLayout? = null
     private var playButton: ImageButton? = null
     private var expandButton: ImageButton? = null
+    private var seekBar: FloatingVideoSeekBar? = null
+    private var handoff: FloatingVideoHandoffRequest? = null
     private var expanded = false
     private val controlsHandler = Handler(Looper.getMainLooper())
     private val hideControls = Runnable { setControls(false) }
+    private val handoffTimeout = Runnable { handoff?.let { cancelPending(it.token) } }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -128,7 +142,7 @@ class FloatingVideoService : Service() {
         val notice = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle("Всплывающее видео")
-            .setContentText("Нажмите, чтобы вернуться в приложение")
+            .setContentText("Нажми, чтобы вернуться в приложение")
             .setContentIntent(launch).setOngoing(true).build()
         ServiceCompat.startForeground(this, NOTIFICATION, notice,
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
@@ -183,6 +197,10 @@ class FloatingVideoService : Service() {
                     updatePlayButton(isPlaying)
                 }
             })
+            active.repeatMode = intent.getIntExtra(EXTRA_REPEAT, Player.REPEAT_MODE_OFF)
+                .takeIf { it == Player.REPEAT_MODE_ONE || it == Player.REPEAT_MODE_ALL } ?: Player.REPEAT_MODE_OFF
+            active.setPlaybackSpeed(intent.getFloatExtra(EXTRA_SPEED, 1f).takeIf { it.isFinite() && it > 0f } ?: 1f)
+            active.volume = intent.getFloatExtra(EXTRA_VOLUME, 1f).takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 1f
             active.prepare()
             active.playWhenReady = intent.getBooleanExtra(EXTRA_PLAY, true)
         }
@@ -235,7 +253,8 @@ class FloatingVideoService : Service() {
             setControls(true)
         }
         playButton = center
-        layer.addView(center, FrameLayout.LayoutParams(dp(54), dp(54), Gravity.CENTER))
+        center.clearColorFilter() // Keep the two-tone glyph's thin dark outline.
+        layer.addView(center, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
         // Expand is placed above the seekbar in root z-order below.
         // Keeping it in the controls layer left it floating high above the lower-right corner.
         val expand = imageButton(R.drawable.ic_floating_expand, "Развернуть плеер") {
@@ -251,10 +270,12 @@ class FloatingVideoService : Service() {
             Gravity.TOP or Gravity.END).apply { setMargins(0, dp(4), dp(4), 0) })
         root.addView(layer, FrameLayout.LayoutParams(-1, -1))
         layer.visibility = View.GONE
-        root.addView(FloatingVideoSeekBar(this, video) { scrubbing ->
+        val timeline = FloatingVideoSeekBar(this, video) { scrubbing ->
             controlsHandler.removeCallbacks(hideControls)
             if (!scrubbing && expanded) controlsHandler.postDelayed(hideControls, 3_000L)
-        }, FrameLayout.LayoutParams(-1, dp(32), Gravity.BOTTOM))
+        }.apply { visibility = View.GONE }
+        seekBar = timeline
+        root.addView(timeline, FrameLayout.LayoutParams(-1, dp(32), Gravity.BOTTOM))
         // The button is topmost, so its tap area works even where it overlaps the
         // seekbar's 32dp touch zone. The seekbar remains interactive everywhere else.
         root.addView(expand,
@@ -279,6 +300,7 @@ class FloatingVideoService : Service() {
                 return true
             }
             override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (!expanded) { setControls(true); return true }
                 val delta = FloatingVideoGesturePolicy.seekDelta(layout.width,
                     resources.displayMetrics.density, e.x)
                 if (delta != null) {
@@ -353,6 +375,7 @@ class FloatingVideoService : Service() {
         expanded = show
         controls?.visibility = if (show) View.VISIBLE else View.GONE
         expandButton?.visibility = if (show) View.VISIBLE else View.GONE
+        seekBar?.visibility = if (show) View.VISIBLE else View.GONE
         if (show) controlsHandler.postDelayed(hideControls, 3_000L)
     }
 
@@ -360,29 +383,88 @@ class FloatingVideoService : Service() {
         val id = itemId ?: return
         val active = player ?: return
         val prefs = getSharedPreferences("video_playback_positions", Context.MODE_PRIVATE)
-        VideoWatchProgress.record(prefs, id, active.currentPosition, active.duration)
-        VideoWatchProgress.saveResume(prefs, id, active.currentPosition)
-        prefs.edit().putBoolean("floating_resume_play_$id", active.isPlaying).apply()
+        VideoWatchProgress.recordQueued(prefs, id, active.currentPosition, active.duration)
+        VideoWatchProgress.saveResumeQueued(prefs, id,
+            active.currentPosition.takeUnless { active.playbackState == Player.STATE_ENDED })
+    }
+
+    private fun pendingRequest(token: String): FloatingVideoHandoffRequest? {
+        val request = handoff?.takeIf { it.token == token } ?: return null
+        val active = player ?: return null
+        val blocked = folderVisibilityPrivateIds ?: return null
+        if (request.itemId in blocked || request.itemId != itemId ||
+            !request.matches(active.currentMediaItem?.mediaId.orEmpty(),
+                active.currentMediaItem?.localConfiguration?.uri?.toString()) ||
+            com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.value) return null
+        return request
+    }
+
+    private fun cancelPending(token: String) {
+        if (handoff?.token != token) return
+        handoff = null
+        controlsHandler.removeCallbacks(handoffTimeout)
+        if (window != null) setControls(true)
+        AppLog.w("FloatingVideo", "HANDOFF_CANCELLED")
+    }
+
+    private fun transferTo(token: String, id: String, source: String, destination: Player): FloatingPlaybackState? {
+        val request = pendingRequest(token) ?: return null
+        val active = player ?: return null
+        if (!request.matches(id, source) || destination === active ||
+            destination.currentMediaItem?.localConfiguration?.uri?.toString() != source ||
+            destination.playbackState != Player.STATE_READY || destination.playerError != null) return null
+        val state = FloatingPlaybackState.capture(active)
+        try {
+            state.prepareDestination(destination)
+            active.pause()
+            destination.playWhenReady = state.play
+        } catch (failure: Exception) {
+            runCatching { destination.pause() }
+            runCatching { active.playWhenReady = state.play }
+            cancelPending(token)
+            AppLog.w("FloatingVideo", "HANDOFF_APPLY_FAILED")
+            return null
+        }
+        handoff = null
+        controlsHandler.removeCallbacks(handoffTimeout)
+        AppLog.i("FloatingVideo", "HANDOFF_ACK positionMs=${state.positionMs} play=${state.play} repeat=${state.repeatMode}")
+        try { closeWindow(saveProgress = false) } finally { stopSelf() }
+        return state
     }
 
     private fun expandToApp() {
-        savePosition()
+        val id = itemId ?: return
+        val source = player?.currentMediaItem?.localConfiguration?.uri?.toString() ?: return
+        if (handoff != null) return
+        val request = FloatingVideoHandoffRequest(java.util.UUID.randomUUID().toString(), id, source)
+        handoff = request
+        controlsHandler.removeCallbacks(handoffTimeout)
+        controlsHandler.postDelayed(handoffTimeout, 20_000L)
         val intent = Intent(this, MainActivity::class.java).apply {
+            action = ACTION_EXPAND
+            putExtra(EXTRA_HANDOFF_TOKEN, request.token)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or
                 Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         }
-        startActivity(intent)
-        stopSelf()
+        try {
+            AppLog.i("FloatingVideo", "HANDOFF_REQUEST")
+            startActivity(intent)
+        } catch (_: Exception) {
+            cancelPending(request.token)
+        }
     }
 
-    private fun closeWindow() {
+    private fun closeWindow(saveProgress: Boolean = true) {
         controlsHandler.removeCallbacks(hideControls)
-        savePosition()
+        controlsHandler.removeCallbacks(handoffTimeout)
+        handoff = null
+        if (saveProgress) savePosition()
         window?.let { runCatching { manager.removeView(it) } }
         window = null
         controls = null
         playButton = null
         expandButton = null
+        seekBar = null
         player?.release()
         player = null
         BackgroundMediaWork.setBusy("floating-playback", false)

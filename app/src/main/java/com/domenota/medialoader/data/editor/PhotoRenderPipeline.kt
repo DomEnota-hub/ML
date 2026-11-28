@@ -21,9 +21,10 @@ internal object PhotoRenderPipeline {
         }
         try {
             currentCoroutineContext().ensureActive()
-            if(crop!=CropFractions() || spec.rotationDegrees%360!=0 || spec.mirrorHorizontal ||
+            val sourceCrop=if(spec.cropShape==MediaCropShape.CIRCLE)CropFractions() else crop
+            if(sourceCrop!=CropFractions() || spec.rotationDegrees%360!=0 || spec.mirrorHorizontal ||
                 spec.mirrorVertical || !spec.geometry.isNeutral()) {
-                replace(PhotoGeometryMath.preview(working,crop,spec.rotationDegrees,
+                replace(PhotoGeometryMath.preview(working,sourceCrop,spec.rotationDegrees,
                     spec.mirrorHorizontal,spec.mirrorVertical,spec.geometry))
             }
             onProgress(50)
@@ -48,6 +49,7 @@ internal object PhotoRenderPipeline {
                 replace(composed)
             }
             currentCoroutineContext().ensureActive()
+            if(spec.cropShape==MediaCropShape.CIRCLE)replace(MediaCircleCrop.apply(working,crop))
             return working
         } catch(error:Throwable) {
             if((!retainSource || working!==source) && !working.isRecycled) working.recycle()

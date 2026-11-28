@@ -61,6 +61,9 @@ import androidx.compose.material.icons.rounded.Cookie
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Layers
+import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -103,6 +106,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
@@ -241,6 +245,9 @@ fun SettingsScreen(
     musicSource: FullSongSource = FullSongSource.HITMOZ,
     onMusicSourceChange: (FullSongSource) -> Unit = {},
     editorAlbumsById: Map<String, List<String>> = emptyMap(),
+    openAppearance:Boolean=false,onAppearanceOpened:()->Unit={},
+    openJournal:Boolean=false,onJournalOpened:()->Unit={},
+    onOpenDrawerSettings: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val permissionOwner = LocalLifecycleOwner.current
@@ -357,19 +364,30 @@ fun SettingsScreen(
     var logText by remember { mutableStateOf("") }
     fun refreshAppLog() {
         gestureScope.launch {
-            logText = withContext(Dispatchers.IO) { AppLog.readText() }
+            if(!com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))return@launch
+            val content=withContext(Dispatchers.IO) { AppLog.readText() }
+            if(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))logText=content
         }
     }
     val logSaver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
-        if (uri != null) {
+        if (uri != null && com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
+            val includeExplanations = exportLogExplanations
             gestureScope.launch {
                 // Extended logs can be ~20 MB; never read and export them on the UI thread.
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
-                        context.contentResolver.openOutputStream(uri)
-                            ?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
-                                writer.write(AppLog.exportMarkdown(includeExplanations = exportLogExplanations))
-                            } ?: error("Не удалось открыть файл для записи")
+                        com.domenota.medialoader.ui.navigation.writePreparedJournalIfAllowed(
+                            allowed = { com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs) },
+                            prepare = { AppLog.exportMarkdown(includeExplanations = includeExplanations) },
+                            write = { content ->
+                                check(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                                context.contentResolver.openOutputStream(uri)
+                                    ?.bufferedWriter(Charsets.UTF_8)?.use { writer ->
+                                        check(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                                        writer.write(content)
+                                    } ?: error("Не удалось открыть файл для записи")
+                            },
+                        )
                     }
                 }
                 result.onSuccess {
@@ -431,9 +449,20 @@ fun SettingsScreen(
     var themeMode by remember { mutableStateOf(prefs.getString("theme", null) ?:
         if (prefs.getBoolean("dark", false)) "dark" else "light") }
     var themeDialog by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(openAppearance){
+        if(openAppearance){
+            interfaceOptionsExpanded=true
+            themeDialog=true
+            onAppearanceOpened()
+        }
+    }
     var recognitionDialog by remember { mutableStateOf(false) }
     var musicSourceDialog by remember { mutableStateOf(false) }
     var instagramModeDialog by remember { mutableStateOf(false) }
+    var sourceProfilesDialog by remember { mutableStateOf(false) }
+    var networkDialog by remember { mutableStateOf(false) }
+    val downloadNetwork = remember(context) { com.domenota.medialoader.data.download.DownloadNetworkPreferences(context) }
+    var networkPolicy by remember { mutableStateOf(downloadNetwork.read()) }
     val gapiKeyStore = remember(context) { GapiKeyStore(context) }
     var gapiKeysDialog by remember { mutableStateOf(false) }
     var spareAuthorizationDialog by remember { mutableStateOf(false) }
@@ -450,24 +479,49 @@ fun SettingsScreen(
     var sessionDialog by remember { mutableStateOf(false) }
     var sessionValue by remember { mutableStateOf("") }
     var sessionInvalid by remember { mutableStateOf(false) }
-    var logsDialog by remember { mutableStateOf(false) }
+    var logsDialog by rememberSaveable { mutableStateOf(false) }
     var confirmClearAppLog by remember { mutableStateOf(false) }
     var extendedLog by remember(context) { mutableStateOf(AppLog.isExtended()) }
     var detailedPerf by remember(context) { mutableStateOf(AppLog.isDetailedPerformance()) }
-    var developerVisible by remember {
-        mutableStateOf(prefs.getBoolean("developer_visible", prefs.getBoolean("logs_unlocked", false)))
+    val developerVisible=com.domenota.medialoader.ui.navigation.rememberJournalUnlocked(prefs)
+    androidx.compose.runtime.LaunchedEffect(openJournal,developerVisible){
+        if(openJournal){
+            if(developerVisible && com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)){
+                logsDialog=true
+            }
+            onJournalOpened()
+        }
+        if(!developerVisible){
+            logsDialog=false
+            confirmClearAppLog=false
+            logText=""
+        }
     }
-    var recoveryLabVisible by remember { mutableStateOf(prefs.getBoolean("recovery_lab_visible", false)) }
+    LaunchedEffect(logsDialog,developerVisible){
+        if(logsDialog && developerVisible)refreshAppLog()
+    }
+    // A former persisted switch is no longer a separate visibility gate.
+    var recoveryLabOpen by rememberSaveable { mutableStateOf(false) }
     val historicalRunning by com.domenota.medialoader.data.storage.HistoricalRecoverySignals.isRunning.collectAsState()
     var sandboxRunning by remember { mutableStateOf(false) }
     var oldRecoveryRunning by remember { mutableStateOf(false) }
     val recoveryLabBusy = oldRecoveryRunning || sandboxRunning || historicalRunning || storageMigrationRunning || galleryDateAuditBusy ||
         migrationInventoryBusy || republishTrialBusy || exifTrialBusy || videoTrialBusy ||
         sameUriBusy || dateRecoveryBusy
-    fun setRecoveryLabVisible(value: Boolean) {
-        if (recoveryLabBusy) return
-        recoveryLabVisible = value
-        prefs.edit().putBoolean("recovery_lab_visible", value).apply()
+    com.domenota.medialoader.ui.components.ReportDrawerScreen(
+        !recoveryLabBusy&&!recoveryLabOpen&&!openAppearance&&!openJournal&&editorKind==null&&
+        !showMediaWriteExplanation&&!videoThumbnailDialog&&!aiModelsDialog&&!themeDialog&&
+        !recognitionDialog&&!musicSourceDialog&&!instagramModeDialog&&!gapiKeysDialog&&
+        !spareAuthorizationDialog&&!sourceProfilesDialog&&!networkDialog&&!folderDialog&&!confirmClear&&!confirmInstagramSignOut&&
+        !confirmYouTubeSignOut&&!confirmVkSignOut&&!confirmRutubeSignOut&&!trashDialog&&
+        !confirmEmptyTrash&&!sessionDialog&&!confirmClearAppLog)
+    fun setRecoveryLabOpen(value: Boolean) {
+        if ((!value && recoveryLabBusy) || (value && !com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))) return
+        if(recoveryLabOpen!=value)AppLog.d("Settings","RECOVERY_LAB open=$value")
+        recoveryLabOpen = value
+    }
+    LaunchedEffect(developerVisible,recoveryLabBusy){
+        if(!developerVisible&&!recoveryLabBusy)recoveryLabOpen=false
     }
     var aboutTapCount by remember { mutableStateOf(0) }
     var aboutTapDeadline by remember { mutableStateOf(0L) }
@@ -491,17 +545,14 @@ fun SettingsScreen(
             return
         }
         if (recoveryLabBusy && developerVisible) return
-        developerVisible = !developerVisible
+        val enabled = !com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)
         aboutUnlockArmedUntil = 0L
         aboutTapCount = 0
-        prefs.edit()
-            .putBoolean("developer_visible", developerVisible)
-            .remove("logs_unlocked")
-            .apply()
-        AppLog.i("Settings", if (developerVisible) "Developer section enabled" else "Developer section disabled")
+        com.domenota.medialoader.ui.navigation.JournalAccess.setAllowed(prefs,enabled)
+        AppLog.i("Settings", if (enabled) "Developer section enabled" else "Developer section disabled")
         AppNotice.post(
             context,
-            if (developerVisible) "Режим для разработки включён" else "Режим для разработки выключен")
+            if (enabled) "Режим для разработки включён" else "Режим для разработки выключен")
     }
 
     val aboutGestureModifier = Modifier.pointerInput(developerVisible) {
@@ -521,7 +572,7 @@ fun SettingsScreen(
     if (confirmInstagramSignOut) AlertDialog(
         onDismissRequest = { confirmInstagramSignOut = false },
         title = { Text("Аккаунт Instagram") },
-        text = { Text("Проверьте сохранённую сессию ещё раз или выйдите из аккаунта. Выход удалит её из приложения.") },
+        text = { Text("Сохранённую сессию можно проверить ещё раз или завершить. Выход из аккаунта удалит её из приложения.") },
         confirmButton = {
             TextButton(onClick = {
                 instagramVerificationRevision++
@@ -529,7 +580,7 @@ fun SettingsScreen(
             }) { Text("Проверить") }
         },
         dismissButton = {
-            TextButton(onClick = { onInstagramSignOut(); confirmInstagramSignOut = false }) { Text("Выйти") }
+            TextButton(onClick = { onInstagramSignOut(); confirmInstagramSignOut = false }) { Text("Выйти", color = MaterialTheme.colorScheme.error) }
         },
     )
 
@@ -538,7 +589,7 @@ fun SettingsScreen(
         title = { Text("Выйти из YouTube?") },
         text = { Text("Сохранённая для yt-dlp сессия YouTube будет удалена.") },
         confirmButton = {
-            TextButton(onClick = { onYouTubeSignOut(); confirmYouTubeSignOut = false }) { Text("Выйти") }
+            TextButton(onClick = { onYouTubeSignOut(); confirmYouTubeSignOut = false }) { Text("Выйти", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = { TextButton(onClick = { confirmYouTubeSignOut = false }) { Text("Отмена") } },
     )
@@ -548,7 +599,7 @@ fun SettingsScreen(
         title = { Text("Выйти из VK?") },
         text = { Text("Сессия загрузчика и cookies ВК во встроенном браузере будут удалены. Сессии других источников сохранятся.") },
         confirmButton = {
-            TextButton(onClick = { onVkSignOut(); confirmVkSignOut = false }) { Text("Выйти") }
+            TextButton(onClick = { onVkSignOut(); confirmVkSignOut = false }) { Text("Выйти", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = { TextButton(onClick = { confirmVkSignOut = false }) { Text("Отмена") } },
     )
@@ -558,7 +609,7 @@ fun SettingsScreen(
         title = { Text("Выйти из RUTUBE?") },
         text = { Text("Сохранённая веб-сессия RUTUBE будет удалена.") },
         confirmButton = {
-            TextButton(onClick = { onRutubeSignOut(); confirmRutubeSignOut = false }) { Text("Выйти") }
+            TextButton(onClick = { onRutubeSignOut(); confirmRutubeSignOut = false }) { Text("Выйти", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = { TextButton(onClick = { confirmRutubeSignOut = false }) { Text("Отмена") } },
     )
@@ -567,10 +618,11 @@ fun SettingsScreen(
         onDismissRequest = { sessionValue = ""; sessionDialog = false },
         title = { Text("Ввести sessionid") },
         text = {
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Это секретный ключ доступа к аккаунту. Вставляй только свой sessionid и никому его не отправляй. Работу сессии проверим по ссылке после сохранения.")
                 OutlinedTextField(
                     value = sessionValue,
+                    modifier = Modifier.fillMaxWidth(),
                     onValueChange = { sessionValue = it; sessionInvalid = false },
                     label = { Text("sessionid") },
                     visualTransformation = PasswordVisualTransformation(),
@@ -614,6 +666,7 @@ fun SettingsScreen(
                 TextButton(onClick = { folderDialog = false; onSelectFolder() }) { Text("Выбрать в проводнике") }
                 OutlinedTextField(
                     value = folderName,
+                    modifier = Modifier.fillMaxWidth(),
                     onValueChange = { folderName = it },
                     label = { Text("Папка внутри Pictures") },
                     singleLine = true,
@@ -641,71 +694,13 @@ fun SettingsScreen(
         title = { Text("Очистить историю?") },
         text = { Text("Будут удалены только записи обычной истории загрузок. Скачанные файлы и корзина останутся без изменений.") },
         confirmButton = {
-            TextButton(onClick = { onClearHistory(); confirmClear = false }) { Text("Очистить") }
+            TextButton(onClick = { onClearHistory(); confirmClear = false }) { Text("Очистить", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Отмена") } },
     )
 
 
-    if (logsDialog) Dialog(
-        onDismissRequest = { logsDialog = false },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
-        Surface(
-            modifier = Modifier.fillMaxWidth(0.95f).fillMaxHeight(0.88f),
-            shape = MaterialTheme.shapes.extraLarge,
-            tonalElevation = if (com.domenota.medialoader.ui.theme.isDarkPalette) 0.dp else 6.dp,
-        ) {
-            Column(Modifier.fillMaxSize().padding(16.dp)) {
-                Text("Журнал приложения", style = MaterialTheme.typography.headlineSmall)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "События хранятся локально. Фильтры и режим просмотра не изменяют исходный журнал.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                AppLogViewer(
-                    rawText = logText,
-                    readable = explainLog,
-                    onReadableChange = { value ->
-                        explainLog = value
-                        prefs.edit().putBoolean("log_explanations", value).apply()
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Пояснения в экспорт", modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodySmall)
-                    Switch(checked = exportLogExplanations, onCheckedChange = { value ->
-                        exportLogExplanations = value
-                        prefs.edit().putBoolean("log_export_explanations", value).apply()
-                    })
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    TextButton(onClick = ::refreshAppLog) { Text("Обновить") }
-                    TextButton(onClick = { confirmClearAppLog = true }) {
-                        Text("Очистить", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    TextButton(onClick = { logsDialog = false }) { Text("Закрыть") }
-                    TextButton(onClick = {
-                        logSaver.launch("MediaLoader_${versionName}_logs.md")
-                    }) { Text("Сохранить .md") }
-                }
-            }
-        }
-    }
-
-    if (confirmClearAppLog) AlertDialog(
+    if (developerVisible && confirmClearAppLog) AlertDialog(
         onDismissRequest = { confirmClearAppLog = false },
         title = { Text("Очистить журнал приложения?") },
         text = {
@@ -717,7 +712,9 @@ fun SettingsScreen(
             TextButton(onClick = {
                 confirmClearAppLog = false
                 gestureScope.launch {
-                    withContext(Dispatchers.IO) { AppLog.clear() }
+                    withContext(Dispatchers.IO) {
+                        if(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))AppLog.clear()
+                    }
                     refreshAppLog()
                 }
             }) { Text("Очистить", color = MaterialTheme.colorScheme.error) }
@@ -733,40 +730,24 @@ fun SettingsScreen(
         onDismissRequest = { gapiKeysDialog = false },
     )
 
-    if (instagramModeDialog) AlertDialog(
-        onDismissRequest = { instagramModeDialog = false },
-        title = { Text("Режим загрузки") },
-        text = {
-            Column {
-                listOf(
-                    false to ("Ручной" to "Instagram и YouTube: открывать окно выбора перед загрузкой"),
-                    true to ("Автоматический" to "Instagram: через «Поделиться» сохранять фото и видео без извлечения музыки. YouTube: при отправке ссылки загружать видео в приоритетном качестве."),
-                ).forEach { (automatic, descriptions) ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            InstagramShareSettings.setAutomatic(context, automatic)
-                            instagramModeDialog = false
-                        }.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(
-                            selected = automaticInstagram == automatic,
-                            onClick = {
-                                InstagramShareSettings.setAutomatic(context, automatic)
-                                    instagramModeDialog = false
-                            },
-                        )
-                        Column(Modifier.padding(start = 8.dp)) {
-                            Text(descriptions.first, style = MaterialTheme.typography.titleMedium)
-                            Text(descriptions.second, style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { instagramModeDialog = false }) { Text("Закрыть") } },
+    if (networkDialog) DownloadNetworkDialog(networkPolicy, onDismiss = { networkDialog = false }, onSave = {
+        downloadNetwork.save(it); networkPolicy = it; networkDialog = false
+    })
+    if (sourceProfilesDialog) SourceDownloadProfilesDialog(
+        selectedSafFolder = downloadFolder.startsWith("Выбранная папка:"),
+        generalFolder=downloadFolder,
+        onDismiss = { sourceProfilesDialog = false },
     )
+    if (instagramModeDialog) SettingsChoiceDialog(
+        title = "Режим загрузки", selected = automaticInstagram,
+        options = listOf(
+            SettingsChoice(false,"Ручной","Instagram и YouTube: выбор перед загрузкой",Icons.Rounded.Tune),
+            SettingsChoice(true,"Автоматический","Instagram: фото и видео без извлечения музыки. YouTube: видео в приоритетном качестве.",Icons.Rounded.Bolt),
+        ), onDismiss = { instagramModeDialog = false },
+    ) { automatic ->
+        InstagramShareSettings.setAutomatic(context, automatic)
+        instagramModeDialog = false
+    }
 
     if (spareAuthorizationDialog) AlertDialog(
         onDismissRequest = { spareAuthorizationDialog = false },
@@ -796,122 +777,56 @@ fun SettingsScreen(
         confirmButton = { TextButton(onClick = { spareAuthorizationDialog = false }) { Text("Закрыть") } },
     )
 
-    if (musicSourceDialog) AlertDialog(
-        onDismissRequest = { musicSourceDialog = false },
-        title = { Text("Источник полной песни") },
-        text = {
-            Column {
-                listOf(
-                    FullSongSource.AUTO to ("Автоматически" to "Сначала основной; при ошибке, тайм-ауте или пустой выдаче — резервный"),
-                    FullSongSource.HITMOZ to ("Основной" to "Искать только на основном источнике"),
-                    FullSongSource.MUZMO to ("Резервный" to "Искать только на резервном источнике"),
-                ).forEach { (source, labels) ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            onMusicSourceChange(source)
-                            musicSourceDialog = false
-                        }.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(selected = musicSource == source, onClick = {
-                            onMusicSourceChange(source)
-                            musicSourceDialog = false
-                        })
-                        Column(Modifier.padding(start = 8.dp)) {
-                            Text(labels.first, style = MaterialTheme.typography.titleMedium)
-                            Text(labels.second, style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { musicSourceDialog = false }) { Text("Закрыть") } },
-    )
+    if (musicSourceDialog) SettingsChoiceDialog(
+        title = "Источник полной песни", selected = musicSource,
+        options = listOf(
+            SettingsChoice(FullSongSource.AUTO,"Автоматически","Сначала основной; при ошибке, тайм-ауте или пустой выдаче — резервный",Icons.Rounded.SwapHoriz),
+            SettingsChoice(FullSongSource.HITMOZ,"Основной","Искать только на основном источнике",Icons.Rounded.MusicNote),
+            SettingsChoice(FullSongSource.MUZMO,"Резервный","Искать только на резервном источнике",Icons.Rounded.LibraryMusic),
+        ), onDismiss = { musicSourceDialog = false },
+    ) { source ->
+        onMusicSourceChange(source)
+        musicSourceDialog = false
+    }
 
-    if (recognitionDialog) AlertDialog(
-        onDismissRequest = { recognitionDialog = false },
-        title = { Text("Распознавание музыки") },
-        text = {
-            Column {
-                listOf(
-                    MusicRecognitionMode.AUTO to ("Автоматически" to "После загрузки определить трек и записать метаданные"),
-                    MusicRecognitionMode.MANUAL to ("Только вручную" to "Запускать из меню скачанного MP3"),
-                    MusicRecognitionMode.OFF to ("Выключено" to "Не обращаться к сервису распознавания"),
-                ).forEach { (mode, labels) ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable {
-                            onMusicRecognitionModeChange(mode)
-                            recognitionDialog = false
-                        }.padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(
-                            selected = musicRecognitionMode == mode,
-                            onClick = {
-                                onMusicRecognitionModeChange(mode)
-                                recognitionDialog = false
-                            },
-                        )
-                        Column(Modifier.padding(start = 8.dp)) {
-                            Text(labels.first, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                labels.second,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { recognitionDialog = false }) { Text("Закрыть") } },
-    )
+    if (recognitionDialog) SettingsChoiceDialog(
+        title = "Распознавание музыки", selected = musicRecognitionMode,
+        options = listOf(
+            SettingsChoice(MusicRecognitionMode.AUTO,"Автоматически","После загрузки определить трек и записать метаданные",Icons.Rounded.Hearing),
+            SettingsChoice(MusicRecognitionMode.MANUAL,"Только вручную","Запускать из меню скачанного MP3",Icons.Rounded.Tune),
+            SettingsChoice(MusicRecognitionMode.OFF,"Выключено","Не обращаться к сервису распознавания",Icons.Rounded.CloseFullscreen),
+        ), onDismiss = { recognitionDialog = false },
+    ) { mode ->
+        onMusicRecognitionModeChange(mode)
+        recognitionDialog = false
+    }
 
     if (aiModelsDialog) AiModelManagerDialog(onDismiss = { aiModelsDialog = false })
 
-    if (videoThumbnailDialog) AlertDialog(
-        onDismissRequest = { videoThumbnailDialog = false },
-        title = { Text("Миниатюра видео") },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                VideoThumbnailMode.entries.forEach { mode ->
-                    val choose = {
-                        videoPreferences.thumbnailMode = mode
-                        thumbnailMode = mode
-                        videoThumbnailDialog = false
-                    }
-                    Row(Modifier.fillMaxWidth().clickable(onClick = choose).padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = thumbnailMode == mode, onClick = choose)
-                        Text(mode.label, Modifier.padding(start = 8.dp))
-                    }
-                }
-                Text("Если обложка источника недоступна, используем кадр из видео. Настройка действует и на ранее скачанные видео.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        confirmButton = { TextButton(onClick = { videoThumbnailDialog = false }) { Text("Закрыть") } },
-    )
+    if (videoThumbnailDialog) SettingsChoiceDialog(
+        title = "Миниатюра видео", selected = thumbnailMode,
+        options = listOf(
+            SettingsChoice(VideoThumbnailMode.SOURCE,VideoThumbnailMode.SOURCE.label,"Оригинальная обложка публикации",Icons.Rounded.InsertPhoto),
+            SettingsChoice(VideoThumbnailMode.FRAME,VideoThumbnailMode.FRAME.label,"Миниатюра из содержимого видео",Icons.Rounded.SmartDisplay),
+        ), onDismiss = { videoThumbnailDialog = false },
+        footer = "Если обложка источника недоступна, используем кадр из видео. Настройка действует и на ранее скачанные видео.",
+        preview = { ThumbnailChoicePreview(it) },
+    ) { mode ->
+        videoPreferences.thumbnailMode = mode
+        thumbnailMode = mode
+        videoThumbnailDialog = false
+    }
 
-    if (themeDialog) AlertDialog(
-        onDismissRequest = { themeDialog = false },
-        title = { Text("Тема") },
-        text = { Column {
-            listOf("light" to "Светлая", "dark" to "Тёмная", "system" to "Системная").forEach { (key, title) ->
-                TextButton(onClick = {
-                    themeMode = key
-                    prefs.edit().putString("theme", key).apply()
-                    themeDialog = false
-                    (context as? Activity)?.recreate()
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Text(title, color = if (themeMode == key) com.domenota.medialoader.ui.theme.musicPlaybackAccent else MaterialTheme.colorScheme.onSurface)
-                }
-            }
-        } },
-        confirmButton = { TextButton(onClick = { themeDialog = false }) { Text("Закрыть") } },
-    )
+    if (themeDialog) ThemeModeDialog(themeMode.orEmpty(),{themeDialog=false}){key->
+        if(themeMode!=key){
+            themeMode=key
+            prefs.edit().putString("theme",key).apply()
+            val effectiveDark=key=="dark"||(key=="system"&&(context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES)
+            AppLog.i("Settings","THEME selected=$key effective=${if(effectiveDark)"dark" else "light"} recreate=true")
+            themeDialog=false
+            (context as? Activity)?.recreate()
+        }else themeDialog=false
+    }
 
     editorKind?.let { kind ->
         EditorFilePickerDialog(
@@ -928,6 +843,70 @@ fun SettingsScreen(
         )
     }
 
+    if (recoveryLabOpen && (developerVisible || recoveryLabBusy)) {
+        androidx.activity.compose.BackHandler { setRecoveryLabOpen(false) }
+        Column(Modifier.fillMaxSize().then(if(logsDialog)Modifier.clearAndSetSemantics{} else Modifier).verticalScroll(rememberScrollState())
+            .padding(horizontal=20.dp,vertical=12.dp)){
+            TextButton(onClick={setRecoveryLabOpen(false)},enabled=!recoveryLabBusy){Text("Назад")}
+        // Temporary MediaStore/EXIF migration laboratory. To retire after the
+        // Xiaomi issue is solved, remove THIS invocation and its isolated files.
+        MediaRecoveryLabSection(
+            onHide = { setRecoveryLabOpen(false) },
+            operationBusy = recoveryLabBusy,
+            sandboxBusy = sandboxRunning,
+            onSandboxBusyChange = { sandboxRunning = it },
+            oldRecoveryBusy = oldRecoveryRunning,
+            onOldRecoveryBusyChange = { oldRecoveryRunning = it },
+            activeDownloadCount = activeDownloadCount,
+            storageMigrationRunning = storageMigrationRunning,
+            storageMigrationMessage = storageMigrationMessage,
+            onMigrateLegacyMedia = onMigrateLegacyMedia,
+            galleryDateAudit = galleryDateAudit,
+            galleryDateAuditBusy = galleryDateAuditBusy,
+            onGalleryDateAudit = onGalleryDateAudit,
+            migrationInventoryStatus = migrationInventoryStatus,
+            migrationInventoryBusy = migrationInventoryBusy,
+            migrationInventoryReady = migrationInventoryJson.isNotBlank(),
+            onRunMigrationInventory = onRunMigrationInventory,
+            onExportMigrationInventory = {
+                if (migrationInventoryJson.isNotBlank() && !migrationInventoryBusy)
+                    migrationAuditExporter.launch("ML_Migration_Inventory_1.7.166.json")
+            },
+            republishTrialStatus = republishTrialStatus,
+            republishTrialBusy = republishTrialBusy,
+            onRunGalleryRepublishTrial = onRunGalleryRepublishTrial,
+            onRemoveGalleryRepublishTestCopies = onRemoveGalleryRepublishTestCopies,
+            exifTrialStatus = exifTrialStatus,
+            exifTrialBusy = exifTrialBusy,
+            onRunExifTrial = onRunExifTrial,
+            onRemoveExifTrial = onRemoveExifTrial,
+            videoTrialStatus = videoTrialStatus,
+            videoTrialBusy = videoTrialBusy,
+            onRunVideoTrial = onRunVideoTrial,
+            onRemoveVideoTrial = onRemoveVideoTrial,
+            sameUriBusy = sameUriBusy,
+            sameUriJpegStatus = sameUriJpegStatus,
+            sameUriVideoStatus = sameUriVideoStatus,
+            onRunSameUriJpeg = onRunSameUriJpeg,
+            onRunSameUriMp4 = onRunSameUriMp4,
+            onRepairSameUriJpegMtime = onRepairSameUriJpegMtime,
+            onRepairSameUriMp4Mtime = onRepairSameUriMp4Mtime,
+            onRestoreSameUriJpeg = onRestoreSameUriJpeg,
+            onRestoreSameUriMp4 = onRestoreSameUriMp4,
+            onRemoveSameUriJpeg = onRemoveSameUriJpeg,
+            onRemoveSameUriMp4 = onRemoveSameUriMp4,
+            dateRecoveryStatus = dateRecoveryStatus,
+            dateRecoveryBusy = dateRecoveryBusy,
+            dateRecoveryReady = dateRecoveryReady,
+            onDateRecoveryPreview = onDateRecoveryPreview,
+            onDateRecoveryTrial = onDateRecoveryTrial,
+            dateRecoveryTrialDone = dateRecoveryTrialDone,
+            onRestoreRemainingDates = onRestoreRemainingDates,
+            onUndoMediaDateChanges = onUndoMediaDateChanges,
+        )
+        }
+        return
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
         .padding(horizontal = 20.dp, vertical = 24.dp)) {
         Text("Настройки", modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).pointerInput(Unit) {
@@ -936,6 +915,7 @@ fun SettingsScreen(
                     delay(3_000)
                     advancedDownloadToolsVisible = !advancedDownloadToolsVisible
                     prefs.edit().putBoolean("bulk_visible", advancedDownloadToolsVisible).apply()
+                    AppLog.d("Settings","ADVANCED_DOWNLOAD_TOOLS visible=$advancedDownloadToolsVisible")
                     AppNotice.post(context, if (advancedDownloadToolsVisible) {
                         "Дополнительные загрузки открыты"
                     } else {
@@ -1086,6 +1066,15 @@ fun SettingsScreen(
                 grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM_MODE,
                 onClick = { instagramModeDialog = true })
             GroupDivider()
+            SettingRow(Icons.Rounded.Layers, "Профили источников",
+                "Instagram, YouTube, VK, Rutube",
+                grouped = true, nested = true, iconTone = SettingIconTone.SOURCE_PROFILES,
+                onClick = { sourceProfilesDialog = true })
+            GroupDivider()
+            SettingRow(Icons.Rounded.Wifi, "Условия сети", networkPolicy.label,
+                grouped = true, nested = true, iconTone = SettingIconTone.NETWORK,
+                onClick = { networkDialog = true })
+            GroupDivider()
             SettingRow(Icons.Rounded.Key, "Ключи GAPI для Instagram и VK",
                 "Ключи, приоритет и резерв через аккаунт",
                 grouped = true, nested = true, iconTone = SettingIconTone.INSTAGRAM,
@@ -1113,62 +1102,7 @@ fun SettingsScreen(
             }
         }
 
-        // Temporary MediaStore/EXIF migration laboratory. To retire after the
-        // Xiaomi issue is solved, remove THIS invocation and its isolated files.
-        if ((developerVisible && recoveryLabVisible) || recoveryLabBusy) MediaRecoveryLabSection(
-            onHide = { setRecoveryLabVisible(false) },
-            operationBusy = recoveryLabBusy,
-            sandboxBusy = sandboxRunning,
-            onSandboxBusyChange = { sandboxRunning = it },
-            oldRecoveryBusy = oldRecoveryRunning,
-            onOldRecoveryBusyChange = { oldRecoveryRunning = it },
-            activeDownloadCount = activeDownloadCount,
-            storageMigrationRunning = storageMigrationRunning,
-            storageMigrationMessage = storageMigrationMessage,
-            onMigrateLegacyMedia = onMigrateLegacyMedia,
-            galleryDateAudit = galleryDateAudit,
-            galleryDateAuditBusy = galleryDateAuditBusy,
-            onGalleryDateAudit = onGalleryDateAudit,
-            migrationInventoryStatus = migrationInventoryStatus,
-            migrationInventoryBusy = migrationInventoryBusy,
-            migrationInventoryReady = migrationInventoryJson.isNotBlank(),
-            onRunMigrationInventory = onRunMigrationInventory,
-            onExportMigrationInventory = {
-                if (migrationInventoryJson.isNotBlank() && !migrationInventoryBusy)
-                    migrationAuditExporter.launch("ML_Migration_Inventory_1.7.166.json")
-            },
-            republishTrialStatus = republishTrialStatus,
-            republishTrialBusy = republishTrialBusy,
-            onRunGalleryRepublishTrial = onRunGalleryRepublishTrial,
-            onRemoveGalleryRepublishTestCopies = onRemoveGalleryRepublishTestCopies,
-            exifTrialStatus = exifTrialStatus,
-            exifTrialBusy = exifTrialBusy,
-            onRunExifTrial = onRunExifTrial,
-            onRemoveExifTrial = onRemoveExifTrial,
-            videoTrialStatus = videoTrialStatus,
-            videoTrialBusy = videoTrialBusy,
-            onRunVideoTrial = onRunVideoTrial,
-            onRemoveVideoTrial = onRemoveVideoTrial,
-            sameUriBusy = sameUriBusy,
-            sameUriJpegStatus = sameUriJpegStatus,
-            sameUriVideoStatus = sameUriVideoStatus,
-            onRunSameUriJpeg = onRunSameUriJpeg,
-            onRunSameUriMp4 = onRunSameUriMp4,
-            onRepairSameUriJpegMtime = onRepairSameUriJpegMtime,
-            onRepairSameUriMp4Mtime = onRepairSameUriMp4Mtime,
-            onRestoreSameUriJpeg = onRestoreSameUriJpeg,
-            onRestoreSameUriMp4 = onRestoreSameUriMp4,
-            onRemoveSameUriJpeg = onRemoveSameUriJpeg,
-            onRemoveSameUriMp4 = onRemoveSameUriMp4,
-            dateRecoveryStatus = dateRecoveryStatus,
-            dateRecoveryBusy = dateRecoveryBusy,
-            dateRecoveryReady = dateRecoveryReady,
-            onDateRecoveryPreview = onDateRecoveryPreview,
-            onDateRecoveryTrial = onDateRecoveryTrial,
-            dateRecoveryTrialDone = dateRecoveryTrialDone,
-            onRestoreRemainingDates = onRestoreRemainingDates,
-            onUndoMediaDateChanges = onUndoMediaDateChanges,
-        )
+
 
         Spacer(Modifier.height(26.dp))
         Text("Музыка", style = MaterialTheme.typography.titleMedium,
@@ -1225,6 +1159,10 @@ fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(10.dp))
         SettingsGroup {
+            SettingRow(Icons.Rounded.FormatListBulleted, "Боковое меню",
+                "Порядок и видимость разделов", grouped = true,
+                iconTone = SettingIconTone.DRAWER, onClick = onOpenDrawerSettings)
+            GroupDivider()
             SettingRow(Icons.Rounded.Palette, "Оформление и просмотр",
                 "Тема, миниатюры, проигрыватель и ярлыки", grouped = true,
                 iconTone = SettingIconTone.APPEARANCE, expanded = interfaceOptionsExpanded,
@@ -1330,11 +1268,15 @@ fun SettingsScreen(
                     "Ошибки, предупреждения и события",
                     grouped = true,
                     iconTone = SettingIconTone.LOG,
-                    onClick = { logsDialog = true; refreshAppLog() },
+                    onClick = {
+                        if(com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)){
+                            logsDialog = true
+                        }
+                    },
                 )
                 GroupDivider()
                 SettingRow(
-                    Icons.Rounded.FormatListBulleted,
+                    Icons.Rounded.MenuBook,
                     "Расширенный журнал",
                     if (extendedLog) "Подробные события всех подсистем · включён"
                     else "Подробная диагностика · выключена",
@@ -1358,18 +1300,66 @@ fun SettingsScreen(
                 GroupDivider()
                 SettingRow(Icons.Rounded.Speed, "Подробная диагностика производительности",
                     if(detailedPerf) "Очереди, кеш, память и длительность операций · включена" else "Дополнительные замеры · выключена",
-                    grouped=true, iconTone=SettingIconTone.DIAGNOSTICS, showChevron=false,
+                    grouped=true, iconTone=SettingIconTone.PERFORMANCE, showChevron=false,
                     trailing={Switch(checked=detailedPerf,onCheckedChange={ value -> detailedPerf=value;AppLog.setDetailedPerformance(value) })},
                     onClick={detailedPerf=!detailedPerf;AppLog.setDetailedPerformance(detailedPerf)})
                 GroupDivider()
                 SettingRow(Icons.Rounded.Science, "Лаборатория исправлений",
-                    if (recoveryLabVisible) "Показана" else "Скрыта", grouped = true,
-                    iconTone = SettingIconTone.DIAGNOSTICS, showChevron = false,
-                    trailing = { Switch(checked = recoveryLabVisible, enabled = !recoveryLabBusy,
-                        onCheckedChange = ::setRecoveryLabVisible) },
-                    onClick = if (recoveryLabBusy) null else { { setRecoveryLabVisible(!recoveryLabVisible) } })
+                    "Инструменты восстановления", grouped = true,
+                    iconTone = SettingIconTone.RECOVERY_LAB,
+                    onClick = { setRecoveryLabOpen(true) })
             }
         }
+    }
+    if (developerVisible && logsDialog) JournalSurface(onClose={logsDialog=false}) {
+                AppLogViewer(
+                    rawText = logText,
+                    readable = explainLog,
+                    onReadableChange = { value ->
+                        explainLog = value
+                        prefs.edit().putBoolean("log_explanations", value).apply()
+                    },
+                    modifier = Modifier.weight(1f),
+                    onCopy = { raw ->
+                        if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs)) {
+                            runCatching {
+                                com.domenota.medialoader.ui.navigation.writePreparedJournalIfAllowed(
+                                    allowed = { com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs) },
+                                    prepare = {
+                                        android.content.ClipData.newPlainText("Запись журнала", raw).apply {
+                                            description.extras = android.os.PersistableBundle().apply {
+                                                putBoolean("android.content.extra.IS_SENSITIVE", true)
+                                            }
+                                        }
+                                    },
+                                    write = { clip ->
+                                        val clipboard = requireNotNull(context.getSystemService(android.content.ClipboardManager::class.java))
+                                        clipboard.setPrimaryClip(clip)
+                                    },
+                                )
+                            }.onSuccess { AppNotice.post(context, "Запись скопирована") }
+                                .onFailure {
+                                    if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                                        AppNotice.post(context, "Не удалось скопировать запись")
+                                }
+                        }
+                    },
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Пояснения в экспорт", modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall)
+                    Switch(checked = exportLogExplanations, onCheckedChange = { value ->
+                        exportLogExplanations = value
+                        prefs.edit().putBoolean("log_export_explanations", value).apply()
+                    })
+                }
+                JournalFooter(
+                    onRefresh = ::refreshAppLog,
+                    onClear = { confirmClearAppLog = true },
+                    onExport = { if (com.domenota.medialoader.ui.navigation.JournalAccess.allowed(prefs))
+                        logSaver.launch("MediaLoader_" + versionName + "_logs.md") },
+                    onClose = { logsDialog = false },
+                )
     }
 }
 

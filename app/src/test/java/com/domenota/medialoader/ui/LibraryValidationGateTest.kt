@@ -10,6 +10,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class LibraryValidationGateTest {
+    @Test fun savedQueueAvailabilityRequiresCurrentCompleteAudioGeneration() {
+        val guard=AudioCatalogGuard(emptySet(),3L)
+        val snapshot=AudioCatalogSnapshot(guard,emptyList(),14L)
+        val phone=PhoneLibraryState(loaded=true,complete=true,loading=false,revision=14L,accessEpoch=3L)
+        assertTrue(resumeCatalogCurrent(snapshot,phone,true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(revision=15L),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(accessEpoch=4L),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(complete=false),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(loading=true),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone.copy(message="scan failed"),true,true))
+        assertFalse(resumeCatalogCurrent(snapshot,phone,false,true))
+        assertFalse(resumeCatalogCurrent(null,phone,true,true))
+        val retained=retainAudioCatalog(snapshot,AudioCatalogUpdate(guard,null,15L))
+        assertSame(snapshot,retained)
+        assertFalse(resumeCatalogCurrent(retained,phone.copy(revision=15L),true,true))
+        val next=retainAudioCatalog(snapshot,AudioCatalogUpdate(guard,emptyList(),15L))
+        assertTrue(resumeCatalogCurrent(next,phone.copy(revision=15L),true,true))
+    }
+
     @Test fun folderTransferRetainsCompletePhoneRowsInsteadOfPublishingFalseZero() {
         val media = com.domenota.medialoader.core.database.DownloadEntity(
             "public-photo", "https://example.invalid/test", "image.jpg",
@@ -214,6 +233,11 @@ class LibraryValidationGateTest {
         assertEquals(setOf(AppMode.GALLERY, AppMode.MUSIC),
             phoneModesForMediaChange("content://media/external/file/20"))
         assertEquals(setOf(AppMode.GALLERY, AppMode.MUSIC), phoneModesForMediaChange(null))
+        for(uri in listOf("content://other/external/images/media/1",
+            "content://media/external/file/audio","content://media/external/audio/media/no-id",
+            "content://media/external/images/unknown","content://media/external")){
+            assertEquals(setOf(AppMode.GALLERY,AppMode.MUSIC),phoneModesForMediaChange(uri))
+        }
     }
 
     @Test fun unchangedMediaStoreGenerationDoesNotTriggerRedundantScan() {
@@ -336,4 +360,70 @@ class LibraryValidationGateTest {
         assertEquals(listOf(phone),guardedRetainedIndexRefs(raw.copy(galleryAccessEpoch=2),guard,emptySet(),fresh,PhoneLibraryState(),true))
     }
 
+
+    @Test fun mediaChangeBatchNeverDiscardsBusyOrUnknownMode(){
+        val both=phoneModesForMediaChange(null)
+        val pending=both.toMutableSet()
+        assertEquals(setOf(AppMode.MUSIC),readyPhoneMediaChanges(pending,setOf(AppMode.GALLERY)))
+        pending.removeAll(readyPhoneMediaChanges(pending,setOf(AppMode.GALLERY)))
+        assertEquals(setOf(AppMode.GALLERY),pending)
+        assertTrue(readyPhoneMediaChanges(pending,setOf(AppMode.GALLERY)).isEmpty())
+        pending+=phoneModesForMediaChange("content://media/external/audio/media/12")
+        assertEquals(both,readyPhoneMediaChanges(pending,emptySet()))
+        assertEquals(both,pending)
+    }
+
+    @Test fun cumulativeFullGrantPagesAndFinalSnapshotDoNotBlankValidatedIndex() {
+        val phone=publicPhoto("phone:image:42","content://media/external/images/media/42").copy(appDownloadId=null)
+        val guard=FolderVisibilityLibraryGuard(FolderVisibilityReadPolicy(FolderVisibilitySnapshot()),emptyList(),emptyList())
+        val first=PhoneLibraryState(items=listOf(phone.item),loaded=true,loading=true,
+            revision=4,accessEpoch=2,requiresValidation=true)
+        val raw=LibraryIndex(ready=true,refs=listOf(phone),galleryRevision=4,privacyKeys=emptySet(),
+            visibility=guard,galleryAccessEpoch=2)
+        assertTrue(mayRetainProgressivePhoneIndex(first,2,false))
+        val next=first.copy(revision=5,requiresValidation=!mayRetainProgressivePhoneIndex(first,2,false))
+        assertFalse(visibleLibraryValidationPending(AppMode.GALLERY,raw,next,PhoneLibraryState()))
+        assertEquals(listOf(phone),guardedRetainedIndexRefs(raw,guard,emptySet(),next,PhoneLibraryState(),true))
+        val final=next.copy(revision=6,loading=false,complete=true,
+            requiresValidation=!mayRetainProgressivePhoneIndex(next,2,false))
+        assertFalse(visibleLibraryValidationPending(AppMode.GALLERY,raw,final,PhoneLibraryState()))
+        assertEquals(listOf(phone),guardedRetainedIndexRefs(raw,guard,emptySet(),final,PhoneLibraryState(),true))
+        assertFalse(visualDuplicateCatalogComplete(raw,final,2,emptySet()))
+        assertFalse(mayRetainProgressivePhoneIndex(first,3,false))
+        assertFalse(mayRetainProgressivePhoneIndex(first,2,true))
+        assertFalse(mayRetainProgressivePhoneIndex(first.copy(loaded=false),2,false))
+        assertFalse(mayRetainProgressivePhoneIndex(first.copy(message="Ошибка"),2,false))
+        assertTrue(visibleLibraryValidationPending(AppMode.GALLERY,raw,next.copy(accessEpoch=3),PhoneLibraryState()))
+        assertTrue(guardedRetainedIndexRefs(raw,guard,emptySet(),next.copy(accessEpoch=3),PhoneLibraryState(),true)!!.isEmpty())
+        assertNull(guardedRetainedIndexRefs(raw,guard,setOf(phone.key),next,PhoneLibraryState(),true))
+    }
+
+    @Test fun missingPhoneVisualWaitsForCompleteMatchingGenerationNotOnlyLoadedProjection() {
+        val id="phone:image:42"
+        val partial=PhoneLibraryState(loaded=true,loading=true,revision=4,accessEpoch=2)
+        val raw=LibraryIndex(ready=true,galleryRevision=4,galleryAccessEpoch=2)
+        assertTrue(phoneVisualResolutionPending(id,partial,raw,true,true))
+        assertTrue(phoneVisualResolutionPending("phone:video:42",partial,raw,true,true))
+        val full=partial.copy(complete=true,loading=false,revision=5,requiresValidation=false)
+        assertTrue(phoneVisualResolutionPending(id,full,raw,true,true))
+        val aligned=raw.copy(galleryRevision=5)
+        assertTrue(phoneVisualResolutionPending(id,full,aligned,false,true))
+        assertTrue(phoneVisualResolutionPending(id,full,aligned,true,false))
+        assertTrue(phoneVisualResolutionPending(id,full.copy(accessEpoch=3),aligned,true,true))
+        assertTrue(phoneVisualResolutionPending(id,full,aligned,true,true,scanInProgress=true))
+        assertFalse(phoneVisualResolutionPending(id,full,aligned,true,true))
+        assertFalse(phoneVisualResolutionPending(id,full.copy(complete=false,message="Ошибка"),aligned,true,true))
+        assertFalse(phoneVisualResolutionPending("phone:audio:42",partial,raw,true,true))
+        assertFalse(phoneVisualResolutionPending("download-42",partial,raw,true,true))
+    }
+
+    @Test fun drawerNavigationNeverRescansCompleteCatalogUnlessAccessOrValidationRequiresIt(){
+        val warm=PhoneLibraryState(loaded=true,complete=true,requiresValidation=false)
+        assertFalse(needsPhoneRefreshOnNavigation(warm,false,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm,true,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm,false,true))
+        assertTrue(needsPhoneRefreshOnNavigation(warm.copy(complete=false),false,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm.copy(loaded=false),false,false))
+        assertTrue(needsPhoneRefreshOnNavigation(warm.copy(message="Ошибка"),false,false))
+    }
 }

@@ -21,6 +21,7 @@ object AppLog {
     private val writer = BoundedLogWriter()
     private val sampled = mutableMapOf<String, Pair<Long, Int>>()
     private val operationCounter = AtomicLong()
+    private val guardWindow=ReadModelGuardWindow(android.os.SystemClock::elapsedRealtime)
     private val timestamp = ThreadLocal.withInitial {
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
     }
@@ -85,10 +86,17 @@ object AppLog {
         output?.let { append("DEBUG", tag, it, null) }
     }
 
+    internal fun readModelGuard(kind:LibraryProjectionKind,reason:ReadModelGuardReason){
+        if(detailedPerformance)guardWindow.record(kind,reason).forEach{ i("Perf",it) }
+    }
+    internal fun flushReadModelGuards(kind:LibraryProjectionKind?=null){
+        guardWindow.drain(kind).forEach{i("Perf",it)}
+    }
     fun isExtended(): Boolean = extended
     fun isDetailedPerformance(): Boolean = detailedPerformance
     fun setDetailedPerformance(enabled:Boolean) {
         if(detailedPerformance==enabled)return
+        if(!enabled)flushReadModelGuards()
         detailedPerformance=enabled
         appContext?.getSharedPreferences("ui",Context.MODE_PRIVATE)?.edit()?.putBoolean("detailed_performance_log",enabled)?.apply()
         i("Logs","Detailed performance diagnostics " + if(enabled) "enabled" else "disabled")
@@ -112,6 +120,7 @@ object AppLog {
     fun e(tag: String, message: String, error: Throwable? = null) = append("ERROR", tag, message, error)
 
     fun readText(): String {
+        flushReadModelGuards()
         writer.flush()
         return synchronized(lock) {
             val file = logFile() ?: return@synchronized ""
@@ -124,6 +133,7 @@ object AppLog {
     }
 
     fun clear() {
+        guardWindow.clear()
         val done = java.util.concurrent.CountDownLatch(1)
         val queued = writer.offer { synchronized(lock) {
             try { logFile()?.let { file -> logFiles(file).forEach { it.delete() } } }
@@ -133,6 +143,7 @@ object AppLog {
     }
 
     fun exportMarkdown(includeExplanations: Boolean = false): String {
+        flushReadModelGuards()
         val flushed = writer.flush()
         val now = SimpleDateFormat("yyyy-MM-dd HH:mm:ss Z", Locale.US).format(Date())
         val rawBody = synchronized(lock) {
@@ -141,7 +152,12 @@ object AppLog {
                 logFiles(file).joinToString("\n") { it.readText() }
             }.getOrDefault("")
         }.ifBlank { "Журнал пуст." }
-        val body = if (includeExplanations) LogExplanation.annotate(rawBody) else rawBody
+        // Redact legacy viewer IDs in retained logs before export.
+        val legacyId=Regex("\\bid=[^\\s·]+")
+        val safeBody=rawBody.lineSequence().joinToString("\n"){ line ->
+            if("[Viewer]" in line||"[History]" in line)line.replace(legacyId,"id=<redacted>") else line
+        }
+        val body = if (includeExplanations) LogExplanation.annotate(safeBody) else safeBody
         return buildString {
             appendLine("# MediaLoader — журнал приложения")
             appendLine()

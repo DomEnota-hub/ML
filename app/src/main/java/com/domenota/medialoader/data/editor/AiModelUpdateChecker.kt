@@ -12,7 +12,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** A remote revision is information, NOT authorization to install arbitrary new weights. */
-internal enum class ModelUpdateState { CURRENT, REVIEW_REQUIRED, NOT_INSTALLED, UNVERIFIABLE, UNAVAILABLE }
+internal enum class ModelUpdateState { CURRENT, REVIEW_REQUIRED, NOT_INSTALLED, UNVERIFIABLE, UNAVAILABLE, LOCAL_ONLY }
 
 internal data class ExpectedModelBlob(
     val filename: String,
@@ -95,31 +95,20 @@ internal object ModelUpdatePolicy {
  * for manual review; install() keeps using the existing pins and never runs here.
  */
 internal object AiModelUpdateChecker {
-    internal enum class Kind { LAMA, MOBILE_SAM, PEOPLE }
-
-    private data class ModelSource(val repo: String, val expected: List<ExpectedModelBlob>)
-
-    private fun source(kind: Kind): ModelSource = when (kind) {
-        Kind.LAMA -> ModelSource("sapienkit/LaMa-ONNX",
-            listOf(ExpectedModelBlob("lama_fp32.onnx", LaMaModelStore.SHA256)))
-        Kind.PEOPLE -> ModelSource("ketiswp/mediapipe-EfficientDet-Lite0-COCO2017-fp32-onnx",
-            listOf(ExpectedModelBlob("source/model.tflite",
-                PersonDetectorModelStore.SHA256, PersonDetectorModelStore.MODEL_BYTES)))
-        Kind.MOBILE_SAM -> ModelSource("Acly/MobileSAM", listOf(
-            ExpectedModelBlob("mobile_sam_image_encoder.onnx",
-                MobileSamModelStore.ENCODER_SHA256, MobileSamModelStore.ENCODER_BYTES),
-            ExpectedModelBlob("sam_mask_decoder_single.onnx",
-                MobileSamModelStore.DECODER_SHA256, MobileSamModelStore.DECODER_BYTES),
-        ))
+    internal enum class Kind(val key: String) {
+        LAMA("lama"), MOBILE_SAM("mobile"), PEOPLE("people"), GLARE("glare"), REFLECTION("reflection"), GIGAAM("gigaam")
     }
 
     suspend fun check(kind: Kind, installedAndVerified: Boolean): ModelUpdateResult =
         withContext(Dispatchers.IO) {
             try {
-                val spec = source(kind)
-                val manifest = fetchMetadata(spec.repo)
+                val spec = AiModelCatalog.entry(kind)
+                val repository = spec.metadataRepository
+                    ?: return@withContext ModelUpdateResult(ModelUpdateState.LOCAL_ONLY,
+                        "Проверенный сетевой каталог для этой модели пока не опубликован.")
+                val manifest = fetchMetadata(repository)
                 val root = JSONObject(manifest)
-                if (root.optString("id") != spec.repo)
+                if (root.optString("id") != repository)
                     throw IOException("Источник каталога не совпадает с ожидаемым.")
                 val revision = root.optString("sha")
                 val siblings = root.optJSONArray("siblings")
@@ -128,7 +117,7 @@ internal object AiModelUpdateChecker {
                 for (i in 0 until siblings.length()) {
                     val entry = siblings.optJSONObject(i) ?: continue
                     val name = entry.optString("rfilename")
-                    if (spec.expected.none { it.filename == name }) continue
+                    if (spec.files.none { it.filename == name }) continue
                     // A filename alone is not evidence. Require published LFS SHA and byte size.
                     val lfs = entry.optJSONObject("lfs")
                         ?: throw IOException("У файла $name нет проверяемого SHA-256.")
@@ -136,7 +125,7 @@ internal object AiModelUpdateChecker {
                     val bytes = lfs.optLong("size", -1L)
                     remote.add(RemoteModelBlob(name, digest, bytes))
                 }
-                ModelUpdatePolicy.evaluate(installedAndVerified, spec.expected, revision, remote)
+                ModelUpdatePolicy.evaluate(installedAndVerified, spec.files, revision, remote)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (_: Exception) {

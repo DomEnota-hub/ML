@@ -2,6 +2,7 @@ package com.domenota.medialoader.data.editor
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import kotlin.math.abs
@@ -89,10 +90,8 @@ object PhotoGeometryMath {
         }
     }
 
-    /**
-     * Bitmap perspective is applied after straighten. Straighten zooms into
-     * the image to avoid exposed empty triangles at the canvas perimeter.
-     */
+    /** Render all transforms into the original frame: exposed regions stay black.
+     * Unlike the old auto-zoom, rotating is not allowed to crop the source to hide gaps. */
     fun transformMatrix(settings: PhotoGeometry, width: Int, height: Int): Matrix {
         require(width > 0 && height > 0)
         val dst = destination(settings, width, height)
@@ -132,14 +131,8 @@ object PhotoGeometryMath {
             ))
         }
         if (settings.straighten != 0f) {
-            val radians = Math.toRadians(settings.straighten.toDouble())
-            val sine = abs(sin(radians)).toFloat()
-            val cosine = abs(cos(radians)).toFloat()
-            val zoom = max(cosine + height.toFloat() / width * sine,
-                cosine + width.toFloat() / height * sine).coerceIn(1f, 4f)
             val rotation = Matrix().apply {
                 setRotate(settings.straighten, width / 2f, height / 2f)
-                postScale(zoom, zoom, width / 2f, height / 2f)
             }
             warp.preConcat(rotation)
         }
@@ -173,6 +166,7 @@ object PhotoGeometryMath {
         val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
         try {
             val canvas = Canvas(output)
+            canvas.drawColor(Color.BLACK)
             canvas.drawBitmap(source, transformMatrix(settings, source.width, source.height),
                 Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
             return output

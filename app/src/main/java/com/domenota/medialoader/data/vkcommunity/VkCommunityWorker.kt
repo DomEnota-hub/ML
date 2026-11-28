@@ -1,5 +1,6 @@
 package com.domenota.medialoader.data.vkcommunity
 
+import com.domenota.medialoader.data.tasks.*
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -15,6 +16,10 @@ import com.domenota.medialoader.MainActivity
 import com.domenota.medialoader.core.logging.AppLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -22,24 +27,47 @@ import java.time.ZoneId
 class VkCommunityWorker(context: Context, parameters: WorkerParameters) :
     CoroutineWorker(context, parameters) {
     private val db = VkCommunityDatabase(context)
+    private var task:TaskReporter?=null
 
     override suspend fun doWork(): Result {
         AppLog.init(applicationContext)
         val jobId = inputData.getString(KEY_JOB) ?: return Result.failure()
         val mode = inputData.getString(KEY_MODE) ?: return Result.failure()
         val job = db.job(jobId) ?: return Result.failure()
-        setForeground(notice(jobId, mode))
+        if(mode !in setOf(MODE_SCAN,MODE_DOWNLOAD))return Result.failure()
+        val report=TaskReporter.create(TaskOwner.COMMUNITY,TaskKind.COMMUNITY,"$jobId:$mode")
+        task=report
+        report.report(stage=if(mode==MODE_SCAN)TaskStage.SCANNING else TaskStage.TRANSFER)
         AppLog.i("VkCommunity", "Job started · id=$jobId · mode=$mode")
+        var noticeObserver:kotlinx.coroutines.Job?=null
         return try {
+            setForeground(notice(jobId, mode))
+            noticeObserver=CoroutineScope(currentCoroutineContext()).launch {
+                TaskCenter.registry.liveTasks.collect{rows->
+                    val row=rows.firstOrNull{it.id==taskId(TaskOwner.COMMUNITY,"$jobId:$mode")} ?: return@collect
+                    if(!row.status.terminal)try{setForeground(notice(jobId,mode,row))}
+                    catch(cancelled:CancellationException){throw cancelled}
+                    catch(_:Exception){/* Optional progress must not fail the executor. */}
+                }
+            }
             when (mode) {
                 MODE_SCAN -> scan(job)
                 MODE_DOWNLOAD -> download(job)
                 else -> return Result.failure()
             }
+            val saved=db.job(jobId)
+            val status=when(saved?.phase) {
+                VkJobPhase.READY -> TaskStatus.COMPLETE
+                VkJobPhase.FINISHED -> if(saved.failed>0)TaskStatus.PARTIAL else TaskStatus.COMPLETE
+                VkJobPhase.CANCELLED -> TaskStatus.CANCELLED
+                else -> TaskStatus.FAILED
+            }
+            report.report(status,files=if(mode==MODE_SCAN)countProgress(saved?.scannedPosts?:0,saved?.totalPosts?:0) else countProgress((saved?.downloaded?:0)+(saved?.duplicates?:0),saved?.selected?:0),errors=saved?.failed?:0,stage=if(mode==MODE_SCAN)TaskStage.SCANNING else TaskStage.TRANSFER)
             Result.success()
         } catch (error: CancellationException) {
             db.phase(jobId, VkJobPhase.CANCELLED)
             AppLog.i("VkCommunity", "Job cancelled · id=$jobId")
+            report.report(TaskStatus.CANCELLED)
             throw error
         } catch (error: VkApiFailure) {
             if (error.kind == VkApiFailure.Kind.BAD_TOKEN) {
@@ -48,12 +76,14 @@ class VkCommunityWorker(context: Context, parameters: WorkerParameters) :
             }
             db.phase(jobId, VkJobPhase.ERROR, error.userMessage())
             AppLog.w("VkCommunity", "VK job failed · id=$jobId · kind=${error.kind} · ${error.diagnostic()}")
+            report.report(TaskStatus.FAILED,errors=1)
             Result.failure()
         } catch (_: Exception) {
             db.phase(jobId, VkJobPhase.ERROR, "Не удалось завершить задачу VK")
             AppLog.w("VkCommunity", "VK job failed · id=$jobId · kind=internal")
+            report.report(TaskStatus.FAILED,errors=1)
             Result.failure()
-        }
+        } finally { noticeObserver?.cancel();task=null }
     }
 
     private suspend fun scan(job: VkCommunityJob) {
@@ -73,6 +103,7 @@ class VkCommunityWorker(context: Context, parameters: WorkerParameters) :
             val parsed = VkWallParser.parse(page, period, zone)
             cursor = cursor.advance(parsed)
             db.addPage(job.id, parsed.images, cursor.offset, cursor.total)
+            task?.report(files=countProgress(cursor.offset,cursor.total),stage=TaskStage.SCANNING)
             if (cursor.offset == parsed.scannedPosts || cursor.offset % 500 == 0)
                 AppLog.d("VkCommunity", "Scan progress · id=${job.id} · posts=${cursor.offset} · photos=${db.job(job.id)?.found}")
             if (cursor.done) {
@@ -105,10 +136,11 @@ class VkCommunityWorker(context: Context, parameters: WorkerParameters) :
                     return
                 }
                 val outcome = downloader.download(item)
+                db.job(job.id)?.let{ live -> task?.report(files=countProgress(live.downloaded+live.duplicates,live.selected),errors=live.failed,stage=TaskStage.TRANSFER) }
                 consecutiveErrors = if (outcome == VkItemPhase.ERROR) consecutiveErrors + 1 else 0
                 if (consecutiveErrors >= 5) {
                     db.phase(job.id, VkJobPhase.ERROR,
-                        "Пять ошибок подряд. Проверьте сеть и повторите загрузку")
+                        "Пять ошибок подряд. Проверь сеть и повтори загрузку")
                     return
                 }
                 delay(250)
@@ -129,19 +161,19 @@ class VkCommunityWorker(context: Context, parameters: WorkerParameters) :
         }
     }
 
-    private fun notice(jobId: String, mode: String): ForegroundInfo {
+    private fun notice(jobId: String, mode: String, snapshot:TaskSnapshot?=null): ForegroundInfo {
         val manager = applicationContext.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel(
             CHANNEL, "Загрузка из сообщества VK", NotificationManager.IMPORTANCE_LOW,
         ))
-        val intent = PendingIntent.getActivity(applicationContext, 0,
-            Intent(applicationContext, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notification = NotificationCompat.Builder(applicationContext, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+        val intent = TaskNotifications.open(applicationContext,taskId(TaskOwner.COMMUNITY,"$jobId:$mode"))
+        val builder = NotificationCompat.Builder(applicationContext, CHANNEL)
+            .setSmallIcon(TaskNotifications.icon(TaskKind.COMMUNITY))
             .setContentTitle("Загрузка из сообщества VK")
             .setContentText(if (mode == MODE_SCAN) "Поиск изображений" else "Сохранение изображений")
-            .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(intent).build()
+            .setOngoing(true).setOnlyAlertOnce(true).setContentIntent(intent)
+        if(snapshot!=null)TaskNotifications.apply(applicationContext,builder,snapshot,actions=false)
+        val notification=builder.build()
         val id = 4200 + (jobId.hashCode() and 1023)
         return if (Build.VERSION.SDK_INT >= 29)
             ForegroundInfo(id, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)

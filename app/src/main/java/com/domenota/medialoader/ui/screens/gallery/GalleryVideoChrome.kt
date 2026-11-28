@@ -84,10 +84,10 @@ internal fun GalleryVideoChrome(
         if (!locked && visible) {
             if (centerControlsVisible) Row(
                 modifier = Modifier.align(Alignment.Center),
-                horizontalArrangement = Arrangement.spacedBy(if (landscape) 20.dp else 13.dp),
+                horizontalArrangement = Arrangement.spacedBy(if (landscape) 16.dp else 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) {
+                IconButton(onClick = onPrevious, modifier = Modifier.size(56.dp)) {
                     OutlinedVideoControlIcon(Icons.Rounded.SkipPrevious,
                         contentDescription = if (hasPrevious) "К началу или предыдущему видео" else "К началу видео",
                         modifier = Modifier.size(30.dp))
@@ -97,7 +97,7 @@ internal fun GalleryVideoChrome(
                         contentDescription = if (playing) "Пауза" else "Воспроизвести",
                         modifier = Modifier.size(43.dp))
                 }
-                IconButton(onClick = onNext, enabled = hasNext, modifier = Modifier.size(48.dp)) {
+                IconButton(onClick = onNext, enabled = hasNext, modifier = Modifier.size(56.dp)) {
                     OutlinedVideoControlIcon(Icons.Rounded.SkipNext, contentDescription = "Следующее видео",
                         opacity = if (hasNext) 1f else .35f,
                         modifier = Modifier.size(30.dp))
@@ -199,12 +199,11 @@ internal fun GalleryVideoChrome(
                     onClick = { onLockChange(!locked) },
                     modifier = Modifier.size(52.dp),
                 ) {
-                    Icon(
+                    OutlinedVideoControlIcon(
                         if (locked) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
                         contentDescription = if (locked) "Разблокировать управление"
                             else "Заблокировать управление",
                         modifier = Modifier.size(27.dp),
-                        tint = Color.White,
                     )
                 }
             }

@@ -14,33 +14,32 @@ object LogExplanation {
             return if (stack.any { "Session ID must be unique" in it } &&
                 stack.any { "MediaSession" in it }) {
                 Detail("Приложение аварийно завершилось из-за повторного идентификатора медиасессии видеоплеера.",
-                    "Установите актуальную версию приложения. Если сбой повторится, сохраните новый журнал.")
+                    "Установи актуальную версию приложения. Если сбой повторится, сохрани новый журнал.")
             } else Detail("Приложение аварийно завершилось. Тип исключения и место сбоя сохранены в техническом журнале.",
-                "Если это повторяется, приложите технический журнал к сообщению об ошибке.")
+                "Если это повторяется, приложи технический журнал к сообщению об ошибке.")
         }
         return forLine(line)
     }
 
-    /** Preserve the original log and add explanations using the following stack lines. */
-    fun annotate(raw: String): String {
-        val lines = raw.lines()
-        return buildString {
-            lines.forEachIndexed { index, line ->
-                if (index > 0) append('\n')
-                append(line)
-                if (!line.contains(" [") || line.startsWith("    ")) return@forEachIndexed
-                val stack = mutableListOf<String>()
-                var next = index + 1
-                while (next < lines.size && lines[next].startsWith("    ")) {
-                    stack += lines[next]
-                    next++
-                }
-                forRecord(line, stack)?.let { detail ->
-                    append("\n    ↳ Пояснение: ").append(detail.meaning)
-                    detail.advice?.let { append("\n    ↳ Совет: ").append(it) }
-                }
-            }
+    /** Annotate one record at a time, without discarding any original line. */
+    fun annotate(raw: String): String = buildString {
+        var current: DisplayLogEntry? = null
+        val stack = mutableListOf<String>()
+        fun flush() {
+            val entry = current ?: return
+            val detail = LogDisplay.specificDetail(entry.copy(stack = stack.toList())) ?: LogDisplay.fallback(entry)
+            append("\n    ↳ Пояснение: ").append(detail.meaning)
+            detail.advice?.let { append("\n    ↳ Совет: ").append(it) }
+            stack.clear()
         }
+        raw.splitToSequence('\n').forEachIndexed { index, line ->
+            val parsed = LogDisplay.parseHeader(line.removeSuffix("\r"))
+            if (parsed != null) { flush(); current = parsed }
+            else if (current != null) stack.add(line.removeSuffix("\r"))
+            if (index > 0) append('\n')
+            append(line)
+        }
+        flush()
     }
 
     /**
@@ -56,42 +55,42 @@ object LogExplanation {
             "[InstagramProfile]" in line && "Task stopped" in line &&
                 "reason=RATE_LIMITED" in line ->
                 Detail("Проверка ленты профиля Instagram остановилась: сервис ограничил запросы. Одиночные публикации могут оставаться доступными.",
-                    "Повторите позже; частые повторы могут продлить ограничение.")
+                    "Повтори позже; частые повторы могут продлить ограничение.")
             "[InstagramProfile]" in line && "API feed HTTP 400" in line &&
                 "\"spam\":true" in line ->
                 Detail("Instagram отклонил запрос ленты профиля как подозрительный. Это не подтверждает ошибку входа или одиночной загрузки.")
             "[BrowserWebView]" in line && "Network error" in line &&
                 "mainFrame=false" in line ->
                 Detail("Встроенный браузер не загрузил вспомогательный ресурс страницы. Основная страница могла продолжить работу.",
-                    "Если не отображается изображение, обновите страницу или проверьте соединение.")
+                    "Если не отображается изображение, обнови страницу или проверь соединение.")
             "[BrowserWebView]" in line && "Network error" in line &&
                 "mainFrame=true" in line ->
                 Detail("Встроенный браузер не смог загрузить основную страницу.",
-                    "Проверьте соединение и повторите открытие страницы.")
+                    "Проверь соединение и повтори открытие страницы.")
             "[Diagnostics]" in line && "Session probe" in line &&
                 "reason=SESSION_HTTP_400" in line ->
                 Detail("Проверочный запрос не подтвердил вход: сервис вернул HTTP 400. Работу сессии в браузере и загрузку по ссылке нужно оценивать отдельно.")
             "[Crash]" in line && "[ERROR]" in line ->
                 Detail("Приложение аварийно завершилось. Тип исключения и место сбоя сохранены в техническом журнале.",
-                    "Если это повторяется, приложите технический журнал к сообщению об ошибке.")
+                    "Если это повторяется, приложи технический журнал к сообщению об ошибке.")
             "[Muzmo]" in line &&
                 ("Search document HTTP failure" in line || "Info page HTTP failure" in line) &&
                 "status=403" in line ->
                 Detail("Музыкальный поиск не смог открыть страницу: сервер отклонил запрос (HTTP 403). Причина не установлена — возможны ограничения IP/VPN, сессии или ресурса.",
-                    "Попробуйте другой сервер VPN или повторите поиск позже. Это не доказывает поломку приложения.")
+                    "Попробуй другой сервер VPN или повтори поиск позже. Это не доказывает поломку приложения.")
             "[Muzmo]" in line &&
                 ("Search document HTTP failure" in line || "Info page HTTP failure" in line) &&
                 "status=429" in line ->
                 Detail("Музыкальный поиск не смог открыть страницу: сервер ограничил частоту запросов (HTTP 429).",
-                    "Подождите перед повторным поиском.")
+                    "Подожди перед повторным поиском.")
             "[Muzmo]" in line &&
                 ("Search document HTTP failure" in line || "Info page HTTP failure" in line) ->
                 Detail("Страница музыкального поиска или композиции отклонена сервером. Текущая операция не завершилась.",
-                    "Проверьте доступность сервиса и при необходимости повторите позже.")
+                    "Проверь доступность сервиса и при необходимости повтори позже.")
             "[Muzmo]" in line &&
                 ("Search document network failure" in line || "Info page network failure" in line) ->
                 Detail("Встроенный браузер не смог загрузить страницу для музыкального поиска или выбранной композиции. Текущая операция прервалась из-за соединения.",
-                    "Проверьте подключение или VPN и повторите попытку. Точная причина сетевой ошибки не установлена.")
+                    "Проверь подключение или VPN и повтори попытку. Точная причина сетевой ошибки не установлена.")
             "[Muzmo]" in line && "Main-frame HTTP rejected outside active operation" in line ->
                 Detail("Сервер отклонил загрузку страницы, но активная операция поиска в этот момент не была подтверждена. Это не доказанная ошибка скачивания.")
             "[MuzmoWebView]" in line && "HTTP error" in line &&
@@ -131,7 +130,7 @@ object LogExplanation {
             "DOM probe returned unreadable JSON" in line ||
                 "Settled search DOM has no usable rows" in line ->
                 Detail("Страница открылась, но данные списка композиций не удалось надёжно прочитать. Это не доказывает отсутствие песни.",
-                    "Повторите запрос позднее или выберите другой источник поиска.")
+                    "Повтори запрос позднее или выбери другой источник поиска.")
             "Search DOM awaiting rows" in line || "Music extraction awaiting rows" in line ->
                 Detail("Страница ещё не предоставила пригодный список композиций. Приложение ожидает данные.")
             "Search duration structure" in line || "Late durations parsed" in line ->
@@ -142,7 +141,7 @@ object LogExplanation {
                 Detail("Ожидается подтверждённая ссылка на аудиофайл.")
             "Settled info DOM has no trusted MP3 link" in line ->
                 Detail("На странице композиции не обнаружена надёжная ссылка для скачивания MP3.",
-                    "Попробуйте другую композицию или повторите запрос позже.")
+                    "Попробуй другую композицию или повтори запрос позже.")
             "Selected MP3 queued" in line || "Browser-selected MP3 queued" in line ->
                 Detail("Выбранная композиция добавлена в очередь загрузки.")
             "MP3 redirect" in line ->
@@ -154,7 +153,7 @@ object LogExplanation {
             "Engine transfer begin" in line ->
                 Detail("Модуль передачи приступил к получению файла.")
             "Engine transfer finished" in line ->
-                Detail("Сетевой модуль закончил передачу. Итог сохранения проверьте по соседнему событию.")
+                Detail("Сетевой модуль закончил передачу. Итог сохранения проверь по соседнему событию.")
             "[DownloadProgress]" in line ->
                 Detail("Идёт получение данных файла. Число принятых байтов и общий размер указаны в технической записи.")
             "MP3 stream verified" in line ->
@@ -177,33 +176,33 @@ object LogExplanation {
                 Detail("Для получения MP3 выбран сетевой механизм Cronet.")
             "Thumbnail URL host not supported" in line ->
                 Detail("Источник изображения отклонён правилами приложения, даже если адрес технически доступен.",
-                    "Проверьте поддержку данного источника изображений.")
+                    "Проверь поддержку данного источника изображений.")
             "Thumbnail HTTP 403" in line || ("[Thumbnail]" in line && "status=403" in line) ->
                 Detail("Сервер изображения отказал в доступе. Причина может быть связана с устаревшей ссылкой или условиями доступа.",
-                    "Если файл уже сохранён, попробуйте использовать локальную миниатюру.")
+                    "Если файл уже сохранён, попробуй использовать локальную миниатюру.")
             "HTTP 405" in line || "code=405" in line ->
                 Detail("Сервер не принимает выбранный метод HTTP-запроса. Это не обязательно означает, что весь поиск недоступен.")
             "HTTP 429" in line || "code=429" in line ->
                 Detail("Сервис ограничил частоту запросов. Длительность ограничения неизвестна.",
-                    "Не повторяйте запросы слишком часто; попробуйте позже.")
+                    "Не повторяй запросы слишком часто; попробуй позже.")
             "HTTP 500" in line || "code=500" in line ->
                 Detail("Сервер сообщил о внутренней ошибке. Причина на стороне сервиса неизвестна.")
             "reason=DNS_LOOKUP_FAILED" in line || "ERR_NAME_NOT_RESOLVED" in line ||
                 "UnknownHostException" in line ->
                 Detail("Не удалось определить сетевой адрес сервера по DNS. Это не доказывает, что сервер неисправен или заблокирован.",
-                    "Проверьте подключение, DNS и используемый VPN; повторите запрос позже.")
+                    "Проверь подключение, DNS и используемый VPN; повтори запрос позже.")
             "reason=NETWORK_TIMEOUT" in line ->
                 Detail("Подключение или получение ответа заняло больше разрешённого времени.",
-                    "Попробуйте позже или проверьте другое доступное подключение.")
+                    "Попробуй позже или проверь другое доступное подключение.")
             "reason=CONNECTION_RESET" in line || "Connection reset" in line ->
                 Detail("Сетевое соединение прервалось сбросом. Какая сторона его инициировала, неизвестно.",
-                    "Повторите запрос позже; при частых сбросах проверьте качество соединения.")
+                    "Повтори запрос позже; при частых сбросах проверь качество соединения.")
             "ERR_NETWORK_CHANGED" in line ->
                 Detail("Во время соединения изменилась сеть или её маршрут. Текущая попытка могла прерваться.",
-                    "Проверьте стабильность сети и VPN, затем повторите попытку.")
+                    "Проверь стабильность сети и VPN, затем повтори попытку.")
             "SocketTimeoutException" in line || "ERR_TIMED_OUT" in line ->
                 Detail("За отведённое время не получен ответ от сетевого соединения.",
-                    "Попробуйте повторить позже или сравнить подключение с VPN и без него.")
+                    "Попробуй повторить позже или сравнить подключение с VPN и без него.")
             "MP3 redirect HTTP 302" in line ->
                 Detail("Сервис перенаправил запрос аудио на другой сервер. Передача MP3 ещё не подтверждена.")
             "MP3 transport" in line && "platform-retry" in line ->
@@ -224,7 +223,7 @@ object LogExplanation {
                 Detail("Приложение не смогло получить пригодные строки с песнями из текущей страницы. Это не доказывает отсутствие песен.")
             "Search watchdog expired" in line ->
                 Detail("Поиск не завершился за установленное время. Текущая попытка остановлена.",
-                    "Проверьте доступность HitMoz в выбранной сети и повторите поиск.")
+                    "Проверь доступность HitMoz в выбранной сети и повтори поиск.")
             "WebView timed out" in line ->
                 Detail("Загрузка страницы длится слишком долго. Приложение ещё проверяет, есть ли доступные результаты.")
             "No usable search results" in line ->
@@ -255,7 +254,7 @@ object LogExplanation {
             "[Resolve]" in line && "Completed" in line ->
                 Detail("Ссылка обработана, а список доступных материалов сформирован.")
             else -> when {
-                "[ERROR]" in line -> Detail("Произошла ошибка. Для этого события пока нет точного пояснения; проверьте соседние строки.")
+                "[ERROR]" in line -> Detail("Произошла ошибка. Для этого события пока нет точного пояснения; проверь соседние строки.")
                 "[WARN]" in line -> Detail("Записано предупреждение. Для этого события пока нет точного пояснения.")
                 else -> null
             }

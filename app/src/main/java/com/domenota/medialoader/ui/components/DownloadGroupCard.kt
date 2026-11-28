@@ -28,15 +28,19 @@ fun DownloadGroupCard(
     onDelete: (() -> Unit)? = null,
     privateGroup: Boolean = false,
     actionsEnabled: Boolean = true,
+    onArchive: (() -> Unit)? = null,
 ) {
     if (group.isEmpty()) return
     var menu by remember { mutableStateOf(false) }
+    ReportDrawerOverlay(menu&&actionsEnabled)
     val cover = group.first()
     val community = VkDownloadGroup.isCommunity(cover)
     val missing = group.count { it.state == DownloadUiState.COMPLETED && it.fileStatus == SavedFileStatus.MISSING }
     val inaccessible = group.count { it.state == DownloadUiState.COMPLETED && it.fileStatus == SavedFileStatus.INACCESSIBLE }
     val completed = group.count { it.state == DownloadUiState.COMPLETED } - missing - inaccessible
     val failures = if (group.any { it.state == DownloadUiState.FAILED }) " · Есть ошибки" else ""
+    val waiting = group.count { it.networkWaitLabel != null }
+    val waitingLabel = if (waiting > 0) " · Ожидают сеть: $waiting" else ""
     val absent = if (missing > 0) " · Отсутствует: $missing" else ""
     val unavailable = if (inaccessible > 0) " · Нет доступа: $inaccessible" else ""
     AppCard(Modifier.fillMaxWidth()) {
@@ -49,13 +53,13 @@ fun DownloadGroupCard(
                 Column(Modifier.weight(1f)) {
                     Text(if (community) "VK · ${group.size} изображений" else "Публикация · ${group.size} файлов",
                         style = MaterialTheme.typography.titleMedium)
-                    Text("Сохранено $completed из ${group.size}$failures$absent$unavailable",
+                    Text("Сохранено $completed из ${group.size}$failures$absent$unavailable$waitingLabel",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     if (expanded) "Свернуть" else "Развернуть")
             }
-            if (listOf(onFavorite, onChooseFolder, onMoveToPrivate, onRestore, onDelete).any { it != null }) Box {
+            if (listOf(onFavorite, onChooseFolder, onMoveToPrivate, onRestore, onDelete, onArchive).any { it != null }) Box {
                 IconButton(onClick = { menu = true }, enabled = actionsEnabled) {
                     Icon(Icons.Rounded.MoreVert, "Действия с группой")
                 }
@@ -65,6 +69,8 @@ fun DownloadGroupCard(
                         leadingIcon = { Icon(Icons.Rounded.Star, null) }, onClick = { menu = false; action() }) }
                     onChooseFolder?.let { action -> DropdownMenuItem(text = { Text("Добавить в папку") },
                         leadingIcon = { Icon(Icons.Rounded.Folder, null) }, onClick = { menu = false; action() }) }
+                    if (!privateGroup) onArchive?.let { action -> DropdownMenuItem(text = { Text("В архив") },
+                        leadingIcon = { ArchiveActionIcon(null) }, onClick = { menu = false; action() }) }
                     if (!privateGroup) onMoveToPrivate?.let { action -> DropdownMenuItem(text = { Text("Переместить в личное") },
                         leadingIcon = { Icon(Icons.Rounded.Lock, null) }, onClick = { menu = false; action() }) }
                     onRestore?.let { action -> DropdownMenuItem(text = { Text("Вернуть из личного") },

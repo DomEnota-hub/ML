@@ -15,15 +15,52 @@ internal object DuplicateReportJournal {
         root(context,kind).listFiles().orEmpty().filter{it.name.matches(completed)}.forEach{check(it.delete()||!it.exists())}
         check(root(context,kind).listFiles().orEmpty().none{it.name.matches(completed)})
     }
+    /** Durable completed-report tombstones prevent a delayed UI writer from
+     * resurrecting a report after an explicit per-row deletion.
+     * Partial checkpoints are deliberately separate from these markers.
+     */
+    private fun deletedFile(context:Context,kind:String)=AtomicFile(File(root(context,kind),"deleted.json"))
+    fun isDeleted(context:Context,kind:String,at:Long):Boolean {
+        if(at<=0L)return false
+        val json=runCatching{org.json.JSONObject(deletedFile(context,kind).openRead()
+            .bufferedReader().use{it.readText()})}.getOrNull()?:return false
+        val rows=json.optJSONArray("at")?:return false
+        return (0 until rows.length()).any{rows.optLong(it,-1L)==at}
+    }
+    fun markDeleted(context:Context,kind:String,at:Long){
+        require(at>0L && kind in setOf("music","gallery"))
+        if(isDeleted(context,kind,at))return
+        val target=deletedFile(context,kind)
+        val old=runCatching{org.json.JSONObject(target.openRead().bufferedReader().use{it.readText()})
+            .optJSONArray("at")}.getOrNull()
+        val stamps=(0 until (old?.length()?:0)).mapNotNull{i->old!!.optLong(i,-1L).takeIf{it>0}}
+        val all=(listOf(at)+stamps).distinct().take(128)
+        val json=org.json.JSONObject().put("at",org.json.JSONArray(all))
+        write(target,json.toString())
+    }
+    fun deleteCompleted(context:Context,kind:String,at:Long):Boolean {
+        require(kind in setOf("music","gallery") && at>0L)
+        val path=AtomicFile(File(root(context,kind),"$at.json"))
+        val exists=listOf(path.baseFile,File(path.baseFile.path+".bak"),
+            File(path.baseFile.path+".new")).any{it.exists()}
+        if(!exists)return false
+        markDeleted(context,kind,at)
+        path.delete()
+        check(listOf(path.baseFile,File(path.baseFile.path+".bak"),
+            File(path.baseFile.path+".new")).none{it.exists()})
+        return true
+    }
     fun archive(context:Context,kind:String,at:Long,encoded:String){
-        if(at<=0)return
+        if(at<=0||isDeleted(context,kind,at))return
         val dir=root(context,kind).apply{mkdirs()}
         write(AtomicFile(File(dir,"$at.json")),encoded)
         dir.listFiles().orEmpty().filter{it.name.matches(Regex("[0-9]+\\.json"))}
             .sortedByDescending{it.nameWithoutExtension.toLongOrNull()?:0L}.drop(LIMIT).forEach{it.delete()}
     }
     fun history(context:Context,kind:String):List<String> = root(context,kind).listFiles().orEmpty()
-        .filter{it.name.matches(Regex("[0-9]+\\.json"))}.sortedByDescending{it.nameWithoutExtension.toLongOrNull()?:0L}
+        .filter{it.name.matches(Regex("[0-9]+\\.json")) &&
+            !isDeleted(context,kind,it.nameWithoutExtension.toLongOrNull()?:0L)}
+        .sortedByDescending{it.nameWithoutExtension.toLongOrNull()?:0L}
         .take(LIMIT).mapNotNull{runCatching{AtomicFile(it).openRead().bufferedReader().use{r->r.readText()}}.getOrNull()}
     /** Retain the previous interrupted result BEFORE a new attempt can replace
      * partial.json with its initial empty snapshot. This is deliberately separate

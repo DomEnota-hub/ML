@@ -45,4 +45,23 @@ class AcousticFingerprintTest {
         assertEquals(DuplicateKind.ACOUSTIC,combined.kind)
         assertTrue(MusicDuplicatePolicy.selectAll(listOf(combined),emptyMap()).isEmpty())
     }
+    @Test fun fourHundredTwentyTrackCandidatesRemainExactWithDenseCounter(){
+        val tracks=linkedMapOf<String,AcousticFingerprint>()
+        for(group in 0 until 140)for(member in 0 until 3){
+            val landmarks=(0 until 95).map{i->AcousticLandmark(group*1000+i,i*8)} +
+                (0 until 12).map{i->AcousticLandmark(900000+i,i*10)}
+            tracks["track-$group-$member"]=AcousticFingerprint(landmarks)
+        }
+        val candidates=AcousticFingerprints.candidatePairs(tracks)
+        // Each three-member cluster contributes exactly C(3,2) pairs.
+        assertEquals(420,candidates.size)
+        for(group in 0 until 140)for(a in 0 until 3)for(b in a+1 until 3){
+            assertTrue(("track-$group-$a" to "track-$group-$b") in candidates)
+        }
+    }
+    @Test fun eightyNineSharedHashesDoNotBecomeAnAcousticCandidate(){
+        val a=AcousticFingerprint((0 until 89).map{AcousticLandmark(it,it)})
+        assertTrue(AcousticFingerprints.candidatePairs(mapOf("a" to a,"b" to a)).isEmpty())
+    }
+
 }

@@ -9,7 +9,7 @@ data class InstagramSessionLabel(val text: String, val tone: InstagramSessionTon
             result?.reasonCode == "SESSION_LOGIN_REQUIRED" || result?.reasonCode == "SESSION_LOGIN_PAGE" ->
                 InstagramSessionLabel("Требуется повторный вход", InstagramSessionTone.ERROR)
             result?.reasonCode == "SESSION_CHALLENGE_REQUIRED" ->
-                InstagramSessionLabel("Подтвердите вход в Instagram", InstagramSessionTone.WARNING)
+                InstagramSessionLabel("Подтверди вход в Instagram", InstagramSessionTone.WARNING)
             workingMedia -> InstagramSessionLabel("Подключён", InstagramSessionTone.SUCCESS)
             result == null -> InstagramSessionLabel("Проверяем сессию", InstagramSessionTone.NEUTRAL)
             result.state == DiagnosticState.OK && result.reasonCode == "SESSION_CONFIRMED" ->
@@ -21,8 +21,8 @@ data class InstagramSessionLabel(val text: String, val tone: InstagramSessionTon
 
 object InstagramLoginFailure {
     fun explain(status: Int): String = when (status) {
-        429 -> "Instagram временно ограничил вход (HTTP 429). Подождите и попробуйте позже; при VPN можно сменить соединение."
-        403 -> "Instagram отклонил страницу входа (HTTP 403). Попробуйте позже или через другое соединение."
-        else -> "Instagram не открыл страницу входа (HTTP $status). Попробуйте ещё раз позже."
+        429 -> "Instagram временно ограничил вход (HTTP 429). Подожди и попробуй позже; при VPN можно сменить соединение."
+        403 -> "Instagram отклонил страницу входа (HTTP 403). Попробуй позже или через другое соединение."
+        else -> "Instagram не открыл страницу входа (HTTP $status). Попробуй ещё раз позже."
     }
 }

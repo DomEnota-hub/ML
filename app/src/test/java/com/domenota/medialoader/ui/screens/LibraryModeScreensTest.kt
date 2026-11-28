@@ -188,6 +188,51 @@ class LibraryModeScreensTest {
         assertEquals("p" to "Updated", renamed)
     }
 
+    @Test fun galleryClearAndBackCloseSearchWithoutLeavingLibrary() {
+        val media=listOf(file("a","Beach.jpg"),file("b","Other.jpg"))
+        var visible by mutableStateOf(true)
+        compose.setContent { MaterialTheme {
+            GalleryModeScreen(media,LibrarySource.APP,false,null,emptyList(),emptyList(),{},
+                {_,_->},{},{_,_->},{_,_->},{"folder"},{},{},{_,_->},{},
+                searchVisible=visible,onCloseSearch={visible=false})
+        } }
+        compose.onNodeWithText("Поиск фото и видео").performTextInput("Beach")
+        compose.onNodeWithContentDescription("Other.jpg").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Очистить поиск").performClick()
+        compose.onNodeWithText("Поиск фото и видео").assertExists()
+        compose.onNodeWithContentDescription("Other.jpg").assertExists()
+        compose.onNodeWithText("Поиск фото и видео").performTextInput("Beach")
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("Поиск фото и видео").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Other.jpg").assertExists()
+        compose.runOnIdle { visible=true }
+        compose.onNodeWithContentDescription("Очистить поиск").assertDoesNotExist()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("Поиск фото и видео").assertDoesNotExist()
+    }
+
+    @Test fun musicClearAndBackCloseSearchWithoutLeavingLibrary() {
+        val media=listOf(file("a","Moonlight.mp3",MediaType.AUDIO),file("b","Other.mp3",MediaType.AUDIO))
+        var visible by mutableStateOf(true)
+        compose.setContent { MaterialTheme {
+            MusicModeScreen(media,media,emptyList(),{},false,null,{_,_->},{},{"new"},{_,_->},{},{_,_->},{_,_->},{_,_,_->},{},{},
+                searchVisible=visible,onCloseSearch={visible=false})
+        } }
+        compose.onNodeWithText("Поиск музыки").performTextInput("Moonlight")
+        compose.onNodeWithTag("music-track-b").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Очистить поиск").performClick()
+        compose.onNodeWithText("Поиск музыки").assertExists()
+        compose.onNodeWithTag("music-track-b").assertExists()
+        compose.onNodeWithText("Поиск музыки").performTextInput("Moonlight")
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("Поиск музыки").assertDoesNotExist()
+        compose.onNodeWithTag("music-track-b").assertExists()
+        compose.runOnIdle { visible=true }
+        compose.onNodeWithContentDescription("Очистить поиск").assertDoesNotExist()
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithText("Поиск музыки").assertDoesNotExist()
+    }
+
     @Composable
     private fun Music(items: List<DownloadEntity>, all: List<DownloadEntity>, playlists: List<MediaPlaylist>,
         onOpen: (String, List<String>) -> Unit = { _, _ -> },
@@ -200,6 +245,63 @@ class LibraryModeScreensTest {
             onRename, onDelete, onAdd, onRemove, onMove, {}, onDeleteFile) }
     }
 
+    @Test fun musicScrollSurvivesPlayerReturnThroughColdProjectionAndExplicitTopStillWorks() {
+        val media=(0 until 180).map { file("t"+it.toString().padStart(3,'0'), "Track "+it.toString().padStart(3,'0')+".mp3",MediaType.AUDIO) }
+        var visible by mutableStateOf(true)
+        var ready by mutableStateOf(true)
+        var top by mutableStateOf(1)
+        val catalog=MusicBrowseCatalog.build(media,media,emptyMap())
+        compose.setContent {
+            val holder=androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+            MaterialTheme {
+                if(visible)holder.SaveableStateProvider("music") {
+                    MusicModeScreen(media,media,emptyList(),{},!ready,null,{_,_->visible=false},{},{"new"},
+                        {_,_->},{},{_,_->},{_,_->},{_,_,_->},{},{},searchVisible=false,scrollToTopRequest=top,
+                        preparedBrowse=com.domenota.medialoader.ui.components.BackgroundLibraryValue(
+                            if(ready)catalog else MusicBrowseCatalog.EMPTY,ready))
+                } else androidx.compose.material3.Text("Player")
+            }
+        }
+        fun scrollValue()=compose.onNodeWithTag("music-library").fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange].value()
+        fun tracksReady()=compose.onAllNodesWithTag("music-track-t000").fetchSemanticsNodes().isNotEmpty() ||
+            compose.onAllNodesWithTag("music-track-t088").fetchSemanticsNodes().isNotEmpty()
+        compose.waitUntil(10000){tracksReady()}
+        compose.onNodeWithTag("music-library").performScrollToIndex(90)
+        val previous=scrollValue()
+        org.junit.Assert.assertTrue(previous>80f)
+        compose.onNodeWithTag("music-track-t088").performClick()
+        compose.onNodeWithText("Player").assertExists()
+        compose.runOnIdle{ready=false;visible=true}
+        compose.mainClock.advanceTimeByFrame()
+        compose.onNodeWithTag("music-track-t088").assertDoesNotExist()
+        compose.runOnIdle{ready=true}
+        compose.waitUntil(10000){tracksReady()}
+        org.junit.Assert.assertEquals(previous,scrollValue(),0.5f)
+        compose.onNodeWithTag("music-track-t088").assertIsDisplayed()
+        compose.runOnIdle{top++}
+        compose.waitUntil(10000){scrollValue()<1f}
+        compose.onNodeWithTag("music-track-t000").assertIsDisplayed()
+    }
+
     private fun file(id: String, name: String, type: MediaType = MediaType.PHOTO) = DownloadEntity(
         id, "device", name, type, DownloadState.COMPLETED, null, null, 0)
+    @Test fun musicFolderViewToggleShowsNextActionAndListRowOpens() {
+        var grid by mutableStateOf(true)
+        var opened=false
+        compose.setContent { MaterialTheme {
+            androidx.compose.foundation.layout.Column {
+                MusicFolderViewToggle(grid){grid=it}
+                if(!grid)MusicFolderListRow("Папка","7 треков"){opened=true}
+            }
+        } }
+        compose.onNodeWithContentDescription("Показать списком").performClick()
+        compose.onNodeWithContentDescription("Показать сеткой").assertExists()
+        compose.onNodeWithText("7 треков").assertExists()
+        compose.onNodeWithText("Папка").performClick()
+        compose.runOnIdle{org.junit.Assert.assertTrue(opened)}
+        compose.onNodeWithContentDescription("Показать сеткой").performClick()
+        compose.onNodeWithContentDescription("Показать списком").assertExists()
+        compose.onNodeWithText("7 треков").assertDoesNotExist()
+    }
 }

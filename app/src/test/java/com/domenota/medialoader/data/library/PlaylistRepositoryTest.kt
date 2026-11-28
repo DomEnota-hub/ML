@@ -82,6 +82,18 @@ class PlaylistRepositoryTest {
         restarted.addTracksResolved(id, listOf("phone:audio:42"), mapOf("phone:audio:42" to "phone:audio:42"))
         assertEquals(3, restarted.playlists.value.single().trackIds.size)
     }
+    @Test fun folderBatchCreateAndRepeatedAddKeepCanonicalMembersInOrder() = runBlocking {
+        val repository = PlaylistRepository(context)
+        val aliases=mapOf("phone:audio:42" to "download-42","download-42" to "download-42")
+        assertTrue(runCatching { repository.createFromTracks("Empty",emptyList(),aliases) }.isFailure)
+        val id=repository.createFromTracks("Folder",listOf("phone:audio:42","second","download-42"),aliases)
+        repository.addTracksResolved(id,listOf("download-42","second","third","phone:audio:42"),aliases)
+        val restored=PlaylistRepository(context)
+        restored.awaitLoaded()
+        val entry=restored.playlists.value.single()
+        assertEquals(listOf("download-42","second","third"),entry.trackIds)
+        assertTrue("phone:audio:42" in entry.trackReferences.getValue("download-42"))
+    }
     @Test fun readsLegacyPlaylistWithoutReferenceField() = runBlocking {
         context.getSharedPreferences("media_playlists", 0).edit().putString("playlists",
             """[{"id":"old","name":"Legacy","trackIds":["phone:audio:42","missing"]}]""").commit()

@@ -87,7 +87,7 @@ internal fun VideoMusicPicker(choices: List<VideoMusicChoice>, canAdd: Boolean,
             Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Назад из музыки", tint = Color.White) }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    Text("Выберите музыку", color = Color.White, fontSize = 15.sp)
+                    Text("Выбери музыку", color = Color.White, fontSize = 15.sp)
                 }
                 Spacer(Modifier.width(48.dp))
             }
@@ -115,7 +115,7 @@ internal fun VideoMusicPicker(choices: List<VideoMusicChoice>, canAdd: Boolean,
                 Spacer(Modifier.height(24.dp))
                 if (errorMessage != null) Text(errorMessage, color = Color(0xFFFF8D8D), fontSize = 12.sp)
                 if (failed) Text("Не удалось прослушать аудио", color = Color(0xFFFF8D8D), fontSize = 12.sp)
-                if (choices.isEmpty()) Text("Импортируйте аудио с устройства", color = Color(0xFFAAAAAA), fontSize = 13.sp)
+                if (choices.isEmpty()) Text("Импортируй аудио с устройства", color = Color(0xFFAAAAAA), fontSize = 13.sp)
                 LazyColumn(Modifier.weight(1f)) {
                     itemsIndexed(choices, key = { _, item -> item.id }) { index, choice ->
                         Row(Modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.CenterVertically,

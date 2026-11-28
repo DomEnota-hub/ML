@@ -46,9 +46,30 @@ internal object MediaOrganizationPolicy {
     }
     data class Passport(val row:DownloadEntity,val parent:LibraryMediaRef?,val children:List<LibraryMediaRef>,val parentKnown:Boolean)
     fun passport(ref:LibraryMediaRef,public:List<LibraryMediaRef>):Passport {
-        val parentId=ref.item.derivedFromId
-        val parent=parentId?.let{id->public.filter{it.key==id||it.appDownloadId==id||id in it.aliases}.singleOrNull()}
-        val ids=ref.aliases+ref.key+listOfNotNull(ref.appDownloadId)
-        return Passport(ref.item,parent,public.filter{it.key!=ref.key&&it.item.derivedFromId in ids}.distinctBy{it.key},parentId!=null)
+        val parentId = ref.item.derivedFromId
+        fun admitted(candidate: LibraryMediaRef): Boolean = candidate.item.let { row ->
+            !row.isPrivate && !row.hidden && row.state == DownloadState.COMPLETED && !row.savedUri.isNullOrBlank()
+        }
+        if (!admitted(ref)) return Passport(ref.item, null, emptyList(), false)
+        // The caller supplies the live admitted catalog. Still reject ambiguous identities
+        // and stale or non-public rows here; never infer lineage from names or timestamps.
+        val currentIds = ref.aliases + ref.key + listOfNotNull(ref.appDownloadId)
+        val related = public.filter { it.item.derivedFromId in currentIds }
+        val wanted = currentIds + listOfNotNull(parentId) + related.map { it.key }
+        val identities = (listOf(ref) + public).distinct().flatMap { candidate ->
+            (candidate.aliases + candidate.key + listOfNotNull(candidate.appDownloadId))
+                .filter { it in wanted }.map { id -> id to candidate }
+        }.groupBy({ it.first }, { it.second })
+        fun resolve(id: String?): LibraryMediaRef? =
+            id?.takeIf { it.isNotBlank() }?.let { identities[it]?.singleOrNull() }?.takeIf(::admitted)
+        val resolvedParent = resolve(parentId)
+        val parent = resolvedParent?.takeIf { it.key != ref.key && resolve(it.item.derivedFromId) != ref }
+        val children = related.filter { child ->
+            child.key != ref.key && admitted(child) &&
+                identities[child.key]?.singleOrNull() == child &&
+                resolve(child.item.derivedFromId) == ref &&
+                child.key != resolvedParent?.key
+        }.distinctBy { it.key }
+        return Passport(ref.item, parent, children, !parentId.isNullOrBlank())
     }
 }

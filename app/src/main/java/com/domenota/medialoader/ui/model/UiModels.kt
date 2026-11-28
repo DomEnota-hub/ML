@@ -61,4 +61,6 @@ data class DownloadUiItem(
     val durationMs: Long? = null,
     val trashOrderMs: Long = 0L,
     val recognitionSource: String? = null,
+    val networkWaitLabel: String? = null,
+    val canDownloadNow: Boolean = false,
 )
