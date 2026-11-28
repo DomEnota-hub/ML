@@ -34,6 +34,9 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
+import com.domenota.medialoader.data.playback.alignment.LyricsAlignmentCoordinator
+import com.domenota.medialoader.data.editor.GigaAmModelStore
+import com.domenota.medialoader.ui.screens.AiModelManagerDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +66,9 @@ internal fun TrackLyricsSheet(
     var networkTarget by remember(key){mutableStateOf<NetworkLyricsTarget?>(null)}
     var candidates by remember(key){mutableStateOf<List<NetworkLyricsHit>>(emptyList())}
     var settingsOpen by remember(key){mutableStateOf(false)}
+    var modelsOpen by remember{mutableStateOf(false)}
+    val alignment by LyricsAlignmentCoordinator.state.collectAsState()
+    var version by remember(key){mutableStateOf<String?>(null)}
     var manualPrepared by remember(key){mutableStateOf(false)}
     var manualOpen by remember(key){mutableStateOf(false)}
     var manualTitle by remember(key){mutableStateOf("")}
@@ -131,11 +137,21 @@ internal fun TrackLyricsSheet(
             val found=read(verified)
             if(currentMedia()!=null && key===latestKey) {
                 access=verified;lyrics=found
+                version=withContext(Dispatchers.IO){store.versionKey(verified){alive.get()}}
                 if(found==null){busy=true;try{lookup(verified)}finally{if(key===latestKey)busy=false}}
             }
         } catch(cancelled:CancellationException){throw cancelled}
         catch(_:Exception){if(key===latestKey)message="Трек недоступен"}
         finally {if(key===latestKey)loading=false}
+    }
+    LaunchedEffect(alignment.serial,key) {
+        if(alignment.version==version && !alignment.running && !loading) {
+            try {
+                val verified=authorize();val found=read(verified)
+                if(key===latestKey && currentMedia()!=null){lyrics=found;message=alignment.message}
+            }catch(cancelled:CancellationException){throw cancelled}
+            catch(_:Exception){if(key===latestKey)message="Трек недоступен"}
+        }
     }
     val picker=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()){document->
         val requested=pending
@@ -177,6 +193,7 @@ internal fun TrackLyricsSheet(
             catch(_:Exception){if(key===latestKey)message="Позиция недоступна"}
         }
     }
+    if(modelsOpen)AiModelManagerDialog(onDismiss={modelsOpen=false})
     NoticeSheet(onDismissRequest=onDismiss) {
         com.domenota.medialoader.ui.theme.TransparentWindowNavigation()
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal=20.dp).padding(bottom=20.dp),
@@ -254,6 +271,26 @@ internal fun TrackLyricsSheet(
                 }
             }
             if(ready && !busy && settingsOpen) {
+                if(data!=null && data.timed.isEmpty() && data.plain.isNotBlank()) {
+                    OutlinedButton(enabled=!alignment.running,onClick={
+                        if(!GigaAmModelStore(context).installed())modelsOpen=true
+                        else scope.launch {
+                            try {
+                                val verified=authorize()
+                                val v=withContext(Dispatchers.IO){store.versionKey(verified){alive.get()}}
+                                check(v!=null && key===latestKey && currentMedia()!=null)
+                                val original=read(verified) ?: error("Текст недоступен")
+                                withContext(Dispatchers.IO){LyricsAlignmentCoordinator.start(context,verified,v,original)}
+                                if(key===latestKey){version=v;message="Синхронизация выполняется в Центре задач"}
+                            }catch(cancelled:CancellationException){throw cancelled}
+                            catch(error:Exception){if(key===latestKey)message=error.message?:"Не удалось начать синхронизацию"}
+                        }
+                    },modifier=Modifier.fillMaxWidth()){
+                        Text(if(alignment.running && alignment.version==version)alignment.message?:"Синхронизация…" else "Синхронизировать с аудио")
+                    }
+                    Text("На устройстве · русский текст · экспериментально. При сомнительном результате останется обычный текст.",
+                        style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 TextButton(onClick={
                     manualOpen=!manualOpen
                     if(manualOpen && !manualPrepared){

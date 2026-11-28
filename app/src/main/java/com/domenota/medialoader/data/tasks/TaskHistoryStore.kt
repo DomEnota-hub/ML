@@ -122,7 +122,7 @@ internal object TaskHistoryStore {
             .put("details",detailsJson(row.details))
     }))
     private fun detailsJson(value:TaskDetails?):Any = value?.let { d ->
-        JSONObject().put("correlation",d.correlation?.value?:JSONObject.NULL)
+        JSONObject().put("correlation",d.correlation?.value?:JSONObject.NULL).put("operation",d.operation?.name?:JSONObject.NULL)
             .put("started",d.startedAt?:JSONObject.NULL).put("trigger",d.trigger?.name?:JSONObject.NULL)
             .put("failure",d.failure?.name?:JSONObject.NULL).put("recovered",d.recovered).put("checkpoints",d.checkpoints?.let(TaskCheckpointCodec::encode)?:JSONObject.NULL).put("outcomes",d.outcomes?.let { c ->
                 JSONObject().put("cached",c.cached).put("generated",c.generated).put("skipped",c.skipped).put("failed",c.failed)
@@ -133,7 +133,8 @@ internal object TaskHistoryStore {
             d.optLong("started",-1).takeIf{it>=0},
             TaskTrigger.entries.firstOrNull{it.name==d.optString("trigger")},
             TaskFailure.entries.firstOrNull{it.name==d.optString("failure")},
-            d.optJSONObject("outcomes")?.let { c -> runCatching { TaskOutcomes(c.getInt("cached"),c.getInt("generated"),c.getInt("skipped"),c.getInt("failed")) }.getOrNull() },d.optBoolean("recovered",false),TaskCheckpointCodec.decode(d.optJSONObject("checkpoints")))
+            d.optJSONObject("outcomes")?.let { c -> runCatching { TaskOutcomes(c.getInt("cached"),c.getInt("generated"),c.getInt("skipped"),c.getInt("failed")) }.getOrNull() },d.optBoolean("recovered",false),TaskCheckpointCodec.decode(d.optJSONObject("checkpoints")),
+            TaskOperation.entries.firstOrNull{it.name==d.optString("operation")})
     }
     private fun progressJson(value:TaskProgress?):Any = value?.let { JSONObject().put("done",it.done).put("total",it.total?:JSONObject.NULL) }?:JSONObject.NULL
     internal fun decode(json:JSONObject):TaskHistoryData {

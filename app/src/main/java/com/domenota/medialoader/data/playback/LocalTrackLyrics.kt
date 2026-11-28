@@ -29,7 +29,7 @@ internal class LocalTrackLyrics(private val context:Context) {
             PublicMediaIdentity.uriKeys(source(access).toString())).mapTo(linkedSetOf(),::hash)
     }
     private fun load(key:String,access:AudioBookmarkAdmission,o:JSONObject?=readRecord(file(key))):TrackLyrics?=runCatching {
-        if(o==null)return@runCatching null
+        if(o==null || o.optBoolean("alignmentOnly",false))return@runCatching null
         if(o.getInt("schema")!=2 || o.getString("key")!=key || recordAliases(o).none(aliases(access)::contains)) return@runCatching null
         val rows=o.getJSONArray("timed")
         if(rows.length()>LyricsParser.MAX_LINES) return@runCatching null
@@ -77,7 +77,11 @@ internal class LocalTrackLyrics(private val context:Context) {
         }.getOrNull() else null
         val sibling=if(imported==null && embedded?.timed?.isNotEmpty()!=true) sidecar(access,uri) else null
         val result=imported ?: embedded?.takeIf{it.timed.isNotEmpty()} ?: sibling ?: embedded ?: cached
-        return result?.takeIf{admitted(access,allowed) && key(uri)==version && readable(uri)}
+        return result?.let { base->
+            if(base.timed.isNotEmpty())base else synchronized(DuplicatePrivacyGuard.lock){
+                if(!admitted(access,allowed))null else readAlignment(version,access,base) ?: base
+            }
+        }?.takeIf{admitted(access,allowed) && key(uri)==version && readable(uri)}
     }
     fun importDocument(access:AudioBookmarkAdmission,document:Uri,allowed:()->Boolean):TrackLyrics? {
         if(!admitted(access,allowed) || document.scheme!="content") return null
@@ -91,6 +95,43 @@ internal class LocalTrackLyrics(private val context:Context) {
     fun versionKey(access:AudioBookmarkAdmission,allowed:()->Boolean):String? {
         if(!admitted(access,allowed))return null
         return key(source(access))?.takeIf{admitted(access,allowed)}
+    }
+    private fun readAlignment(version:String,access:AudioBookmarkAdmission,base:TrackLyrics):TrackLyrics?=runCatching {
+        val o=readRecord(file(version)) ?: return@runCatching null
+        if(o.getInt("schema")!=2 || o.getString("key")!=version || recordAliases(o).none(aliases(access)::contains))return@runCatching null
+        val alignment=o.getJSONObject("alignment")
+        if(alignment.getString("text")!=hash(base.plain) ||
+            alignment.getString("model")!=com.domenota.medialoader.data.editor.GigaAmModelStore.SHA256 ||
+            alignment.getString("algorithm")!=com.domenota.medialoader.data.playback.alignment.CtcLyricsAligner.REVISION)return@runCatching null
+        val rows=alignment.getJSONArray("timed");if(rows.length() !in 1..500)return@runCatching null
+        val timed=(0 until rows.length()).map{rows.getJSONArray(it).let{r->LyricLine(r.getLong(0),r.getString(1))}}
+        if(timed.map{it.text}!=base.plain.lines().filter{it.isNotBlank()} || timed.zipWithNext().any{(a,b)->a.atMs>=b.atMs})return@runCatching null
+        base.copy(timed=timed)
+    }.getOrNull()
+    /** Compare-and-save against the currently selected original text. Existing LRC always wins. */
+    fun saveAlignment(access:AudioBookmarkAdmission,version:String,base:TrackLyrics,timed:List<LyricLine>,allowed:()->Boolean):TrackLyrics? {
+        if(base.timed.isNotEmpty() || timed.isEmpty() || timed.size>500 || timed.any{it.atMs<0} ||
+            timed.map{it.text}!=base.plain.lines().filter{it.isNotBlank()} || timed.zipWithNext().any{(a,b)->a.atMs>=b.atMs})return null
+        if(!admitted(access,allowed) || versionKey(access,allowed)!=version)return null
+        return synchronized(DuplicatePrivacyGuard.lock) {
+            if(!admitted(access,allowed) || versionKey(access,allowed)!=version)return@synchronized null
+            val current=read(access,allowed) ?: return@synchronized null
+            if(current.plain!=base.plain || current.origin!=base.origin)return@synchronized null
+            if(current.timed.isNotEmpty())return@synchronized current
+            val o=readRecord(file(version)) ?: JSONObject().put("schema",2).put("key",version)
+                .put("origin","LRCLIB").put("preferred",false).put("plain","").put("timed",JSONArray())
+                .put("alignmentOnly",true)
+            o.put("aliases",JSONArray(aliases(access).sorted())).put("alignment",JSONObject()
+                .put("text",hash(base.plain)).put("model",com.domenota.medialoader.data.editor.GigaAmModelStore.SHA256)
+                .put("algorithm",com.domenota.medialoader.data.playback.alignment.CtcLyricsAligner.REVISION)
+                .put("timed",JSONArray().apply{timed.forEach{put(JSONArray().put(it.atMs).put(it.text))}}))
+            val bytes=o.toString().toByteArray(Charsets.UTF_8)
+            if(bytes.size>2*LyricsParser.MAX_BYTES)return@synchronized null
+            check(root.isDirectory||root.mkdirs());val atomic=AtomicFile(file(version));val out=atomic.startWrite()
+            try{out.write(bytes);check(admitted(access,allowed)&&key(source(access))==version);atomic.finishWrite(out)}
+            catch(t:Throwable){atomic.failWrite(out);throw t}
+            current.copy(timed=timed).takeIf{admitted(access,allowed)&&key(source(access))==version}
+        }
     }
     /** Extract only tag/recognition metadata from an admitted public source; never a filename or URI. */
     fun networkTarget(access:AudioBookmarkAdmission,manual:Pair<String,String>?=null,allowed:()->Boolean):NetworkLyricsTarget? {

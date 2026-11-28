@@ -49,7 +49,7 @@ internal object TaskCenterPresentation {
         while(size>=1024&&index<units.lastIndex){size/=1024;index++}
         return String.format(java.util.Locale.forLanguageTag("ru"),"%.1f %s",size,units[index])
     }
-    fun title(row:TaskSnapshot):String = if(row.kind==TaskKind.DOWNLOAD) {
+    fun title(row:TaskSnapshot):String = if(row.details?.operation==TaskOperation.LYRICS_ALIGNMENT)"Синхронизация текста песни" else if(row.kind==TaskKind.DOWNLOAD) {
         if(row.children.isNotEmpty()||row.files!=null)"Загрузка группы" else when(row.media){TaskMedia.AUDIO->"Загрузка аудио";TaskMedia.VIDEO->"Загрузка видео";TaskMedia.PHOTO->"Загрузка фото";null->row.kind.label}
     } else if(row.kind==TaskKind.WAVEFORM)"Генерация звуковых волн" else row.kind.label
     fun progressText(row:TaskSnapshot):String? = row.files?.let {

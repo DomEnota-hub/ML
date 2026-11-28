@@ -15,7 +15,8 @@ import org.json.JSONObject
  * No remote URL, version or digest is used to authorize installation.
  */
 internal object OwnerModelCatalog {
-    private const val URL_PATH = "https://raw.githubusercontent.com/DomEnota-hub/ML-models/main/catalog.json"
+    // Keep catalog.json for older five-model APKs; this version expects six entries.
+    private const val URL_PATH = "https://raw.githubusercontent.com/DomEnota-hub/ML-models/main/catalog-v2.json"
     private const val MAX_BYTES = 128 * 1024
 
     data class Blob(val name: String, val sha256: String, val bytes: Long?)

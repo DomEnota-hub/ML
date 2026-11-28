@@ -84,6 +84,8 @@
         <activity
             android:name=".ui.RutubeLoginActivity"
             android:exported="false" />
+        <service android:name=".data.playback.alignment.LyricsAlignmentService"
+            android:exported="false" android:foregroundServiceType="dataSync|mediaProcessing" />
         <service android:name=".data.library.VisualDuplicateScanService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />

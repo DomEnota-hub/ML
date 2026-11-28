@@ -5,10 +5,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AiModelCatalogTest {
-    @Test fun catalogCoversAllFiveModelsAndExactKnownPins() {
+    @Test fun catalogCoversAllSixModelsAndExactKnownPins() {
         val rows = AiModelCatalog.entries
         assertEquals(Kind.entries.toSet(), rows.map { it.kind }.toSet())
-        assertEquals(5, rows.size)
+        assertEquals(6, rows.size)
+        assertEquals(GigaAmModelStore.SHA256,AiModelCatalog.entry(Kind.GIGAAM).files.single().sha256)
+        assertEquals(224721181L,AiModelCatalog.entry(Kind.GIGAAM).files.single().bytes)
         assertTrue(rows.all { row -> row.files.isNotEmpty() && row.files.all { it.sha256.matches(Regex("[0-9a-f]{64}")) } })
         val mobile = AiModelCatalog.entry(Kind.MOBILE_SAM)
         assertEquals(listOf(MobileSamModelStore.ENCODER_SHA256, MobileSamModelStore.DECODER_SHA256), mobile.files.map { it.sha256 })
@@ -39,9 +41,10 @@ class AiModelCatalogTest {
             ModelUpdateResult(ModelUpdateState.CURRENT, ""), false))
         assertEquals("Не установлена", AiModelCatalog.status(model, false, false, null, false))
     }
-    @Test fun ownerCatalogMatchesAllFiveAndRejectsChangedOrMissingWeights() {
+    @Test fun ownerCatalogMatchesAllSixAndRejectsChangedOrMissingWeights() {
         // Literal published catalog names and sizes, not generated from comparison code.
         val records = listOf(
+            OwnerModelCatalog.Record("gigaam", listOf(OwnerModelCatalog.Blob("v3_ctc.int8.onnx", GigaAmModelStore.SHA256, 224721181L))),
             OwnerModelCatalog.Record("lama", listOf(OwnerModelCatalog.Blob("lama_fp32.onnx", LaMaModelStore.SHA256, 208_044_816L))),
             OwnerModelCatalog.Record("mobile", listOf(
                 OwnerModelCatalog.Blob("mobile_sam_image_encoder.onnx", MobileSamModelStore.ENCODER_SHA256, 28_157_093L),

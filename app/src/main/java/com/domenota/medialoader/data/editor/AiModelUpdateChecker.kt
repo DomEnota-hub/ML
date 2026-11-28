@@ -96,7 +96,7 @@ internal object ModelUpdatePolicy {
  */
 internal object AiModelUpdateChecker {
     internal enum class Kind(val key: String) {
-        LAMA("lama"), MOBILE_SAM("mobile"), PEOPLE("people"), GLARE("glare"), REFLECTION("reflection")
+        LAMA("lama"), MOBILE_SAM("mobile"), PEOPLE("people"), GLARE("glare"), REFLECTION("reflection"), GIGAAM("gigaam")
     }
 
     suspend fun check(kind: Kind, installedAndVerified: Boolean): ModelUpdateResult =

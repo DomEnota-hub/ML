@@ -10,6 +10,14 @@ import org.json.JSONObject
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[34])
 class TaskHistoryCodecTest {
+    @Test fun alignmentOperationSurvivesHistoryAndHasSpecificTitle() {
+        val details=TaskDetails(operation=TaskOperation.LYRICS_ALIGNMENT,outcomes=TaskOutcomes(skipped=1))
+        val row=TaskSnapshot(taskId(TaskOwner.LYRICS,"fixture"),TaskKind.LYRICS,TaskStatus.PARTIAL,updatedAt=200,details=details)
+        val restored=TaskHistoryStore.decode(TaskHistoryStore.encode(TaskHistoryData(rows=listOf(row)))).rows.single()
+        assertEquals(details,restored.details)
+        assertEquals("Синхронизация текста песни",TaskCenterPresentation.title(restored))
+        assertEquals("Поиск текстов песен",TaskCenterPresentation.title(row.copy(details=null)))
+    }
     @Test fun indexingWaitDistinguishesLocalGlobalAndEnergyPolicy() {
         val defaults=TaskSettings(charging=false,batterySaver=true)
         assertEquals(TaskWait.CHARGING,TaskHistoryStore.indexingWait(defaults,true,false,true))

@@ -258,5 +258,6 @@ internal object TaskCenter {
     fun initialize(context: android.content.Context) {
         TaskHistoryStore.start(context.applicationContext,registry)
         com.domenota.medialoader.data.playback.LyricsBatchCoordinator.initialize(context.applicationContext)
+        com.domenota.medialoader.data.playback.alignment.LyricsAlignmentCoordinator.initialize(context.applicationContext)
     }
 }

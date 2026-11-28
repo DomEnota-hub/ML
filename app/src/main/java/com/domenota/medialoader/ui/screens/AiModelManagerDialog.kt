@@ -74,12 +74,14 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
     val people = remember(context) { PersonDetectorModelStore(context.applicationContext) }
     val glare = remember(context) { SpecularSrNetModelStore(context.applicationContext) }
     val reflection = remember(context) { ReflectionDExModelStore(context.applicationContext) }
+    val gigaam = remember(context) { com.domenota.medialoader.data.editor.GigaAmModelStore(context.applicationContext) }
     val scope = rememberCoroutineScope()
     var lamaReady by remember { mutableStateOf(false) }
     var mobileReady by remember { mutableStateOf(false) }
     var peopleReady by remember { mutableStateOf(false) }
     var glareReady by remember { mutableStateOf(false) }
     var reflectionReady by remember { mutableStateOf(false) }
+    var gigaamReady by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(true) }
     var active by remember { mutableStateOf<String?>(null) }
     var removing by remember { mutableStateOf(false) }
@@ -140,7 +142,10 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 val report = TaskReporter.create(TaskOwner.MODEL, TaskKind.MODEL)
                 report.report()
             try {
-                if (kind == "lama") {
+                if (kind == "gigaam") {
+                    gigaam.install { progress=it; report.report(percent=it.coerceIn(0,100)) }
+                    gigaamReady=gigaam.verifyInstalled()
+                } else if (kind == "lama") {
                     lama.install { progress = it; report.report(percent=it.coerceIn(0,100)) }
                     lamaReady = lama.verifyInstalled()
                 } else if (kind == "mobile") {
@@ -158,7 +163,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                     else reflection.downloadAndAssemble { progress = it; report.report(percent=it.coerceIn(0,100)) }
                     reflectionReady = reflection.verifyInstalled()
                 }
-                report.report(if (when(kind) { "lama" -> lamaReady; "mobile" -> mobileReady; "people" -> peopleReady; "glare" -> glareReady; "reflection" -> reflectionReady; else -> false }) TaskStatus.COMPLETE else TaskStatus.FAILED)
+                report.report(if (when(kind) { "gigaam" -> gigaamReady; "lama" -> lamaReady; "mobile" -> mobileReady; "people" -> peopleReady; "glare" -> glareReady; "reflection" -> reflectionReady; else -> false }) TaskStatus.COMPLETE else TaskStatus.FAILED)
 
             } catch (cancel: CancellationException) {
                     report.report(TaskStatus.CANCELLED)
@@ -183,7 +188,9 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
         pendingDelete = null
         job = scope.launch {
             try {
-                if (kind == "lama") {
+                if (kind == "gigaam") {
+                    gigaam.uninstall();gigaamReady=false
+                } else if (kind == "lama") {
                     lama.uninstall()
                     lamaReady = false
                 } else if (kind == "mobile") {
@@ -220,7 +227,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
             try {
                 val verified = mapOf(
                     "lama" to lamaReady, "mobile" to mobileReady, "people" to peopleReady,
-                    "glare" to glareReady, "reflection" to reflectionReady,
+                    "glare" to glareReady, "reflection" to reflectionReady, "gigaam" to gigaamReady,
                 )
                 val results = OwnerModelCatalog.check(verified)
                 if (generation == checkGeneration) updateResults = results
@@ -244,6 +251,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
             peopleReady = people.verifyInstalled()
             glareReady = glare.verifyInstalled()
             reflectionReady = reflection.verifyInstalled()
+            gigaamReady = gigaam.verifyInstalled()
         } catch (cancel: CancellationException) { throw cancel }
         catch (_: Exception) { error = "Не удалось проверить локальные модели." }
         finally { checking = false }
@@ -259,9 +267,9 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
             onDismissRequest = { pendingDelete = null },
             title = { Text("Удалить ${when (pendingDelete) {
                 "lama" -> "LaMa"; "mobile" -> "MobileSAM"; "people" -> "EfficientDet-Lite0"
-                "glare" -> "SRNet"; "reflection" -> "DExNet + VGG19"; else -> "AI-модель"
+                "glare" -> "SRNet"; "reflection" -> "DExNet + VGG19"; "gigaam" -> "GigaAM-v3 CTC"; else -> "AI-модель"
             }}?") },
-            text = { Text("Фотографии сохраняются. Повторная установка или импорт модели потребуется для обработки.") },
+            text = { Text("Медиафайлы и сохранённые результаты сохраняются. Для новой обработки потребуется повторная установка модели.") },
             confirmButton = { TextButton(colors = actionColors, onClick = {
                 val kind = pendingDelete
                 if (kind != null) delete(kind)
@@ -292,12 +300,12 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     val ready = mapOf("lama" to lamaReady, "mobile" to mobileReady, "people" to peopleReady,
-                        "glare" to glareReady, "reflection" to reflectionReady)
+                        "glare" to glareReady, "reflection" to reflectionReady, "gigaam" to gigaamReady)
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Text("Обработка на устройстве", style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                        Text(if (checking) "…" else "${ready.values.count { it }}/5",
+                        Text(if (checking) "…" else "${ready.values.count { it }}/${AiModelCatalog.entries.size}",
                             fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                     }
                     val enabled = !checking && active == null
@@ -309,6 +317,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                             AiModelUpdateChecker.Kind.PEOPLE -> Icons.Rounded.PersonSearch
                             AiModelUpdateChecker.Kind.GLARE -> Icons.Rounded.LightMode
                             AiModelUpdateChecker.Kind.REFLECTION -> Icons.Rounded.Photo
+                            AiModelUpdateChecker.Kind.GIGAAM -> Icons.Rounded.AutoFixHigh
                         }
                         ModelRow(entry, icon, ready[key] == true, enabled, checking, updateResults[key],
                             reflection.bundled(), onInstall = { download(key) }, onDelete = { pendingDelete = key },
@@ -324,7 +333,7 @@ internal fun AiModelManagerDialog(onDismiss: () -> Unit) {
                 if (active != null) {
                     val label = when (active) {
                         "lama" -> "LaMa"; "mobile" -> "MobileSAM"; "people" -> "EfficientDet";
-                        "glare" -> "SRNet"; "reflection" -> "DExNet"; else -> "AI-модель"
+                        "glare" -> "SRNet"; "reflection" -> "DExNet"; "gigaam" -> "GigaAM"; else -> "AI-модель"
                     }
                     Text(if (removing) "Удаление · $label" else "$label · $progress%",
                         style = MaterialTheme.typography.bodySmall)

@@ -129,4 +129,40 @@ class LocalTrackLyricsTest {
         } finally { audio.delete() }
     }
 
+    @Test fun alignmentPreservesOriginalAndInvalidatesOnReplacementAndSourceChange() {
+        val audio=File.createTempFile("lyrics-align-",".mp3",context.cacheDir).apply{writeBytes(byteArrayOf(1,2,3))}
+        val doc=Uri.parse("content://test.lyrics/alignment")
+        var text="Первая\nВторая"
+        org.robolectric.Shadows.shadowOf(context.contentResolver).registerInputStreamSupplier(doc){java.io.ByteArrayInputStream(text.toByteArray())}
+        try {
+            val store=LocalTrackLyrics(context);val a=access(audio)
+            val base=requireNotNull(store.importDocument(a,doc){true});val version=requireNotNull(store.versionKey(a){true})
+            val timed=listOf(LyricLine(100,"Первая"),LyricLine(900,"Вторая"))
+            assertNull(store.saveAlignment(a,version,base,timed){false})
+            assertEquals(base.copy(timed=timed),store.saveAlignment(a,version,base,timed){true})
+            assertEquals(base.copy(timed=timed),LocalTrackLyrics(context).read(a){true})
+            assertArrayEquals(byteArrayOf(1,2,3),audio.readBytes())
+            text="Другой текст";store.importDocument(a,doc){true}
+            assertEquals(text,store.read(a){true}?.plain);assertTrue(store.read(a){true}!!.timed.isEmpty())
+            assertNull(store.saveAlignment(a,version,base,timed){true})
+            audio.appendBytes(byteArrayOf(4));assertNull(store.read(a){true})
+        }finally{audio.delete()}
+    }
+    @Test fun alignmentRejectsMissingLinesAndPreservesExistingSyncedLyrics() {
+        val audio=File.createTempFile("lyrics-align-existing-",".mp3",context.cacheDir).apply{writeBytes(byteArrayOf(1,2,3))}
+        val doc=Uri.parse("content://test.lyrics/alignment-existing")
+        var text="Первая\nВторая"
+        org.robolectric.Shadows.shadowOf(context.contentResolver).registerInputStreamSupplier(doc){java.io.ByteArrayInputStream(text.toByteArray())}
+        try {
+            val store=LocalTrackLyrics(context);val a=access(audio)
+            val base=requireNotNull(store.importDocument(a,doc){true});val version=requireNotNull(store.versionKey(a){true})
+            assertNull(store.saveAlignment(a,version,base,listOf(LyricLine(100,"Первая"))){true})
+            assertEquals(base,store.read(a){true})
+            text="[00:01]Готовая строка";val synced=requireNotNull(store.importDocument(a,doc){true})
+            assertNull(store.saveAlignment(a,version,base,listOf(LyricLine(100,"Первая"),LyricLine(200,"Вторая"))){true})
+            assertEquals(synced,store.read(a){true})
+            synchronized(DuplicatePrivacyGuard.lock){LocalTrackLyrics.clearForPrivacy(context,a.ref.key,a.ref.aliases)}
+            assertNull(store.read(a){true})
+        }finally{audio.delete()}
+    }
 }

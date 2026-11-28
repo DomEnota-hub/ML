@@ -12,6 +12,7 @@ internal data class TaskCorrelation(val value: String) {
     }
 }
 internal enum class TaskTrigger { USER, BACKGROUND, PERIODIC, MEDIA_CHANGED, RECOVERY }
+internal enum class TaskOperation { LYRICS_ALIGNMENT }
 internal enum class TaskFailure(val label: String) {
     NETWORK("Ошибка соединения"), PERMISSION("Нет разрешения"), STORAGE("Недостаточно места"),
     DECODE("Ошибка обработки"), CACHE_WRITE("Результат не сохранён"), IO("Ошибка чтения или записи"),
@@ -60,7 +61,8 @@ internal data class TaskDetails(
     val failure: TaskFailure? = null,
     val outcomes: TaskOutcomes? = null,
     val recovered:Boolean=false,
-    val checkpoints:TaskCheckpointSummary?=null
+    val checkpoints:TaskCheckpointSummary?=null,
+    val operation:TaskOperation?=null
 ) {
     init { require(startedAt == null || startedAt >= 0) }
 }

@@ -23,6 +23,10 @@ internal object AiModelCatalog {
     )
 
     val entries = listOf(
+        Entry(Kind.GIGAAM, "GigaAM-v3 CTC", "Синхронизация русского текста песни · экспериментально", "225 МБ",
+            GigaAmModelStore.REVISION, "https://huggingface.co/istupakov/gigaam-v3-onnx", "MIT",
+            Distribution.UPSTREAM_DOWNLOAD, listOf(ExpectedModelBlob(GigaAmModelStore.FILENAME, GigaAmModelStore.SHA256, GigaAmModelStore.BYTES)),
+            "istupakov/gigaam-v3-onnx"),
         Entry(Kind.LAMA, "LaMa", "Удаление объектов и текста", "208 МБ",
             "sha256-pinned", "https://huggingface.co/sapienkit/LaMa-ONNX", "Apache-2.0",
             Distribution.UPSTREAM_DOWNLOAD, listOf(ExpectedModelBlob("lama_fp32.onnx", LaMaModelStore.SHA256, 208_044_816L)),

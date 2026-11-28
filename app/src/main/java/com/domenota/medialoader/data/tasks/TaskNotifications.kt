@@ -116,7 +116,8 @@ internal object TaskNotifications {
             runCatching{manager.activeNotifications.filter{it.tag=="ml-task-live"}.forEach{manager.cancel(it.tag,it.id)}}
             var shown=emptySet<String>()
             combine(registry.liveTasks,TaskHistoryStore.settings){rows,settings->rows to settings.notifications}.sample(1000).collect{(rows,enabled)->
-                val live=if(enabled&&canPost(context))rows.filter{it.kind in ownKinds&&!it.idle&&!it.status.terminal} else emptyList()
+                val live=if(enabled&&canPost(context))rows.filter{it.kind in ownKinds&&!it.idle&&!it.status.terminal &&
+                    it.id!=com.domenota.medialoader.data.playback.alignment.LyricsAlignmentCoordinator.notificationTaskId} else emptyList()
                 val ids=live.mapTo(hashSetOf()){it.id}
                 (shown-ids).forEach{manager.cancel("ml-task-live",it.hashCode())}
                 for(row in live)runCatching {
