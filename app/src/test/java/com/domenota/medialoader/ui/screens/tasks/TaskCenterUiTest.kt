@@ -1,5 +1,6 @@
 package com.domenota.medialoader.ui.screens.tasks
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -86,13 +87,22 @@ class TaskCenterUiTest {
         val task=TaskSnapshot(taskId(TaskOwner.WAVEFORM,"notification"),TaskKind.WAVEFORM,TaskStatus.PARTIAL,
             files=TaskProgress(2,2),updatedAt=100,details=TaskDetails(TaskCorrelation.create(),10,
                 TaskTrigger.PERIODIC,outcomes=TaskOutcomes(cached=1,failed=1)))
+        val later=task.copy(id=taskId(TaskOwner.WAVEFORM,"notification-second"),status=TaskStatus.COMPLETE,
+            files=TaskProgress(50,50),updatedAt=200,details=TaskDetails(TaskCorrelation.create(),20,
+                TaskTrigger.PERIODIC,outcomes=TaskOutcomes(cached=50)))
+        var selected by mutableStateOf(task.id)
+        var sequence by mutableLongStateOf(1L)
         compose.setContent { MaterialTheme(colorScheme=darkColorScheme()) {
-            TaskCenterContent(listOf(task),emptyList(),setOf(TaskOwner.WAVEFORM),{},{},{_,_->false},
-                initialTaskId=task.id,notificationSequence=1)
+            TaskCenterContent(listOf(task,later),emptyList(),setOf(TaskOwner.WAVEFORM),{},{},{_,_->false},
+                initialTaskId=selected,notificationSequence=sequence)
         } }
         compose.waitUntil(10000){compose.onAllNodesWithText("Уже в кэше:").fetchSemanticsNodes().isNotEmpty()}
         compose.onNodeWithText("Уже в кэше:").assertExists()
         compose.onNodeWithText("2 из 2 треков").assertExists()
+        compose.onNodeWithText("50").assertDoesNotExist()
+        compose.runOnIdle{selected=later.id;sequence=2L}
+        compose.waitUntil(10000){compose.onAllNodesWithText("50").fetchSemanticsNodes().isNotEmpty()}
+        compose.onNodeWithText("50").assertExists()
     }
 
 }
