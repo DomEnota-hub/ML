@@ -42,4 +42,17 @@ class TaskNotificationsTest {
         TaskNotificationNavigation.consume(second)
         assertNull(TaskNotificationNavigation.request.value)
     }
+    @Test fun staleOperationCannotCancelANewerRunWithTheSameTaskId() {
+        val registry=TaskRegistry()
+        val old=TaskCorrelation.create()
+        val current=TaskCorrelation.create()
+        var calls=0
+        val task=row().copy(commands=setOf(TaskCommand.CANCEL),details=TaskDetails(correlation=current))
+        registry.record(TaskOwner.WAVEFORM,task){calls++}
+        assertFalse(registry.dispatchNotification(task.id,TaskCommand.CANCEL,old))
+        assertEquals(0,calls)
+        assertTrue(registry.dispatchNotification(task.id,TaskCommand.CANCEL,current))
+        assertEquals(1,calls)
+    }
+
 }

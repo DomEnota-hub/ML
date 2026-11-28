@@ -28,6 +28,7 @@ internal object TaskNotifications {
     const val OPEN_TASK="com.domenota.medialoader.OPEN_TASK"
     const val COMMAND="com.domenota.medialoader.TASK_COMMAND"
     const val EXTRA_TASK="task_notification_id"
+    const val EXTRA_OPERATION="task_notification_operation"
     const val EXTRA_COMMAND="task_notification_command"
     private const val CHANNEL="task-center-progress"
     private val ownKinds=setOf(TaskKind.OCR,TaskKind.MODEL,TaskKind.WAVEFORM,TaskKind.LYRICS,TaskKind.LOUDNESS)
@@ -92,11 +93,12 @@ internal object TaskNotifications {
         when(row.status){TaskStatus.FAILED->builder.setColor(0xffc74f5c.toInt());TaskStatus.PARTIAL->builder.setColor(0xffc08c24.toInt());else->Unit}
         if(!row.status.terminal && row.status!=TaskStatus.PAUSED && row.status!=TaskStatus.WAITING)
             builder.setProgress(100,message.percent ?: 0,message.percent==null)
-        if(actions)listOf(TaskCommand.PAUSE,TaskCommand.RESUME,TaskCommand.RETRY,TaskCommand.CANCEL)
+        val operation=row.details?.correlation
+        if(actions && operation!=null)listOf(TaskCommand.PAUSE,TaskCommand.RESUME,TaskCommand.RETRY,TaskCommand.CANCEL)
             .filter{it in row.commands}.take(3).forEach { command ->
                 val intent=Intent(context,TaskNotificationCommandReceiver::class.java).setAction(COMMAND)
-                    .setData(Uri.parse("ml-task://command/${row.id}/${command.name}"))
-                    .putExtra(EXTRA_TASK,row.id).putExtra(EXTRA_COMMAND,command.name)
+                    .setData(Uri.parse("ml-task://command/${row.id}/${operation.value}/${command.name}"))
+                    .putExtra(EXTRA_TASK,row.id).putExtra(EXTRA_COMMAND,command.name).putExtra(EXTRA_OPERATION,operation.value)
                 val pending=PendingIntent.getBroadcast(context,0,intent,PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 builder.addAction(0,command.label,pending)
             }
@@ -133,6 +135,7 @@ class TaskNotificationCommandReceiver:BroadcastReceiver() {
         if(intent.action!=TaskNotifications.COMMAND)return
         val id=intent.getStringExtra(TaskNotifications.EXTRA_TASK)?.takeIf{it.matches(Regex("[0-9a-f]{64}"))} ?: return
         val command=TaskCommand.entries.firstOrNull{it.name==intent.getStringExtra(TaskNotifications.EXTRA_COMMAND)} ?: return
-        if(command!=TaskCommand.OPEN)TaskCenter.registry.dispatch(id,command)
+        val operation=TaskCorrelation.parse(intent.getStringExtra(TaskNotifications.EXTRA_OPERATION)) ?: return
+        if(command!=TaskCommand.OPEN)TaskCenter.registry.dispatchNotification(id,command,operation)
     }
 }

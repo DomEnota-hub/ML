@@ -230,13 +230,15 @@ internal class TaskRegistry(private val eventSink:(TaskJournalEvent)->Unit = {})
     }
 
     /** Check fresh capability at dispatch. Adapter must also verify the executor's live state. */
-    fun dispatch(id: String, command: TaskCommand): Boolean {
+    fun dispatch(id:String,command:TaskCommand):Boolean=dispatchChecked(id,command,null)
+    fun dispatchNotification(id:String,command:TaskCommand,operation:TaskCorrelation):Boolean=dispatchChecked(id,command,operation)
+    private fun dispatchChecked(id:String,command:TaskCommand,operation:TaskCorrelation?):Boolean {
         val handler = synchronized(this) {
             sources.values.firstNotNullOfOrNull { feed ->
                 val row = feed.rows.firstNotNullOfOrNull { top ->
                     if (top.id == id) top else top.children.firstOrNull { it.id == id }
                 }
-                if (row != null && command in row.commands) rowHandlers[id]?.let { callback -> { _:String, action:TaskCommand -> callback(action) } } ?: feed.command else null
+                if (row != null && command in row.commands && (operation==null || row.details?.correlation==operation)) rowHandlers[id]?.let { callback -> { _:String, action:TaskCommand -> callback(action) } } ?: feed.command else null
             }
         } ?: return false
         val row=synchronized(this) { observed[id] ?: observed.values.firstOrNull { top->top.children.any { it.id==id } } }
