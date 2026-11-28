@@ -115,17 +115,17 @@ class PrivateScreenUiTest {
         assertFalse(access.state.value.unlocked)
         compose.onNodeWithText("PIN из 6 цифр").assertIsDisplayed()
         compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
-        compose.onNodeWithText("Выберите способ входа").assertDoesNotExist()
+        compose.onNodeWithText("Выбери способ входа").assertDoesNotExist()
         compose.onNodeWithText("Без защиты", substring = false).assertDoesNotExist()
 
         enterPin("000000")
         waitForFailedPin()
-        compose.onNodeWithText("Выберите способ входа").assertDoesNotExist()
+        compose.onNodeWithText("Выбери способ входа").assertDoesNotExist()
         compose.onNodeWithText("Без защиты", substring = false).assertDoesNotExist()
 
         enterPin("123456")
         compose.waitUntil(10_000) { access.state.value.unlocked }
-        compose.onNodeWithText("Выберите способ входа").assertIsDisplayed()
+        compose.onNodeWithText("Выбери способ входа").assertIsDisplayed()
         compose.onNodeWithText("Без защиты", substring = false).assertIsDisplayed()
         compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
     }
@@ -143,7 +143,7 @@ class PrivateScreenUiTest {
         compose.onNodeWithText("Сохранить", substring = false).performScrollTo().performClick()
         compose.waitUntil(10_000) { access.state.value.mode == PrivateAccessMode.BIOMETRIC }
         compose.onNodeWithText(secretName).assertIsDisplayed()
-        compose.onNodeWithText("Выберите способ входа").assertDoesNotExist()
+        compose.onNodeWithText("Выбери способ входа").assertDoesNotExist()
     }
 
 
