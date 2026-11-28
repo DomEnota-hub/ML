@@ -28,11 +28,14 @@ class LyricsAlignmentResumeTest {
         val uri=Uri.fromFile(audio).toString()
         val row=DownloadEntity(audio.name,"device","Track",MediaType.AUDIO,DownloadState.COMPLETED,uri,null,0)
         val access=AudioBookmarkAdmission(LibraryMediaRef(row.id,PublicMediaIdentity.uriKeys(uri),row,row.id),DuplicatePrivacyGuard.generation(context))
+        var ownTaskId:String?=null
         try {
             LyricsAlignmentCoordinator.start(context,access,"a".repeat(64),TrackLyrics("Original",emptyList(),LyricsOrigin.IMPORTED))
+            val taskId=requireNotNull(LyricsAlignmentCoordinator.notificationTaskId)
+            ownTaskId=taskId
             val first=requireNotNull(requireNotNull(shadow.nextStartedService).getStringExtra("token"))
             LyricsAlignmentCoordinator.serviceStopped(first)
-            val paused=TaskCenter.registry.liveTasks.value.single{it.kind==TaskKind.LYRICS}
+            val paused=TaskCenter.registry.liveTasks.value.single{it.id==taskId}
             assertEquals(TaskStatus.PAUSED,paused.status)
             assertTrue(TaskCenter.registry.dispatch(paused.id,TaskCommand.RESUME))
             val second=requireNotNull(requireNotNull(shadow.nextStartedService).getStringExtra("token"))
@@ -48,9 +51,11 @@ class LyricsAlignmentResumeTest {
             assertTrue(LyricsAlignmentCoordinator.state.value.running)
             assertEquals(second,LyricsAlignmentCoordinator.token())
         } finally {
-            LyricsAlignmentCoordinator.token()?.let(LyricsAlignmentCoordinator::serviceStopped)
-            TaskCenter.registry.liveTasks.value.filter{it.kind==TaskKind.LYRICS}.forEach{TaskCenter.registry.dispatch(it.id,TaskCommand.CANCEL)}
-            TaskCenter.registry.clear(TaskOwner.LYRICS)
+            ownTaskId?.let { id->
+                LyricsAlignmentCoordinator.token()?.let(LyricsAlignmentCoordinator::serviceStopped)
+                TaskCenter.registry.dispatch(id,TaskCommand.CANCEL)
+                TaskCenter.registry.remove(TaskOwner.LYRICS,id)
+            }
             audio.delete()
         }
     }

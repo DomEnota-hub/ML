@@ -1,0 +1,24 @@
+{
+  "scope": "Synthetic exact48k mono PCM, app box downsampling formula versus local FFmpeg16k reference; not Android decode or model benchmark",
+  "results": [
+    {
+      "input_hz": 1000,
+      "box_rms": 0.7030738592147827,
+      "reference_rms": 0.7071072459220886,
+      "box_alias_output_hz": null
+    },
+    {
+      "input_hz": 6000,
+      "box_rms": 0.5690355896949768,
+      "reference_rms": 0.7071021795272827,
+      "box_alias_output_hz": null
+    },
+    {
+      "input_hz": 10000,
+      "box_rms": 0.35771074891090393,
+      "reference_rms": 8.170329238055274e-06,
+      "box_alias_output_hz": 6000
+    }
+  ],
+  "note": "Above8k input must be suppressed before16k conversion; ten-kHz tone alias remains strong in current box filter."
+}
