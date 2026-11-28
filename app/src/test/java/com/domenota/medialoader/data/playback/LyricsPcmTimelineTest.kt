@@ -6,6 +6,7 @@ import org.junit.Test
 
 class LyricsPcmTimelineTest {
     @Test fun continuousPtsAllowOnlyCodecRoundingAndRejectGapsOverlapsAndRateChanges() {
+        val low=PcmTimeline();low.accept(0,8000,8000);low.accept(1000000,8000,8000)
         val valid=PcmTimeline();valid.accept(0,16000,16000);valid.accept(1000100,8000,16000);valid.accept(1500000,8000,16000)
         for(next in listOf(1040000L,960000L)) {
             val timeline=PcmTimeline();timeline.accept(0,16000,16000)

@@ -25,17 +25,18 @@ internal object LyricsAudioDecoder {
     }
     suspend fun decode(context:Context,uri:Uri,check:()->Unit):Pcm {
         val pcm=Pcm()
-        val ok=decodeWindow(context,uri,AcousticWindow(0,null),{require(it in 0..40){"Неподдерживаемое начало аудиопотока"}}){sample->
+        val ok=decodeWindow(context,uri,AcousticWindow(0,null),check,{require(it in 0..40){"Неподдерживаемое начало аудиопотока"}}){sample->
             if(pcm.size%4096==0)check();pcm.add(sample)
         }
         check();require(ok && pcm.size>=320){"Не удалось декодировать аудио"};return pcm
     }
-    private suspend fun decodeWindow(context:Context,uri:Uri,window:AcousticWindow,beginWindow:(Long)->Unit,accept:(Float)->Unit):Boolean {
+    private suspend fun decodeWindow(context:Context,uri:Uri,window:AcousticWindow,checkWork:()->Unit,beginWindow:(Long)->Unit,accept:(Float)->Unit):Boolean {
         val active = coroutineContext
         val previousPriority = android.os.Process.getThreadPriority(android.os.Process.myTid())
         android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
+        var resampler:LyricsAudioResampler?=null
         try {
             extractor.setDataSource(context,uri,null)
             val track = (0 until extractor.trackCount).firstOrNull {
@@ -50,15 +51,13 @@ internal object LyricsAudioDecoder {
             var rate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var encoding = AudioFormat.ENCODING_PCM_16BIT
-            require(rate in 16000..384000 && channels in 1..16)
+            require(LyricsAudioResampler.supports(rate) && channels in 1..16){"Неподдерживаемая частота или число каналов аудио"}
             val timeline=PcmTimeline()
             var inputDone = false
             var emptyPolls = 0
             val info = MediaCodec.BufferInfo()
             var started=false;var accepted=0L;var windowDone=false
             val startUs=window.startMs*1000;val endUs=window.endMs?.times(1000)
-            // Box-filter resampling avoids selecting a single aliased sample and keeps constant memory.
-            var phase = 0L; var sum = 0.0; var count = 0
             while (!windowDone) {
                 active.ensureActive()
                 if (!inputDone) {
@@ -78,7 +77,7 @@ internal object LyricsAudioDecoder {
                         val nextEncoding=if(output.containsKey(MediaFormat.KEY_PCM_ENCODING))output.getInteger(MediaFormat.KEY_PCM_ENCODING)else AudioFormat.ENCODING_PCM_16BIT
                         require(!started || (nextRate==rate && nextChannels==channels && nextEncoding==encoding)){"Формат PCM изменился"}
                         rate=nextRate;channels=nextChannels;encoding=nextEncoding
-                        require(rate in 16000..384000 && channels in 1..16)
+                        require(LyricsAudioResampler.supports(rate) && channels in 1..16){"Неподдерживаемая частота или число каналов аудио"}
                     }
                     MediaCodec.INFO_TRY_AGAIN_LATER -> { check(++emptyPolls < 1000) { "Audio decoder stalled" } }
                     else -> if (index >= 0) {
@@ -98,8 +97,9 @@ internal object LyricsAudioDecoder {
                             repeat((until-skip).coerceAtLeast(0)) {
                                 var mono = 0.0
                                 repeat(channels) { mono += if (sampleBytes == 2) buffer.short/32768.0 else buffer.float.toDouble() }
-                                sum += mono/channels; count++; phase += 16000
-                                if (phase >= rate) { accept((sum/count).toFloat());accepted++; phase -= rate; sum = 0.0; count = 0 }
+                                val converter=resampler ?: LyricsAudioResampler.create(context,rate,
+                                    {value->accept(value);accepted++},{active.ensureActive();checkWork()}).also{resampler=it}
+                                converter.accept((mono/channels).toFloat())
                             }
                             if(endUs!=null&&until<frames)windowDone=true
                         } finally { codec.releaseOutputBuffer(index,false) }
@@ -107,8 +107,10 @@ internal object LyricsAudioDecoder {
                     }
                 }
             }
+            resampler?.finish()
             return accepted>0
         } finally {
+            runCatching{resampler?.close()}
             decoder?.let { runCatching { it.stop() }; runCatching { it.release() } }; extractor.release()
             android.os.Process.setThreadPriority(previousPriority)
         }

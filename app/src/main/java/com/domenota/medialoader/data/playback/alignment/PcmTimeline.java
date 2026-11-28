@@ -7,7 +7,7 @@ public final class PcmTimeline {
   private int rate=0;
   public void accept(long ptsUs,int count,int sampleRate) {
     if(count<=0)return;
-    if(sampleRate<16000 || sampleRate>384000 || ptsUs< -2000 || ptsUs>601000000L)
+    if(sampleRate<8000 || sampleRate>384000 || ptsUs< -2000 || ptsUs>601000000L)
       throw new IllegalArgumentException("Unsupported PCM timeline");
     if(rate==0) {
       if(Math.abs(ptsUs)>2000)throw new IllegalArgumentException("Audio starts outside zero timeline");
