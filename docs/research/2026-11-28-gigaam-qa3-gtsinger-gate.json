@@ -1,0 +1,1344 @@
+{
+  "status": "RESEARCH_ONLY_NOT_RELEASE_READY",
+  "corpus_revision": "4426c862beed558b7e1cb8a4dce7e8c0c83bb208",
+  "purpose": "Validate changed confidence gate on independently annotated prior corpus; no repeated candidate comparison",
+  "unit": "one phrase per short clip and stricter diagnostic word-as-line variant",
+  "runtime": "1.20.0",
+  "device": "Linux CPU, not Android",
+  "cases": [
+    {
+      "id": "gts-00",
+      "words": 6,
+      "reference_phrase_onset_ms": 280.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              400
+            ],
+            "signed_error_ms": [
+              120.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              400
+            ],
+            "signed_error_ms": [
+              120.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              400,
+              1560,
+              3400,
+              4640,
+              6520,
+              7920
+            ],
+            "signed_error_ms": [
+              120.0,
+              79.0,
+              57.0,
+              6.0,
+              95.0,
+              154.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-01",
+      "words": 4,
+      "reference_phrase_onset_ms": 160.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              280
+            ],
+            "signed_error_ms": [
+              120.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              280
+            ],
+            "signed_error_ms": [
+              120.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              280,
+              1640,
+              2760,
+              3240
+            ],
+            "signed_error_ms": [
+              120.0,
+              49.0,
+              -173.0,
+              178.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              280,
+              1640,
+              2760,
+              3240
+            ],
+            "signed_error_ms": [
+              120.0,
+              49.0,
+              -173.0,
+              178.0
+            ]
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-02",
+      "words": 6,
+      "reference_phrase_onset_ms": 970.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1080
+            ],
+            "signed_error_ms": [
+              110.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              1080
+            ],
+            "signed_error_ms": [
+              110.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1080,
+              2440,
+              2880,
+              4040,
+              4800,
+              7000
+            ],
+            "signed_error_ms": [
+              110.0,
+              150.0,
+              140.0,
+              16.0,
+              76.0,
+              156.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-03",
+      "words": 6,
+      "reference_phrase_onset_ms": 0.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              240
+            ],
+            "signed_error_ms": [
+              240.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              240
+            ],
+            "signed_error_ms": [
+              240.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              240,
+              680,
+              2520,
+              3160,
+              5240,
+              5840
+            ],
+            "signed_error_ms": [
+              240.0,
+              120.0,
+              36.0,
+              136.0,
+              116.0,
+              102.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              240,
+              680,
+              2520,
+              3160,
+              5240,
+              5840
+            ],
+            "signed_error_ms": [
+              240.0,
+              120.0,
+              36.0,
+              136.0,
+              116.0,
+              102.0
+            ]
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-04",
+      "words": 4,
+      "reference_phrase_onset_ms": 1140.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1120
+            ],
+            "signed_error_ms": [
+              -20.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1120,
+              1800,
+              2000,
+              5560
+            ],
+            "signed_error_ms": [
+              -20.0,
+              99.0,
+              189.0,
+              28.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-05",
+      "words": 7,
+      "reference_phrase_onset_ms": 260.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              320
+            ],
+            "signed_error_ms": [
+              60.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              320,
+              1720,
+              2760,
+              4360,
+              4520,
+              4640,
+              5560
+            ],
+            "signed_error_ms": [
+              60.0,
+              -80.0,
+              -100.0,
+              -5.0,
+              15.0,
+              5.0,
+              125.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-06",
+      "words": 9,
+      "reference_phrase_onset_ms": 530.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              720
+            ],
+            "signed_error_ms": [
+              190.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              720
+            ],
+            "signed_error_ms": [
+              190.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              720,
+              1480,
+              2240,
+              2760,
+              3280,
+              3600,
+              3840,
+              4640,
+              5320
+            ],
+            "signed_error_ms": [
+              190.0,
+              70.0,
+              180.0,
+              60.0,
+              37.0,
+              57.0,
+              137.0,
+              17.0,
+              97.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-07",
+      "words": 5,
+      "reference_phrase_onset_ms": 1320.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1480
+            ],
+            "signed_error_ms": [
+              160.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              1480
+            ],
+            "signed_error_ms": [
+              160.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1480,
+              1920,
+              2800,
+              4360,
+              6160
+            ],
+            "signed_error_ms": [
+              160.0,
+              120.0,
+              50.0,
+              106.0,
+              16.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              1480,
+              1920,
+              2800,
+              4360,
+              6160
+            ],
+            "signed_error_ms": [
+              160.0,
+              120.0,
+              50.0,
+              106.0,
+              16.0
+            ]
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-08",
+      "words": 4,
+      "reference_phrase_onset_ms": 120.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              280
+            ],
+            "signed_error_ms": [
+              160.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              280
+            ],
+            "signed_error_ms": [
+              160.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              280,
+              1560,
+              3520,
+              4680
+            ],
+            "signed_error_ms": [
+              160.0,
+              90.0,
+              88.0,
+              128.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-09",
+      "words": 23,
+      "reference_phrase_onset_ms": 430.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              560
+            ],
+            "signed_error_ms": [
+              130.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              560
+            ],
+            "signed_error_ms": [
+              130.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-10",
+      "words": 4,
+      "reference_phrase_onset_ms": 460.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              560
+            ],
+            "signed_error_ms": [
+              100.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              560
+            ],
+            "signed_error_ms": [
+              100.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              560,
+              1280,
+              2000,
+              3680
+            ],
+            "signed_error_ms": [
+              100.0,
+              90.0,
+              210.0,
+              238.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              560,
+              1280,
+              2000,
+              3680
+            ],
+            "signed_error_ms": [
+              100.0,
+              90.0,
+              210.0,
+              238.0
+            ]
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-11",
+      "words": 7,
+      "reference_phrase_onset_ms": 370.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              480
+            ],
+            "signed_error_ms": [
+              110.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              480
+            ],
+            "signed_error_ms": [
+              110.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              480,
+              1880,
+              2920,
+              3480,
+              5120,
+              5360,
+              5560
+            ],
+            "signed_error_ms": [
+              110.0,
+              110.0,
+              110.0,
+              69.0,
+              119.0,
+              89.0,
+              99.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              480,
+              1880,
+              2920,
+              3480,
+              5120,
+              5360,
+              5560
+            ],
+            "signed_error_ms": [
+              110.0,
+              110.0,
+              110.0,
+              69.0,
+              119.0,
+              89.0,
+              99.0
+            ]
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-12",
+      "words": 8,
+      "reference_phrase_onset_ms": 180.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              360
+            ],
+            "signed_error_ms": [
+              180.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              360
+            ],
+            "signed_error_ms": [
+              180.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-13",
+      "words": 7,
+      "reference_phrase_onset_ms": 0.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              120
+            ],
+            "signed_error_ms": [
+              120.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              120
+            ],
+            "signed_error_ms": [
+              120.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              120,
+              1200,
+              2120,
+              3640,
+              3760,
+              3880,
+              4680
+            ],
+            "signed_error_ms": [
+              120.0,
+              -80.0,
+              -100.0,
+              38.0,
+              -22.0,
+              -22.0,
+              158.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              120,
+              1200,
+              2120,
+              3640,
+              3760,
+              3880,
+              4680
+            ],
+            "signed_error_ms": [
+              120.0,
+              -80.0,
+              -100.0,
+              38.0,
+              -22.0,
+              -22.0,
+              158.0
+            ]
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-14",
+      "words": 8,
+      "reference_phrase_onset_ms": 530.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              720
+            ],
+            "signed_error_ms": [
+              190.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              720
+            ],
+            "signed_error_ms": [
+              190.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              720,
+              1480,
+              2240,
+              2760,
+              3280,
+              3600,
+              3840,
+              4640
+            ],
+            "signed_error_ms": [
+              190.0,
+              70.0,
+              180.0,
+              60.0,
+              37.0,
+              57.0,
+              137.0,
+              17.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-15",
+      "words": 7,
+      "reference_phrase_onset_ms": 160.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              440
+            ],
+            "signed_error_ms": [
+              280.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              440
+            ],
+            "signed_error_ms": [
+              280.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              440,
+              840,
+              1760,
+              2080,
+              2800,
+              3400,
+              5160
+            ],
+            "signed_error_ms": [
+              280.0,
+              -54.0,
+              48.0,
+              159.0,
+              48.0,
+              78.0,
+              -554.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-16",
+      "words": 4,
+      "reference_phrase_onset_ms": 1140.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1120
+            ],
+            "signed_error_ms": [
+              -20.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1120,
+              1800,
+              2000,
+              5560
+            ],
+            "signed_error_ms": [
+              -20.0,
+              99.0,
+              189.0,
+              28.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-17",
+      "words": 15,
+      "reference_phrase_onset_ms": 280.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              360
+            ],
+            "signed_error_ms": [
+              80.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              360,
+              1680,
+              2640,
+              4240,
+              4400,
+              4560,
+              5480,
+              6800,
+              7960,
+              8120,
+              8680,
+              10000,
+              11960,
+              13680,
+              14360
+            ],
+            "signed_error_ms": [
+              80.0,
+              124.0,
+              99.0,
+              -22.0,
+              -22.0,
+              -12.0,
+              178.0,
+              137.0,
+              -15.0,
+              75.0,
+              125.0,
+              94.0,
+              103.0,
+              142.0,
+              -118.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-18",
+      "words": 10,
+      "reference_phrase_onset_ms": 120.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              200
+            ],
+            "signed_error_ms": [
+              80.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              200
+            ],
+            "signed_error_ms": [
+              80.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              200,
+              800,
+              1000,
+              1800,
+              2720,
+              2920,
+              3240,
+              4120,
+              5120,
+              6240
+            ],
+            "signed_error_ms": [
+              80.0,
+              90.0,
+              100.0,
+              100.0,
+              180.0,
+              80.0,
+              126.0,
+              37.0,
+              107.0,
+              93.0
+            ]
+          },
+          "qa3": {
+            "accepted": false
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    },
+    {
+      "id": "gts-19",
+      "words": 5,
+      "reference_phrase_onset_ms": 1320.0,
+      "variants": {
+        "phrase": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1480
+            ],
+            "signed_error_ms": [
+              160.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              1480
+            ],
+            "signed_error_ms": [
+              160.0
+            ]
+          }
+        },
+        "word_as_line": {
+          "qa2": {
+            "accepted": true,
+            "predicted_ms": [
+              1480,
+              1920,
+              2800,
+              4360,
+              6160
+            ],
+            "signed_error_ms": [
+              160.0,
+              120.0,
+              50.0,
+              106.0,
+              36.0
+            ]
+          },
+          "qa3": {
+            "accepted": true,
+            "predicted_ms": [
+              1480,
+              1920,
+              2800,
+              4360,
+              6160
+            ],
+            "signed_error_ms": [
+              160.0,
+              120.0,
+              50.0,
+              106.0,
+              36.0
+            ]
+          }
+        },
+        "foreign_phrase": {
+          "qa2": {
+            "accepted": false
+          },
+          "qa3": {
+            "accepted": false
+          }
+        }
+      }
+    }
+  ],
+  "limitations": "One Russian alto singer; short mostly isolated vocals, no full-mix/genre/Android acceptance. Existing 20 records contain only18 unique audio hashes. Corrected reporting deduplicates by hash and smallest preselected ID, never by score. Word-as-line is a stricter diagnostic, not the app lyric-line unit.",
+  "manifest_sha256": "7e56f111b7bf5474c890d520fc7cc6a42e7ac424bbddb577012d9003e6b64518",
+  "canonical_unique_ids": [
+    "gts-00",
+    "gts-01",
+    "gts-02",
+    "gts-03",
+    "gts-04",
+    "gts-05",
+    "gts-06",
+    "gts-07",
+    "gts-08",
+    "gts-09",
+    "gts-10",
+    "gts-11",
+    "gts-12",
+    "gts-13",
+    "gts-14",
+    "gts-15",
+    "gts-17",
+    "gts-18"
+  ],
+  "duplicate_ids": {
+    "gts-16": "gts-04",
+    "gts-19": "gts-07"
+  },
+  "unique_summary": {
+    "qa2": {
+      "phrase": {
+        "accepted": 18,
+        "total": 18,
+        "onsets_measured": 18,
+        "median_abs_ms": 120.0,
+        "p90_abs_ms": 205.00000000000003,
+        "max_abs_ms": 280.0,
+        "within500_count": 18
+      },
+      "word_as_line": {
+        "accepted": 16,
+        "total": 18,
+        "onsets_measured": 109,
+        "median_abs_ms": 99.0,
+        "p90_abs_ms": 178.4,
+        "max_abs_ms": 554.0,
+        "within500_count": 108
+      },
+      "foreign_phrase": {
+        "accepted": 0,
+        "total": 18,
+        "onsets_measured": 0,
+        "median_abs_ms": null,
+        "p90_abs_ms": null,
+        "max_abs_ms": null,
+        "within500_count": 0
+      }
+    },
+    "qa3": {
+      "phrase": {
+        "accepted": 15,
+        "total": 18,
+        "onsets_measured": 15,
+        "median_abs_ms": 130.0,
+        "p90_abs_ms": 219.99999999999997,
+        "max_abs_ms": 280.0,
+        "within500_count": 15
+      },
+      "word_as_line": {
+        "accepted": 6,
+        "total": 18,
+        "onsets_measured": 33,
+        "median_abs_ms": 110.0,
+        "p90_abs_ms": 177.0,
+        "max_abs_ms": 240.0,
+        "within500_count": 33
+      },
+      "foreign_phrase": {
+        "accepted": 0,
+        "total": 18,
+        "onsets_measured": 0,
+        "median_abs_ms": null,
+        "p90_abs_ms": null,
+        "max_abs_ms": null,
+        "within500_count": 0
+      }
+    }
+  }
+}

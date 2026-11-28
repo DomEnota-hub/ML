@@ -6330,6 +6330,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.LyricsAlignmentResumeTest#resumeKeepsTaskHistoryButOldServiceCannotPauseOrStopTheNewExecution": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.LyricsBatchPlanTest#checkpointRoundtripRetainsOnlyVersionHashesAndRetryFailures": {
     "skipped": false,
     "failed": false

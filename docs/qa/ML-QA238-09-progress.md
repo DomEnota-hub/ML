@@ -1,3 +1,13 @@
+# Verified software checkpoint — 28 November2026,20:13MSK
+
+CI319 /46167982337 on6122b94fed3d2e5c8b274336d003794a2f9e0f5f terminalSUCCESS: archive1292/1292PASS,0skip; JVM/AndroidTest sources compile; full Android/API LintPASS. ARM64/perf/qualification intentionally skipped. Label removed after terminal. No new APK/version/delivery; RELEASE_HOLD / RESEARCH_NOT_READY remains.
+
+New independent short-vocal validation of changed qa3 gate: previous20 GTSinger records represent18 unique audio hashes. One-phrase unit accepted15/18 unique clips, accepted onset median130ms,p90≈220ms,max280ms; foreign phrase controls0/18 accepted. Single alto singer, no full-mix/genre/long-track/Android acceptance. Three correct unique phrases declined due initial-consonant acoustic confusion; do not adjust rules to pass them. Numeric report2026-11-28-gigaam-qa3-gtsinger-gate.json. Existing model inference was needed because former GTS emissions were not retained; now retained locally and privately backed up, not candidate model comparison. Backup Drive1W59m9t7Xz906gKiGYAXMFzmXZ2m-kj95,1480285bytes,SHA8fcde5f88c8af4dcd857e906bd3dc6ed67bbbabd0eabbe95d3a665f326a38dbe; earlier entries preserved byte-for-byte.
+
+Additional coordinator activation correction is not covered by319: every service run gets a fresh transient token, task/history correlation remains stable; pending resumed work immediately exposes QUEUED/CANCEL. Regression uses real coordinator/TaskCenter flow and stale service callbacks. Next required quick-playback covers this isolated lifecycle change; no archive/Lint repetition because access/cache/model/API/manifest/build inputs are unchanged. Exact-source release checks are still required when release is authorized and research ready.
+
+---
+
 # Current status — 28 November 2026, 19:51 MSK
 
 RELEASE_HOLD / RESEARCH_NOT_READY. Owner explicitly deferred release after MUKKA rejection. Last delivered remains1.7.239(299), no new APK or version. Prior sections below are historical checkpoints and do not override this status.

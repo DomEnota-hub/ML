@@ -26,6 +26,9 @@ internal object LyricsAlignmentCoordinator {
     private var pending:Request?=null
     private var supplied:AudioBookmarkAdmission?=null
     private var job:Job?=null
+    // A recovery keeps the task correlation, but always gets fresh service ownership.
+    // Otherwise a fast resume can look like a duplicate START of the finishing run.
+    private var executionToken:String?=null
     @Volatile private var cancelled=false
     private lateinit var app:Context
     private fun checkpoint()=AtomicFile(File(app.noBackupFilesDir,"lyrics-alignment-job-v1.json"))
@@ -53,8 +56,9 @@ internal object LyricsAlignmentCoordinator {
         }.getOrNull()
         pending?.let{r->paused(r)}
     }
-    private fun paused(r:Request) {
-        notificationTaskId=null
+    @Synchronized private fun paused(r:Request) {
+        if(pending!=r)return
+        executionToken=null;notificationTaskId=null
         mutable.value=State(r.version,false,"Синхронизация прервана. Можно повторить из Центра задач",mutable.value.serial+1)
         report(r).report(TaskStatus.PAUSED,details=details(r,true,failure=TaskFailure.INTERRUPTED),
             commands=setOf(TaskCommand.RESUME,TaskCommand.CANCEL),onCommand={command->
@@ -83,32 +87,38 @@ internal object LyricsAlignmentCoordinator {
         save(r);pending=r;activate(r,access)
     }
     private fun activate(r:Request,access:AudioBookmarkAdmission?) {
-        supplied=access;cancelled=false;notificationTaskId=report(r).taskId
+        val reporter=report(r)
+        supplied=access;cancelled=false;notificationTaskId=reporter.taskId
+        val execution=TaskCorrelation.create().value
+        executionToken=execution
         mutable.value=State(r.version,true,"Подготовка синхронизации",mutable.value.serial+1)
-        try{LyricsAlignmentService.start(app,r.token.value)}catch(t:Throwable){
+        reporter.report(TaskStatus.QUEUED,stage=TaskStage.ENQUEUE,details=details(r,access==null),
+            commands=setOf(TaskCommand.CANCEL),onCommand={if(it==TaskCommand.CANCEL)cancel(r.token.value)})
+        try{LyricsAlignmentService.start(app,execution)}catch(t:Throwable){
             paused(r);throw t
         }
     }
     @Synchronized fun cancel(token:String?=null) {
-        if(token!=null&&pending?.token?.value!=token)return
+        if(token!=null&&pending?.token?.value!=token&&executionToken!=token)return
         cancelled=true;job?.cancel()
     }
-    @Synchronized fun token()=pending?.token?.value
+    @Synchronized fun token()=executionToken
     @Synchronized fun promotionFailed(token:String,error:Exception) {
-        val r=pending?.takeIf{it.token.value==token} ?: return
+        val r=pending?.takeIf{executionToken==token} ?: return
         if(job!=null)return
-        checkpoint().delete();pending=null;supplied=null;notificationTaskId=null
+        checkpoint().delete();pending=null;supplied=null;executionToken=null;notificationTaskId=null
         report(r).report(TaskStatus.FAILED,errors=1,details=details(r,failure=TaskFailureClassifier.from(error)))
         mutable.value=State(r.version,false,"Не удалось запустить фоновую синхронизацию",mutable.value.serial+1)
     }
     @Synchronized fun serviceStopped(token:String) {
-        val r=pending?.takeIf{it.token.value==token} ?: return
+        val r=pending?.takeIf{executionToken==token} ?: return
         if(job!=null)job?.cancel() else if(mutable.value.running)paused(r)
     }
     suspend fun execute(service:LyricsAlignmentService,token:String) {
-        val r=synchronized(this){pending?.takeIf{it.token.value==token}} ?: return
         val coroutine=currentCoroutineContext()
-        synchronized(this){check(job==null);job=coroutine[Job]}
+        val r=synchronized(this){
+            pending?.takeIf{executionToken==token}?.also{check(job==null);job=coroutine[Job]}
+        } ?: return
         val reporter=report(r)
         var recovered=supplied==null
         var status=TaskStatus.FAILED;var failure:TaskFailure?=null;var outcomes=TaskOutcomes(failed=1)
@@ -163,7 +173,7 @@ internal object LyricsAlignmentCoordinator {
                 BackgroundMediaWork.setBusy("lyrics-alignment",false)
                 service.finishNotice(token)
                 synchronized(this@LyricsAlignmentCoordinator){
-                    job=null;supplied=null
+                    job=null;supplied=null;executionToken=null
                     if(status.terminal){checkpoint().delete();pending=null;notificationTaskId=null}
                 }
                 if(status==TaskStatus.PAUSED)paused(r)
