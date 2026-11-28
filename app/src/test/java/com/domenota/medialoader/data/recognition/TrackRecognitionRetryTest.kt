@@ -6,6 +6,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TrackRecognitionRetryTest {
+    @Test fun localCooldownDoesNotConsumeUnsentWindowButActual429Does()=runBlocking {
+        val initial=TrackRetryState(listOf(0L,24000L),rejected=listOf(wrong))
+        for(sent in listOf(false,true)) {
+            var saved=initial
+            val limited=object:MusicRecognitionProvider {
+                override suspend fun recognize(pcm16Mono16k:ShortArray):MusicRecognitionResult? {throw ShazamRateLimitException(60000,requestSent=sent)}
+            }
+            try{TrackRecognitionRetry.search(initial,3,{pcm()},limited,{saved=it});fail("Expected cooldown")}
+            catch(e:ShazamRateLimitException){assertEquals(sent,e.requestSent)}
+            assertEquals(if(sent)listOf(24000L)else listOf(0L,24000L),saved.remaining)
+            assertEquals(listOf(wrong),saved.rejected);assertNull(saved.candidate)
+        }
+    }
     private val wrong=MusicRecognitionResult("wrong","Wrong","Artist",source=RecognitionSource.SHAZAM_DIRECT)
     private val right=MusicRecognitionResult("right","Right","Artist",source=RecognitionSource.SHAZAM_DIRECT)
     private val third=right.copy(trackId="third",title="Third")

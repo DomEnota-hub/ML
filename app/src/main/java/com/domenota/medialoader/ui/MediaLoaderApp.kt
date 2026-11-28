@@ -3300,6 +3300,14 @@ fun MediaLoaderApp(
                         snapshot,viewerRows,item.mediaType,item.isPrivate,fileStatuses,
                         if(item.mediaType==MediaType.PHOTO)VkDownloadGroup.key(item.id,item.providerId,item.groupId) else null,
                         accessGuard=viewerGuard,
+                        retentionGuard=if(item.mediaType==MediaType.AUDIO && !item.isPrivate)
+                            publicRetentionAccess?.let{listOf(it,visibilityScope,collectionViewer,collectionPrivacyGeneration,organizationHidden,fileStatuses,archiveBlocked)} else null,
+                        revalidateRetained=if(item.mediaType==MediaType.AUDIO && !item.isPrivate)({ previous->
+                            previous.retainPublicAudio(viewerRows,fileStatuses){row->
+                                canOpenFolderMedia(row,visibilityScope) && row.id !in collectionBlocked &&
+                                    com.domenota.medialoader.data.playback.PublicMediaIdentity.uriKeys(row.savedUri.orEmpty()).none(collectionBlocked::contains)
+                            }
+                        }) else null,
                     ) {
                         com.domenota.medialoader.core.logging.DetailedPerformance.measure(com.domenota.medialoader.core.logging.PerfWork.VIEWER_QUEUE){
                             com.domenota.medialoader.ui.navigation.ViewerQueueInventory.build(snapshot,viewerRows,item,fileStatuses)

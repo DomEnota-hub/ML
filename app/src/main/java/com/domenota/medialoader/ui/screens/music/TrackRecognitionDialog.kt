@@ -47,6 +47,14 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
     var rejecting by remember{mutableStateOf(false)}
     var applying by remember{mutableStateOf(false)}
     var error by remember{mutableStateOf<String?>(null)}
+    var retryAt by remember(source.id,source.savedUri){mutableLongStateOf(0L)}
+    var retrySeconds by remember(source.id,source.savedUri){mutableLongStateOf(0L)}
+    LaunchedEffect(retryAt){
+        do {
+            retrySeconds=((retryAt-android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0L)+999L)/1000
+            if(retrySeconds>0)kotlinx.coroutines.delay(1000)
+        }while(retrySeconds>0)
+    }
     var updateMessage by remember{mutableStateOf<String?>(null)}
     var updated by remember{mutableStateOf(false)}
     var confirm by remember{mutableStateOf<AudioMetadataAction?>(null)}
@@ -71,6 +79,11 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
             val result=repository.recognizeLocalTrack(source,positionMs){progress=it}
             outcome=result;match=result.match
         }catch(e:CancellationException){throw e}
+        catch(e:ShazamRateLimitException){
+            retryAt=android.os.SystemClock.elapsedRealtime()+e.retryInMs
+            retrySeconds=(e.retryInMs+999L)/1000
+            error=e.message
+        }
         catch(e:Exception){error=e.message?.takeIf{it.isNotBlank()}?:"Не удалось распознать трек"}
         finally{busy=false}
     }
@@ -133,13 +146,16 @@ internal fun TrackRecognitionDialog(source:DownloadEntity,positionMs:Long?,onDis
                         val p=progress
                         Text("Определяем композицию")
                         if(attempt>0)Text("Анализируем другой участок аудио",style=MaterialTheme.typography.bodySmall)
+                        if(attempt>0)Text("Между запросами Shazam выдерживается пауза не менее 10 с",style=MaterialTheme.typography.bodySmall)
                         if(p!=null)Text("Фрагмент ${p.index+1} из ${p.total}" +
                             (p.startMs?.let { at -> ", ${at/1000} с" + (p.durationMs?.let { ", ${it/1000} с аудио" } ?: "") } ?: ""),
                             style=MaterialTheme.typography.bodySmall)
                     }
                     error!=null->{
                         Text(error.orEmpty(),color=MaterialTheme.colorScheme.error)
-                        Button({rejectionTarget?.let(::reject) ?: run {attempt++}},Modifier.fillMaxWidth()){Text("Повторить")}
+                        Button({rejectionTarget?.let(::reject) ?: run {attempt++}},Modifier.fillMaxWidth(),enabled=retrySeconds==0L){
+                            Text(if(retrySeconds>0)"Повторить через $retrySeconds с" else "Повторить")
+                        }
                     }
                     currentMatch!=null->{
                         val result=currentMatch.result

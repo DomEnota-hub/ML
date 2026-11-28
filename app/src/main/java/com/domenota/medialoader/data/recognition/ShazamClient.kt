@@ -140,7 +140,8 @@ internal class ShazamClient : ShazamApi {
         return null
     }
 
-    private companion object {
+    companion object {
+        internal fun cooldownRemainingMs()=requestThrottle.cooldownRemainingMs()
         private val requestThrottle = ShazamRequestThrottle()
         const val USER_AGENT =
             "Dalvik/2.1.0 (Linux; U; Android 6.0.1; SM-G920F Build/MMB29K)"
@@ -153,7 +154,7 @@ internal class ShazamClient : ShazamApi {
 
 
 /** A 429 is a cooldown, not a missing song. Never retry the blocked request immediately. */
-internal class ShazamRateLimitException(val retryInMs: Long) : IOException(
+internal class ShazamRateLimitException(val retryInMs: Long, val requestSent:Boolean=true) : IOException(
     "Shazam ограничил запросы. Повторите примерно через " +
         if (retryInMs < 60_000L) ((retryInMs + 999L) / 1_000L).toString() + " с."
         else ((retryInMs + 59_999L) / 60_000L).toString() + " мин."
@@ -185,29 +186,34 @@ internal fun isTransientShazamNetworkError(error: IOException): Boolean =
  */
 internal class ShazamRequestThrottle(
     private val nowMs: () -> Long = { System.nanoTime() / 1_000_000L },
-    private val minSpacingMs: Long = 1_500L,
+    private val minSpacingMs: Long = 10_000L,
     private val minCooldownMs: Long = DEFAULT_RATE_LIMIT_MS,
+    private val sleep:suspend (Long)->Unit={delay(it)},
 ) {
     private val mutex = Mutex()
-    private var lastStartedAtMs: Long? = null
-    private var cooldownUntilMs: Long? = null
+    private var lastFinishedAtMs: Long? = null
+    @Volatile private var cooldownUntilMs: Long? = null
+    private var rateLimitStreak=0
+
+    fun cooldownRemainingMs()=(cooldownUntilMs?.minus(nowMs())?:0L).coerceAtLeast(0L)
 
     suspend fun <T> execute(block: suspend () -> T): T = mutex.withLock {
-        val remaining = (cooldownUntilMs?.minus(nowMs()) ?: 0L).coerceAtLeast(0L)
-        if (remaining > 0L) throw ShazamRateLimitException(remaining)
-        val last = lastStartedAtMs
+        val remaining = cooldownRemainingMs()
+        if (remaining > 0L) throw ShazamRateLimitException(remaining,requestSent=false)
+        val last = lastFinishedAtMs
         if (last != null) {
             val untilNext = (minSpacingMs - (nowMs() - last)).coerceAtLeast(0L)
-            if (untilNext > 0L) delay(untilNext)
+            if (untilNext > 0L) sleep(untilNext)
         }
-        lastStartedAtMs = nowMs()
         try {
-            block()
+            block().also{rateLimitStreak=0}
         } catch (rateLimited: ShazamRateLimitException) {
-            val pause = maxOf(minCooldownMs, rateLimited.retryInMs)
+            val adaptive=(minCooldownMs.coerceAtMost(15*60_000L)*(1L shl rateLimitStreak.coerceAtMost(4))).coerceAtMost(15*60_000L)
+            val pause = maxOf(minCooldownMs, adaptive, rateLimited.retryInMs).coerceAtMost(MAX_SHZ_COOLDOWN_MS)
+            rateLimitStreak=(rateLimitStreak+1).coerceAtMost(4)
             cooldownUntilMs = nowMs() + pause
-            throw ShazamRateLimitException(pause)
-        }
+            throw ShazamRateLimitException(pause,rateLimited.requestSent)
+        } finally { lastFinishedAtMs=nowMs() }
     }
 }
 

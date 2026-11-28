@@ -133,11 +133,14 @@ internal fun AppLogViewer(
                 DropdownMenu(expanded=scopeOpen,onDismissRequest={scopeOpen=false}) {
                     JournalTimeline.Scope.entries.forEach{option->
                         val label=when(option){
-                            JournalTimeline.Scope.VERSION->option.label+(s?.latestSession?.version?.let{" · "+it}?:"")
+                            JournalTimeline.Scope.VERSION->option.label+(s?.latestSession?.version?.let{" · "+it.replace(Regex("\\((\\d+)\\)$"),"сборка $1")}?:"")
                             JournalTimeline.Scope.SESSION->option.label+(s?.latestSession?.let{" · "+s.raw[it.start].timestamp.substringAfter(' ').substringBefore('.')}?:"")
                             else->option.label
                         }
-                        DropdownMenuItem(text={Text(label)},enabled=s?.scopeAvailable(option)==true||option==JournalTimeline.Scope.ALL,
+                        DropdownMenuItem(text={Column {
+                            Text(label)
+                            s?.takeIf{it.scopeAvailable(option)}?.let{Text("Записей: ${it.stats(option).total}",style=MaterialTheme.typography.bodySmall)}
+                        }},enabled=s?.scopeAvailable(option)==true||option==JournalTimeline.Scope.ALL,
                             onClick={scopeName=option.name;scopeOpen=false})
                     }
                 }

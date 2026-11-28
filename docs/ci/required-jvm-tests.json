@@ -5886,6 +5886,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.playback.AudioQueuePlaybackTest#manualSkipRecoversStoppedQueueWithoutChangingPlayIntentOrOrder": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.AudioQueuePlaybackTest#multiplePlayNextRequestsKeepRequestOrder": {
     "skipped": false,
     "failed": false
@@ -7030,6 +7034,10 @@
     "skipped": false,
     "failed": false
   },
+  "com.domenota.medialoader.data.recognition.ShazamRequestThrottleTest#defaultSpacingIsMeasuredAfterResponseAndSharedByQueuedAttempts": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.recognition.ShazamRequestThrottleTest#onlyTransientTransportFailuresMayBeRetried": {
     "skipped": false,
     "failed": false
@@ -7047,6 +7055,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.recognition.ShazamRequestThrottleTest#rejectsInvalidRetryAfter": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.recognition.ShazamRequestThrottleTest#repeated429IncreasesBackoffAndBlockedAttemptDoesNotExtendIt": {
     "skipped": false,
     "failed": false
   },
@@ -7071,6 +7083,10 @@
     "failed": false
   },
   "com.domenota.medialoader.data.recognition.TrackRecognitionRetryTest#firstMatchDoesNotDoubleRequestAndRetrySkipsRejectedAndConfirmsIndependently": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.data.recognition.TrackRecognitionRetryTest#localCooldownDoesNotConsumeUnsentWindowButActual429Does": {
     "skipped": false,
     "failed": false
   },
@@ -9183,6 +9199,10 @@
     "failed": false
   },
   "com.domenota.medialoader.ui.navigation.ViewerQueueInventoryTest#audioNeverBuildsVisualQueuesAndPreservesOrderAndVisibility": {
+    "skipped": false,
+    "failed": false
+  },
+  "com.domenota.medialoader.ui.navigation.ViewerQueueInventoryTest#audioRefreshRetainsOnlyPreviouslyAdmittedUnchangedPublicLocators": {
     "skipped": false,
     "failed": false
   },

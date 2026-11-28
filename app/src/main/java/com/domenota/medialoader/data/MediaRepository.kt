@@ -792,6 +792,8 @@ class MediaRepository private constructor(context: Context) {
                 val version=TrackRecognitionVersion(source.id,uri,TrackRecognitionCache.sha256(appContext,uri),epoch)
                 val initial=withContext(Dispatchers.IO){TrackRecognitionCache.loadRetry(appContext,version)}
                     ?:TrackRetryState(RecognitionWindowPlanner.playbackStarts(recognitionAudioPreprocessor.savedDurationMs(uri),positionMs))
+                if(initial.candidate==null)com.domenota.medialoader.data.recognition.ShazamClient.cooldownRemainingMs()
+                    .takeIf{it>0}?.let{throw com.domenota.medialoader.data.recognition.ShazamRateLimitException(it,requestSent=false)}
                 val found=withContext(Dispatchers.Default){
                     TrackRecognitionRetry.search(initial,if(initial.rejected.isNotEmpty())maxOf(maxAttempts,5) else maxAttempts,
                         {at->recognitionAudioPreprocessor.decodeTrackWindow(uri,at)},liveMusicRecognizer,

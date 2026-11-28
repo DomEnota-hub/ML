@@ -60,7 +60,11 @@ internal object TrackRecognitionRetry {
             budget--
             if (!RecognitionAudio.eligible(pcm)) continue
             progress(TrackRecognitionProgress(index,state.starts.size,TrackRecognitionStage.SEARCHING,start,window.durationMs))
-            val result = provider.recognize(pcm)?.takeIf { it.title.isNotBlank() && it.artist.isNotBlank() } ?: continue
+            val result = try{provider.recognize(pcm)}catch(limit:ShazamRateLimitException){
+                // A local cooldown is not an acoustic attempt: do not burn an unseen window.
+                if(!limit.requestSent){state=state.copy(checked=state.checked.dropLast(1));persist(state)}
+                throw limit
+            }?.takeIf { it.title.isNotBlank() && it.artist.isNotBlank() } ?: continue
             if (state.rejected.any { rejectedRecognition(it,result) }) {
                 // A repeat of the rejected song is not an alternative or a confirmation.
                 if(pending!=null){

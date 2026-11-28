@@ -15,6 +15,23 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class AudioQueuePlaybackTest {
+    @Test fun manualSkipRecoversStoppedQueueWithoutChangingPlayIntentOrOrder() {
+        val player=ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            player.setMediaItems(listOf(item("a"),item("b"),item("c")))
+            player.playWhenReady=true;player.stop()
+            assertEquals(androidx.media3.common.Player.STATE_IDLE,player.playbackState)
+            assertTrue(AudioQueuePlayback.step(player,true))
+            assertEquals("b",player.currentMediaItem?.mediaId)
+            assertNotEquals(androidx.media3.common.Player.STATE_IDLE,player.playbackState)
+            assertTrue(player.playWhenReady)
+            player.pause();player.stop()
+            assertTrue(AudioQueuePlayback.step(player,false))
+            assertEquals("a",player.currentMediaItem?.mediaId)
+            assertFalse(player.playWhenReady)
+            assertEquals(listOf("a","b","c"),(0 until player.mediaItemCount).map{player.getMediaItemAt(it).mediaId})
+        }finally{player.release()}
+    }
     private fun item(id: String, private: Boolean = false) = MediaItem.Builder().setMediaId(id).setUri("file:///missing-$id.mp3")
         .setMediaMetadata(MediaMetadata.Builder().setExtras(Bundle().apply { putBoolean("private_media", private) }).build()).build()
     @Test fun playlistSnapshotRespectsManualOrderAndDoesNotChangePlayback() {

@@ -432,7 +432,7 @@ fun BackgroundAudioPlayer(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 IconButton(
-                    onClick = { controller?.seekToPrevious() },
+                    onClick = { controller?.let{com.domenota.medialoader.data.playback.AudioQueuePlayback.step(it,false)} },
                     enabled = playableQueue.isNotEmpty(),
                     modifier = Modifier.size(52.dp),
                 ) {
@@ -459,7 +459,7 @@ fun BackgroundAudioPlayer(
                 }
 
                 IconButton(
-                    onClick = { controller?.seekToNextMediaItem() },
+                    onClick = { controller?.let{com.domenota.medialoader.data.playback.AudioQueuePlayback.step(it,true)} },
                     enabled = playableQueue.size > 1,
                     modifier = Modifier.size(52.dp),
                 ) {

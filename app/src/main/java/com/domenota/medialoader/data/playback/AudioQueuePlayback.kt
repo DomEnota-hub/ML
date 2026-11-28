@@ -75,6 +75,19 @@ internal object AudioQueuePlayback {
             player.play()
         } else if (player.playWhenReady) player.pause() else player.play()
     }
+    /** Manual navigation in the existing service-owned queue. A seek cannot
+     * recover an idle/failed decoder by itself; retain the user's play/pause intent. */
+    fun step(player:Player,next:Boolean):Boolean {
+        if(player.mediaItemCount==0 || (next && !player.hasNextMediaItem()))return false
+        val command=if(next)Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM else Player.COMMAND_SEEK_TO_PREVIOUS
+        if(!player.isCommandAvailable(command))return false
+        val requested=player.playWhenReady
+        if(next)player.seekToNextMediaItem() else player.seekToPrevious()
+        val prepare=player.playbackState==Player.STATE_IDLE || player.playbackState==Player.STATE_ENDED || player.playerError!=null
+        if(prepare){player.prepare();player.playWhenReady=requested}
+        com.domenota.medialoader.core.logging.AppLog.i("Audio","Manual skip · next=$next · prepare=$prepare · state=${player.playbackState} · requestedPlaying=$requested")
+        return true
+    }
     /** Capture actual playback traversal, including shuffle, ignoring repeat and position. */
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     fun playlistSnapshot(player: Player): List<MediaItem> {

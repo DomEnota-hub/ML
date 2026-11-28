@@ -10,6 +10,18 @@ import com.domenota.medialoader.ui.model.VkDownloadGroup
 
 internal data class ViewerQueueInventory(val audio:List<DownloadEntity> = emptyList(),
     val grid:List<DownloadEntity> = emptyList(), val photos:List<DownloadEntity> = emptyList()) {
+    /** Removal-only bridge through an ordinary visibility/favorite refresh. Never
+     * admit a new locator, revive a hidden row, or use this across access epochs. */
+    fun retainPublicAudio(rows:List<DownloadEntity>,statuses:Map<String,SavedFileStatus>,allowed:(DownloadEntity)->Boolean):ViewerQueueInventory {
+        val current=rows.groupBy{it.id}
+        return ViewerQueueInventory(audio=audio.filter { old->
+            val row=current[old.id]?.singleOrNull()
+            row!=null && row.mediaType==MediaType.AUDIO && !row.hidden && !row.isPrivate &&
+                row.state==DownloadState.COMPLETED && row.savedUri!=null && row.savedUri==old.savedUri &&
+                row.sizeBytes==old.sizeBytes && statuses[row.id]!=SavedFileStatus.MISSING &&
+                statuses[row.id]!=SavedFileStatus.INACCESSIBLE && allowed(row)
+        })
+    }
     companion object {
         fun build(ids:List<String>,rows:List<DownloadEntity>,item:DownloadEntity,statuses:Map<String,SavedFileStatus>):ViewerQueueInventory {
             if(item.mediaType==MediaType.AUDIO)return ViewerQueueInventory(audio=LibraryAudioQueue.resolve(ids,rows,item.isPrivate,statuses))

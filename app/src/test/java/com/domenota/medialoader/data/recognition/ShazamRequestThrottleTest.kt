@@ -12,6 +12,25 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ShazamRequestThrottleTest {
+    @Test fun defaultSpacingIsMeasuredAfterResponseAndSharedByQueuedAttempts() = runBlocking {
+        var now=0L;val sleeps=mutableListOf<Long>();val starts=mutableListOf<Long>()
+        val throttle=ShazamRequestThrottle(nowMs={now},sleep={ms->sleeps.add(ms);now+=ms})
+        repeat(3){throttle.execute{starts.add(now);now+=2000}}
+        assertEquals(listOf(0L,12000L,24000L),starts)
+        assertEquals(listOf(10000L,10000L),sleeps)
+    }
+    @Test fun repeated429IncreasesBackoffAndBlockedAttemptDoesNotExtendIt() = runBlocking {
+        var now=0L
+        val throttle=ShazamRequestThrottle(nowMs={now},minSpacingMs=0)
+        repeat(2){index->
+            val expected=if(index==0)60000L else 120000L
+            try{throttle.execute<Unit>{throw ShazamRateLimitException(1000)}}catch(e:ShazamRateLimitException){assertEquals(expected,e.retryInMs)}
+            assertEquals(expected,throttle.cooldownRemainingMs())
+            try{throttle.execute<Unit>{fail("No network during cooldown")}}catch(e:ShazamRateLimitException){assertFalse(e.requestSent)}
+            now+=expected
+        }
+        assertEquals(0L,throttle.cooldownRemainingMs())
+    }
     @Test fun parsesNumericRetryAfter() {
         assertEquals(45_000L, parseShazamRetryAfterMs("45", 0L))
         assertEquals(0L, parseShazamRetryAfterMs("0", 0L))
