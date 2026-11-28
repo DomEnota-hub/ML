@@ -496,6 +496,12 @@ internal fun MusicModeScreen(
         }
     }
     val displayedIds=browseRows.value.displayedIds
+    // A restored scroll address must never be measured against the temporary
+    // controls-only list while the guarded projection rebuilds after navigation.
+    // Keep the real saved state idle; pending/revoked content gets its own state.
+    val pendingTrackRows = needsRows && (!browse.usable || !browseRows.usable ||
+        loading && displayedIds.isEmpty())
+    val contentListState = if (pendingTrackRows) rememberLazyListState() else listState
     val selectableIds=remember(browseRows.value,tab) {
         if(tab==0) displayed.mapTo(mutableSetOf()) { it.id }
         else displayedIds.filterTo(mutableSetOf()) { it in available }
@@ -628,7 +634,7 @@ internal fun MusicModeScreen(
     } else Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
         val fastLabels=browseRows.value.fastLabels
-        LazyColumn(Modifier.fillMaxSize().padding(end = if (tab == 0 && displayed.size > 5 || playlist != null && displayedIds.size > 5) musicFastScrollLaneWidth else 0.dp).testTag("music-library"), state = listState, contentPadding = PaddingValues(bottom = 12.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(end = if (tab == 0 && displayed.size > 5 || playlist != null && displayedIds.size > 5) musicFastScrollLaneWidth else 0.dp).testTag("music-library"), state = contentListState, contentPadding = PaddingValues(bottom = 12.dp)) {
             item(key = "music-controls") {
                 Column {
                     if (playlist == null) header() else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -845,7 +851,7 @@ internal fun MusicModeScreen(
                 }
             }
         }
-        if (tab == 0 || playlist != null) MusicFastScroll(listState, fastLabels, Modifier.align(Alignment.CenterEnd))
+        if (tab == 0 || playlist != null) MusicFastScroll(contentListState, fastLabels, Modifier.align(Alignment.CenterEnd))
         }
         if (selectedPublicIds.isNotEmpty()) {
             Surface(Modifier.fillMaxWidth().testTag("music-selection-bottom"),
