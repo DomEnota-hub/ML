@@ -39,6 +39,9 @@ public final class AlignmentContractProbe {
       mismatch[t][33]=(float)Math.log(1/z);mismatch[t][1]=(float)Math.log(odds/z);
     }
     check(CtcLyricsAligner.align(mismatch,new String[]{"а"},()->{})==null);
-    System.out.println("CTC contract: 8 scenarios PASS; synthetic, not Android/music calibration");
+    float[][] unsupported=peaks(33,1,33,2,33,3,33,4,33,5,33,0,33,11,33,7,33,8,33,9,33,10,33);
+    check(CtcLyricsAligner.align(unsupported,new String[]{"абвгд","кжзий"},()->{})!=null);
+    check(CtcLyricsAligner.align(unsupported,new String[]{"абвгд","ежзий"},()->{})==null);
+    System.out.println("CTC contract: 9 scenarios PASS; synthetic, not Android/music calibration");
   }
 }

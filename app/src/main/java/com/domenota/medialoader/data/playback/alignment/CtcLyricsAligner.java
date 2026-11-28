@@ -9,7 +9,7 @@ import java.util.Locale;
  * All lines pass or no timing is returned. The caller retains the unmodified original text.
  * Alpha + Viterbi backpointers use at most 120 MB; cancellation is checked every frame. */
 public final class CtcLyricsAligner {
-  public static final String REVISION = "gigaam-ctc-qa2";
+  public static final String REVISION = "gigaam-ctc-qa3";
   public static final long MAX_CELLS = 24_000_000L;
   private static final int BLANK=33;
   private static final double NEG=Double.NEGATIVE_INFINITY;
@@ -108,14 +108,24 @@ public final class CtcLyricsAligner {
     int state=prev[states-1]>=prev[states-2]?states-1:states-2;
     if(!Double.isFinite(prev[state]))return null;
     int[] starts=new int[n];Arrays.fill(starts,-1);double[] peak=new double[n];Arrays.fill(peak,NEG);
+    // A narrow posterior is conditional on the requested text, even if that text
+    // has no acoustic support. Require the first letter to beat competing letters
+    // somewhere in its own aligned span. Necessary anchor, not calibrated confidence.
+    boolean[] needsAnchor=new boolean[n],anchored=new boolean[n];
+    for(int x:first)needsAnchor[x]=true;
     for(int i=t-1;i>=0;i--) {
-      if((state&1)==1){int tok=state/2;starts[tok]=i;peak[tok]=Math.max(peak[tok],p[i][tokens[tok]]);}
+      if((state&1)==1){int tok=state/2;starts[tok]=i;peak[tok]=Math.max(peak[tok],p[i][tokens[tok]]);
+        if(needsAnchor[tok]) {
+          boolean strongest=true;
+          for(int v=1;v<33;v++)if(v!=tokens[tok] && p[i][v]>=p[i][tokens[tok]])strongest=false;
+          anchored[tok]|=strongest;
+        }}
       if(i>0)state-=back[i*states+state];
     }
     for(int k=0;k<lines.length;k++) {
       double sum=0;int count=0;
       for(int j=first[k];j<end[k];j++)if(tokens[j]!=0){sum+=peak[j];count++;}
-      if(count==0||sum/count< -5 || starts[first[k]]<0)return null;
+      if(count==0||sum/count< -5 || starts[first[k]]<0 || !anchored[first[k]])return null;
     }
     // Conditional entry posterior: acoustic agreement was checked separately above.
     double z=add(alpha[(t-1)*states+states-1],alpha[(t-1)*states+states-2]);

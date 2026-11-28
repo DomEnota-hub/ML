@@ -18,10 +18,11 @@ import kotlinx.coroutines.ensureActive
  * contains no URI, filename, metadata, or lyrics. A changed version is never rebound. */
 internal class LyricsBatchCatalog private constructor(
     private val app:Context, private val repo:MediaRepository, private val gate:WaveformAdmission,
-    private val permissions:List<Boolean>, val entries:Map<String,AudioBookmarkAdmission>,
-    private val visibility:com.domenota.medialoader.data.catalog.visibility.FolderVisibilitySnapshot
+    private val permissions:List<Boolean>, val entries:Map<String,AudioBookmarkAdmission>
 ) {
-    private fun visibilityCurrent()=repo.folderVisibility.snapshot.value==visibility && !repo.folderVisibility.status.value.pending
+    // WaveformAdmission pins HistoricalRecoverySignals.version across moves;
+    // snapshot is a cold Room Flow, not a synchronously current StateFlow.
+    private fun visibilityCurrent()=!repo.folderVisibility.status.value.pending
     fun current()=visibilityCurrent()&&gate.current(app,repo)&&permissions==permissionSignature(app)
     fun allowed(access:AudioBookmarkAdmission):Boolean {
         val uri=access.ref.item.savedUri ?: return false
@@ -34,11 +35,10 @@ internal class LyricsBatchCatalog private constructor(
         }
         suspend fun read(app:Context,continueWork:()->Boolean):LyricsBatchCatalog {
             val repo=MediaRepository.get(app)
-            val visibility=repo.folderVisibility.snapshot.value
             val gate=WaveformAdmission.read(app,repo)
             val epoch=DuplicatePrivacyGuard.generation(app)
             val permissions=permissionSignature(app)
-            fun current()=continueWork()&&repo.folderVisibility.snapshot.value==visibility&&!repo.folderVisibility.status.value.pending&&gate.current(app,repo)&&permissions==permissionSignature(app)&&epoch==DuplicatePrivacyGuard.generation(app)
+            fun current()=continueWork()&&!repo.folderVisibility.status.value.pending&&gate.current(app,repo)&&permissions==permissionSignature(app)&&epoch==DuplicatePrivacyGuard.generation(app)
             fun checkCurrent(){check(current()){"Catalog changed"}}
             val appRefs=mutableListOf<LibraryMediaRef>()
             for(row in gate.rows){
@@ -74,7 +74,7 @@ internal class LyricsBatchCatalog private constructor(
                 if(key!=null)entries.putIfAbsent(key,access)
             }
             checkCurrent()
-            return LyricsBatchCatalog(app,repo,gate,permissions,entries,visibility)
+            return LyricsBatchCatalog(app,repo,gate,permissions,entries)
         }
     }
 }

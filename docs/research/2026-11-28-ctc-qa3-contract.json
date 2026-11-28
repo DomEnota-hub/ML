@@ -1,0 +1,25 @@
+{
+  "revision": "gigaam-ctc-qa3",
+  "scope": "Linux Java on synthetic labels and retained emissions, not Android or independent corpus acceptance",
+  "synthetic_scenarios": 9,
+  "new_counterexample": {
+    "reference_matches_synthetic_acoustics": false,
+    "qa2_accepted": true,
+    "qa2_global_cer": 0.1,
+    "qa2_onsets_ms": [
+      40,
+      520
+    ],
+    "qa3_accepted": false,
+    "rule": "First aligned letter of each line must strictly outrank competing letters in at least one frame of its own Viterbi span; blank and separator excluded. Necessary acoustic anchor, not calibrated confidence."
+  },
+  "retained_emissions": {
+    "markul_positive": "ACCEPTED [8720, 11040, 13320, 15800, 18000, 20280, 22720, 24880, 28720, 31080, 33280, 35680, 37920, 40240, 42520, 44960, 48000, 49480, 51080, 52840, 54840, 57160, 60560, 61880, 64000, 65920, 67560, 70680, 76480, 80120, 84920, 87200, 89480, 91960, 94160, 96520, 98840, 101040, 104880, 107200, 109440, 111840, 114080, 116400, 118680, 121040, 124200, 128680, 131080, 133360, 135640, 138120, 140240, 142960]\nelapsed_ms=1870",
+    "markul_reverse": "DECLINED\nelapsed_ms=62",
+    "markul_wrong": "DECLINED\nelapsed_ms=82",
+    "mukka_positive": "DECLINED\nelapsed_ms=1044",
+    "mukka_reverse": "DECLINED\nelapsed_ms=54",
+    "mukka_wrong": "DECLINED\nelapsed_ms=62"
+  },
+  "release_ready": false
+}

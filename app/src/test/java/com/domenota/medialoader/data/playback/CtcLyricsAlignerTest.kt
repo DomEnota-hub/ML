@@ -6,6 +6,13 @@ import org.junit.Test
 import kotlin.math.ln
 
 class CtcLyricsAlignerTest {
+    @Test fun narrowForcedOnsetWithoutAnyAcousticLetterAnchorIsNotConfidence() {
+        val p=peaks(33,1,33,2,33,3,33,4,33,5,33,0,33,11,33,7,33,8,33,9,33,10,33)
+        assertNotNull(CtcLyricsAligner.align(p,arrayOf("абвгд","кжзий")){})
+        // CER0.1 and a narrow conditional posterior cannot prove an absent initial е.
+        assertNull(CtcLyricsAligner.align(p,arrayOf("абвгд","ежзий")){})
+    }
+
     @Test fun emittedOnsetMustBelongToItsOwnPosteriorInterval() {
         val p=Array(80){t->
             val odds=if(t==1)1.5 else if(t in 50..61).995 else 1e-7

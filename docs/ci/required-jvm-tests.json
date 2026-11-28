@@ -6002,6 +6002,10 @@
     "failed": false,
     "skipped": false
   },
+  "com.domenota.medialoader.data.playback.CtcLyricsAlignerTest#narrowForcedOnsetWithoutAnyAcousticLetterAnchorIsNotConfidence": {
+    "skipped": false,
+    "failed": false
+  },
   "com.domenota.medialoader.data.playback.CtcLyricsAlignerTest#repeatsRequireBlankAndPausesDoNotReceiveInterpolatedLines": {
     "failed": false,
     "skipped": false
