@@ -1,0 +1,263 @@
+{
+  "status": "RESEARCH_DIAGNOSTIC_NOT_ACCEPTED_TIMING",
+  "frontend": "qa4 original fixed resampling",
+  "track": "mukka",
+  "global_cer": 0.2209188660801564,
+  "failed_lines": [
+    {
+      "line_zero_based": 6,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 34560,
+      "posterior_95_ms": [
+        34560,
+        34560
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.669441280684693,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 8,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 41680,
+      "posterior_95_ms": [
+        41440,
+        41680
+      ],
+      "width_ms": 240,
+      "mean_log_token_peak": -0.4081816805298261,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 9,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 44840,
+      "posterior_95_ms": [
+        44840,
+        44840
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.08547568177567882,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 11,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 51720,
+      "posterior_95_ms": [
+        51720,
+        51720
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.08963711896434688,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 12,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 55400,
+      "posterior_95_ms": [
+        55240,
+        55400
+      ],
+      "width_ms": 160,
+      "mean_log_token_peak": -0.4907746837674355,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 13,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 58560,
+      "posterior_95_ms": [
+        58560,
+        58560
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.12986512054534874,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 15,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 65440,
+      "posterior_95_ms": [
+        65440,
+        65440
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.054612270089922865,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 16,
+      "reasons": [
+        "onset_interval_too_wide",
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 68680,
+      "posterior_95_ms": [
+        68160,
+        68680
+      ],
+      "width_ms": 520,
+      "mean_log_token_peak": -2.4767377773920694,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 26,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 103120,
+      "posterior_95_ms": [
+        103120,
+        103120
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.7120276241639658,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 29,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 113400,
+      "posterior_95_ms": [
+        113400,
+        113400
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.10159859723830779,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 31,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 120280,
+      "posterior_95_ms": [
+        120280,
+        120280
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.10654960175761516,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 32,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 123920,
+      "posterior_95_ms": [
+        123920,
+        123920
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.1920171821077999,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 33,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 127160,
+      "posterior_95_ms": [
+        127160,
+        127160
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.10332335480351655,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 35,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 134000,
+      "posterior_95_ms": [
+        134000,
+        134000
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.14787751413833425,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 36,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 137240,
+      "posterior_95_ms": [
+        137240,
+        137240
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -3.1250877181688943,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 37,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 140960,
+      "posterior_95_ms": [
+        140960,
+        140960
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.20752094781651975,
+      "first_letter_anchor": false
+    },
+    {
+      "line_zero_based": 38,
+      "reasons": [
+        "onset_interval_too_wide"
+      ],
+      "onset_ms": 143600,
+      "posterior_95_ms": [
+        143600,
+        144120
+      ],
+      "width_ms": 520,
+      "mean_log_token_peak": -2.1456446535885334,
+      "first_letter_anchor": true
+    },
+    {
+      "line_zero_based": 39,
+      "reasons": [
+        "first_letter_has_no_acoustic_anchor"
+      ],
+      "onset_ms": 147760,
+      "posterior_95_ms": [
+        147760,
+        147760
+      ],
+      "width_ms": 0,
+      "mean_log_token_peak": -0.2576234994948027,
+      "first_letter_anchor": false
+    }
+  ],
+  "no_inference": true,
+  "diagnostic_implementation": "Python full-path/posterior reference on retained emissions; not an app success result or substitute for independently checked timing"
+}

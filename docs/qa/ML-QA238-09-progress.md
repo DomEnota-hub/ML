@@ -1,3 +1,11 @@
+# Current verified status —28 November2026,21:00MSK
+
+RELEASE_HOLD / RESEARCH_NOT_READY. CI324/46172841318 on4f5286107138d0147a141467787cc1634f1e3a7e terminalSUCCESS:playback808/808PASS,0skip. New frontend/resume corrections technically verified; no new APK/version/signing/delivery. Final Lint/QA/ARM64 and device acceptance are not waived. Full current checkpoint:ML-QA238-09-checkpoint-20261128-2100.md. Older sections below are history.
+
+Next genuine input: additional exact fullmix audio+already verified LRC across voices/genres; existing two tracks already retained, no manual marking. Android target unavailable for actual runtime/memory/clock validation. Research readiness not claimed from one alto's short clips or candidate LRCLIB timings.
+
+---
+
 # Verified software checkpoint — 28 November2026,20:13MSK
 
 CI319 /46167982337 on6122b94fed3d2e5c8b274336d003794a2f9e0f5f terminalSUCCESS: archive1292/1292PASS,0skip; JVM/AndroidTest sources compile; full Android/API LintPASS. ARM64/perf/qualification intentionally skipped. Label removed after terminal. No new APK/version/delivery; RELEASE_HOLD / RESEARCH_NOT_READY remains.
