@@ -82,7 +82,7 @@ class PrivateScreenUiTest {
 
     @Test fun secretFilenameIsHiddenUntilCorrectPinAndHiddenAgainAfterLock() {
         showPrivateScreen()
-        compose.onNodeWithText("Введите PIN из 6 цифр").assertIsDisplayed()
+        compose.onNodeWithText("PIN из 6 цифр").assertIsDisplayed()
         compose.runOnIdle{assertFalse(drawerAdmission.admitted)}
         compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
 
@@ -99,7 +99,7 @@ class PrivateScreenUiTest {
         compose.onNodeWithContentDescription("Заблокировать личное").assertDoesNotExist()
         // Exercise the same authorization revocation used by the root lifecycle observer.
         compose.runOnIdle { access.lock() }
-        compose.onNodeWithText("Введите PIN из 6 цифр").assertIsDisplayed()
+        compose.onNodeWithText("PIN из 6 цифр").assertIsDisplayed()
         compose.runOnIdle{assertFalse(drawerAdmission.admitted)}
         compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithContentDescription("Настройки личного").assertDoesNotExist()
@@ -113,7 +113,7 @@ class PrivateScreenUiTest {
 
         compose.onNodeWithContentDescription("Настройки личного").performClick()
         assertFalse(access.state.value.unlocked)
-        compose.onNodeWithText("Введите PIN из 6 цифр").assertIsDisplayed()
+        compose.onNodeWithText("PIN из 6 цифр").assertIsDisplayed()
         compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithText("Выберите способ входа").assertDoesNotExist()
         compose.onNodeWithText("Без защиты", substring = false).assertDoesNotExist()
@@ -182,7 +182,7 @@ class PrivateScreenUiTest {
         }
         compose.onNodeWithText("Заблокировать сейчас", substring = false).performScrollTo().performClick()
         compose.waitUntil(10_000) { !access.state.value.unlocked }
-        compose.onNodeWithText("Введите PIN из 6 цифр").assertIsDisplayed()
+        compose.onNodeWithText("PIN из 6 цифр").assertIsDisplayed()
         compose.onNodeWithText(secretName, useUnmergedTree = true).assertDoesNotExist()
         assertFalse(access.resumeRememberedAccess())
     }
