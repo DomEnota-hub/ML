@@ -1,6 +1,5 @@
 package com.domenota.medialoader.data.playback
 
-import android.app.Application
 import android.net.Uri
 import com.domenota.medialoader.core.database.DownloadEntity
 import com.domenota.medialoader.core.model.DownloadState
@@ -23,7 +22,7 @@ import org.robolectric.annotation.Config
 @Config(sdk=[34])
 class LyricsAlignmentResumeTest {
     @Test fun resumeKeepsTaskHistoryButOldServiceCannotPauseOrStopTheNewExecution() {
-        val context=RuntimeEnvironment.getApplication<Application>()
+        val context=RuntimeEnvironment.getApplication()
         val shadow=shadowOf(context)
         val audio=File.createTempFile("lyrics-resume-",".mp3",context.cacheDir).apply{writeBytes(byteArrayOf(1,2,3))}
         val uri=Uri.fromFile(audio).toString()

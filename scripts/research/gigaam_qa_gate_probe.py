@@ -66,7 +66,7 @@ report={'status':'RESEARCH_ONLY_NOT_RELEASE_READY','corpus_revision':manifest['r
 for case,words in cases:
  p=emissions(case);phrase=' '.join(w['word']for w in words);original=norm(phrase)
  wrong=next(' '.join(w['word']for w in ws)for c,ws in cases if c['id']!=case['id']and distance(original,norm(' '.join(w['word']for w in ws)))/max(1,len(original))>.6)
- item={'id':case['id'],'words':len(words),'reference_phrase_onset_ms':words[0]['start_time']*1000,'variants':{}}
+ item={'id':case['id'],'source_group':'speech'if'/Paired_Speech_Group/'in case['path']else'singing','words':len(words),'reference_phrase_onset_ms':words[0]['start_time']*1000,'variants':{}}
  for name,lines in [('phrase',[phrase]),('word_as_line',[w['word']for w in words]),('foreign_phrase',[wrong])]:
   scores={}
   for revision in ['qa2','qa3']:
@@ -91,7 +91,7 @@ for case in sorted(manifest['cases'],key=lambda x:x['id']):
   duplicates[case['id']]=min(c['id']for c in manifest['cases']if c['wav_sha256']==case['wav_sha256']);continue
  seen.add(case['wav_sha256']);canonical.append(case['id'])
 report['canonical_unique_ids']=canonical;report['duplicate_ids']=duplicates
-report['limitations']='One Russian alto singer, short mostly isolated vocals. No full-mix/genre/Android acceptance. Word-as-line is a stricter diagnostic, not app lyric-line unit.'
+report['limitations']='One Russian alto,18 unique recordings:15 singing and3 paired speech. No full-mix/genre/Android acceptance. Word-as-line is a stricter diagnostic, not app lyric-line unit.'
 report['manifest_sha256']=hashlib.sha256((corpus/'manifest.json').read_bytes()).hexdigest()
 report['unique_summary']={}
 for revision in ['qa2','qa3']:
@@ -100,4 +100,13 @@ for revision in ['qa2','qa3']:
   values=[c['variants'][variant][revision]for c in report['cases']if c['id']in canonical]
   errors=[abs(e)for x in values for e in x.get('signed_error_ms',[])]
   report['unique_summary'][revision][variant]={'accepted':sum(x['accepted']for x in values),'total':len(values),'onsets_measured':len(errors),'median_abs_ms':float(np.median(errors))if errors else None,'p90_abs_ms':float(np.percentile(errors,90))if errors else None,'max_abs_ms':max(errors)if errors else None,'within500_count':sum(e<=500 for e in errors)}
+args.out.write_text(json.dumps(report,indent=2))
+
+report['source_group_summary']={}
+for group in ['singing','speech']:
+ report['source_group_summary'][group]={}
+ for revision in ['qa2','qa3']:
+  rows=[x['variants']['phrase'][revision]for x in report['cases']if x['id']in canonical and x['source_group']==group]
+  errors=[abs(e)for row in rows for e in row.get('signed_error_ms',[])]
+  report['source_group_summary'][group][revision]={'accepted':sum(x['accepted']for x in rows),'total':len(rows),'median_abs_ms':float(np.median(errors))if errors else None,'p90_abs_ms':float(np.percentile(errors,90))if errors else None,'max_abs_ms':max(errors)if errors else None}
 args.out.write_text(json.dumps(report,indent=2))

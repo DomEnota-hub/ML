@@ -63,7 +63,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-01",
@@ -130,7 +131,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "speech"
     },
     {
       "id": "gts-02",
@@ -189,7 +191,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-03",
@@ -264,7 +267,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-04",
@@ -313,7 +317,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-05",
@@ -368,7 +373,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-06",
@@ -433,7 +439,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "speech"
     },
     {
       "id": "gts-07",
@@ -504,7 +511,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-08",
@@ -559,7 +567,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-09",
@@ -602,7 +611,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-10",
@@ -669,7 +679,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-11",
@@ -748,7 +759,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-12",
@@ -791,7 +803,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-13",
@@ -870,7 +883,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-14",
@@ -933,7 +947,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "speech"
     },
     {
       "id": "gts-15",
@@ -994,7 +1009,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-16",
@@ -1043,7 +1059,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-17",
@@ -1114,7 +1131,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-18",
@@ -1181,7 +1199,8 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     },
     {
       "id": "gts-19",
@@ -1252,10 +1271,11 @@
             "accepted": false
           }
         }
-      }
+      },
+      "source_group": "singing"
     }
   ],
-  "limitations": "One Russian alto singer; short mostly isolated vocals, no full-mix/genre/Android acceptance. Existing 20 records contain only18 unique audio hashes. Corrected reporting deduplicates by hash and smallest preselected ID, never by score. Word-as-line is a stricter diagnostic, not the app lyric-line unit.",
+  "limitations": "One Russian alto,18 unique recordings:15 singing and3 paired speech. No full-mix/genre/Android acceptance. Word-as-line is a stricter diagnostic, not app lyric-line unit.",
   "manifest_sha256": "7e56f111b7bf5474c890d520fc7cc6a42e7ac424bbddb577012d9003e6b64518",
   "canonical_unique_ids": [
     "gts-00",
@@ -1338,6 +1358,40 @@
         "p90_abs_ms": null,
         "max_abs_ms": null,
         "within500_count": 0
+      }
+    }
+  },
+  "source_group_summary": {
+    "singing": {
+      "qa2": {
+        "accepted": 15,
+        "total": 15,
+        "median_abs_ms": 120.0,
+        "p90_abs_ms": 215.99999999999997,
+        "max_abs_ms": 280.0
+      },
+      "qa3": {
+        "accepted": 12,
+        "total": 15,
+        "median_abs_ms": 125.0,
+        "p90_abs_ms": 234.00000000000003,
+        "max_abs_ms": 280.0
+      }
+    },
+    "speech": {
+      "qa2": {
+        "accepted": 3,
+        "total": 3,
+        "median_abs_ms": 190.0,
+        "p90_abs_ms": 190.0,
+        "max_abs_ms": 190.0
+      },
+      "qa3": {
+        "accepted": 3,
+        "total": 3,
+        "median_abs_ms": 190.0,
+        "p90_abs_ms": 190.0,
+        "max_abs_ms": 190.0
       }
     }
   }
